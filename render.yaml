@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: muskl-api
+    runtime: docker
+    plan: free
+    region: ohio
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    dockerCommand: >-
+      sh -c 'python -m app.migrate && exec uvicorn app.main:app
+      --host 0.0.0.0 --port ${PORT:-10000}'
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MUSKL_ENV
+        value: production

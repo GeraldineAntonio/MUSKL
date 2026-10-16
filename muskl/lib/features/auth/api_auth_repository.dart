@@ -16,7 +16,9 @@ class ApiAuthRepository implements AuthRepository {
 
   final String _baseUrl;
   final HttpClient _client = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 10);
+    // The Render free instance can need up to about a minute to wake after
+    // idling. Leave enough time for its first request to reach the API.
+    ..connectionTimeout = const Duration(seconds: 90);
   static const _secureStorage = FlutterSecureStorage();
   static const _tokenKey = 'muskl_access_token';
   static const _refreshTokenKey = 'muskl_refresh_token';
@@ -594,7 +596,7 @@ class ApiAuthRepository implements AuthRepository {
       }
       if (body != null) request.write(jsonEncode(body));
       final response =
-          await request.close().timeout(const Duration(seconds: 15));
+          await request.close().timeout(const Duration(seconds: 90));
       final text = await response.transform(utf8.decoder).join();
       final decoded = text.isEmpty ? null : jsonDecode(text);
       if (response.statusCode >= 400) {

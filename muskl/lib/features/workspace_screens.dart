@@ -85,7 +85,28 @@ class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-      body: SafeArea(
+      backgroundColor: AppColors.bgDeep,
+      body: Stack(children: [
+        Positioned.fill(
+          child: Image.asset('assets/images/splash.jpg', fit: BoxFit.cover),
+        ),
+        const Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color.fromRGBO(0, 0, 0, 0.28),
+                  Color.fromRGBO(0, 0, 0, 0.38),
+                  Color.fromRGBO(0, 0, 0, 0.76),
+                ],
+                stops: [0, 0.48, 1],
+              ),
+            ),
+          ),
+        ),
+        SafeArea(
           child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
@@ -97,16 +118,19 @@ class WelcomeScreen extends StatelessWidget {
                     const SizedBox(height: 14),
                     const Text('MUSKL',
                         style: TextStyle(
-                            fontSize: 48, fontWeight: FontWeight.w900)),
+                            fontSize: 48,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.white)),
                     const Text('ENTRENA. REGISTRA. SUPERA.',
                         style: TextStyle(
-                            letterSpacing: 2, color: AppColors.textMuted)),
+                            letterSpacing: 2, color: AppColors.white)),
                     const SizedBox(height: 35),
                     const Text('TU MEJOR\nVERSIÓN\nEMPIEZA HOY',
                         style: TextStyle(
                             fontSize: 48,
                             fontWeight: FontWeight.w900,
-                            height: 0.96)),
+                            height: 0.96,
+                            color: AppColors.white)),
                     const Spacer(),
                     MusklButton(
                         label: 'Iniciar sesión',
@@ -122,10 +146,12 @@ class WelcomeScreen extends StatelessWidget {
                         child: Text('SISTEMA DE RUTINAS Y PROGRESO FÍSICO',
                             style: TextStyle(
                                 fontSize: 11,
-                                color: AppColors.textMuted,
+                                color: AppColors.white,
                                 letterSpacing: 1.1))),
                     const Spacer(),
-                  ]))));
+                  ])),
+        ),
+      ]));
 }
 
 class WorkspacePage extends StatelessWidget {

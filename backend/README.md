@@ -42,6 +42,16 @@ El archivo `backend/.env` es para desarrollo local y está excluido de Git. En G
 
 El usuario admin inicial es el único que se crea automáticamente; no hay contraseñas demo en el código. Las contraseñas se almacenan como hash, nunca en texto plano.
 
+### Despliegue de prueba con Render y Neon
+
+La raíz del repositorio contiene `render.yaml`, configurado para crear una API Docker gratuita en Render desde `main`. En Render, crea un Blueprint y conecta el repositorio `GeraldineAntonio/MUSKL`. Crea primero una base vacía PostgreSQL en Neon, selecciona **Pooled connection** en el panel y pega esa cadena como `DATABASE_URL` cuando Render la solicite; debe incluir `sslmode=require`. Render genera `JWT_SECRET` y define `MUSKL_ENV=production`.
+
+El comando de inicio de Render aplica las migraciones con `python -m app.migrate` antes de arrancar Uvicorn en el puerto que Render asigne. Esto requiere una base Neon vacía la primera vez. El health check público será `https://NOMBRE.onrender.com/health`. Render Free puede dormir después de 15 minutos sin tráfico; la primera petición puede tardar cerca de un minuto en despertar. La app permite ese tiempo de conexión.
+
+Cuando Render termine de arrancar y aplicar las migraciones, crea el primer administrador en la base Neon: instala las dependencias del backend en tu computadora (`python -m pip install -r requirements.txt`) y ejecuta `python -m app.bootstrap_admin_cloud` desde `backend`. El comando pide la URL de Neon sin mostrarla y después pide los datos del admin. No pegues la URL aquí ni la guardes en Git.
+
+El plan gratuito de Render no conserva archivos en el disco local y bloquea SMTP saliente en sus puertos comunes. Por ahora, usa esta instalación para probar cuentas, rutinas y flujos internos; las certificaciones subidas no son almacenamiento duradero y la recuperación por correo necesita configurar un proveedor compatible. No uses esta configuración gratis para datos reales del gimnasio.
+
 ## Flutter contra el API
 
 Arranca el API como arriba y obtén la IP local de esta computadora (por ejemplo con `ip addr`). En el teléfono, `localhost` apunta al teléfono, así que usa la IP LAN del equipo:

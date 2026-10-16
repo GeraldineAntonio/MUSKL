@@ -81,6 +81,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _email = TextEditingController();
   final _phone = TextEditingController();
   final _password = TextEditingController();
+  final _confirmPassword = TextEditingController();
   final _specialty = TextEditingController();
   final _invite = TextEditingController();
   String? _certName;
@@ -102,6 +103,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _email.dispose();
     _phone.dispose();
     _password.dispose();
+    _confirmPassword.dispose();
     _specialty.dispose();
     _invite.dispose();
     super.dispose();
@@ -127,12 +129,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _submit() async {
+    final email = _email.text.trim();
     if (_name.text.trim().isEmpty ||
         _lastName.text.trim().isEmpty ||
-        !_email.text.contains('@') ||
+        !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email) ||
         _password.text.length < 8) {
       setState(() => _error =
-          'Completa nombre, apellido, correo y contraseña de al menos 8 caracteres.');
+          'Completa nombre y apellido, escribe un correo válido y usa una contraseña de al menos 8 caracteres.');
+      return;
+    }
+    if (_password.text != _confirmPassword.text) {
+      setState(() => _error = 'Las contraseñas no coinciden.');
       return;
     }
     if (_role == 'Entrenador' &&
@@ -153,13 +160,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     try {
       final first = _name.text.trim();
       final last = _lastName.text.trim();
-      final email = _email.text.trim();
+      final normalizedEmail = email.toLowerCase();
       final phone = _phone.text.trim().isEmpty ? null : _phone.text.trim();
       if (_role == 'Cliente') {
         await authController.registerClient(
             firstName: first,
             lastName: last,
-            email: email,
+            email: normalizedEmail,
             phone: phone,
             password: _password.text);
         if (mounted) context.go('/onboarding');
@@ -167,7 +174,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         await authController.repository.registerTrainer(
             firstName: first,
             lastName: last,
-            email: email,
+            email: normalizedEmail,
             phone: phone,
             password: _password.text,
             specialty: _specialty.text.trim(),
@@ -178,7 +185,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         await authController.repository.registerAdmin(
             firstName: first,
             lastName: last,
-            email: email,
+            email: normalizedEmail,
             phone: phone,
             password: _password.text,
             inviteToken: _invite.text.trim());
@@ -199,6 +206,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) => PrototypePage(
       title: 'Crear cuenta',
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        MusklCard(
+            child: Row(children: [
+          const Icon(Icons.shield_outlined, color: AppColors.yellow),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Text(_role == 'Cliente'
+                  ? 'Crea tu cuenta de socio. Después eliges membresía y preferencias para tu rutina.'
+                  : 'Completa tus datos para continuar con el registro.')),
+        ])),
+        const SizedBox(height: 14),
         Align(
             alignment: Alignment.centerLeft,
             child: Text('TIPO DE CUENTA',
@@ -259,6 +276,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         MusklTextField(
             label: 'Contraseña (mínimo 8 caracteres)',
             controller: _password,
+            icon: Icons.lock_outline,
+            obscure: true),
+        const SizedBox(height: 14),
+        MusklTextField(
+            label: 'Confirmar contraseña',
+            controller: _confirmPassword,
             icon: Icons.lock_outline,
             obscure: true),
         if (_error != null) ...[
@@ -892,6 +915,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
   int _step = 0;
   bool _loading = true;
   bool _saving = false;
+  bool _optionsFailed = false;
   String? _error;
   List<Map<String, dynamic>> _plans = [];
   List<Map<String, dynamic>> _trainers = [];
@@ -940,20 +964,35 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
           _groupRegistered = (data['group_member_count'] as num? ?? 1) > 1;
         }
         _loading = false;
+        _optionsFailed = false;
+        if (_plans.isEmpty) {
+          _error = 'El gimnasio todavía no tiene membresías activas. Contacta al administrador.';
+        }
       });
     } on AuthException catch (e) {
       if (mounted)
         setState(() {
           _error = e.message;
           _loading = false;
+          _optionsFailed = true;
         });
     } catch (_) {
       if (mounted)
         setState(() {
           _error = 'No se pudieron cargar los planes. Revisa la conexión.';
           _loading = false;
+          _optionsFailed = true;
         });
     }
+  }
+
+  void _retryOptions() {
+    setState(() {
+      _loading = true;
+      _optionsFailed = false;
+      _error = null;
+    });
+    _loadOptions();
   }
 
   Future<void> _continue() async {
@@ -1330,7 +1369,16 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                 const SizedBox(height: 16),
                 if (_error != null) ...[
                   Text(_error!, style: const TextStyle(color: AppColors.red)),
-                  const SizedBox(height: 12)
+                  const SizedBox(height: 12),
+                  if (_optionsFailed)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: _retryOptions,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Reintentar'),
+                      ),
+                    ),
                 ],
                 _stepContent(),
                 const SizedBox(height: 20),

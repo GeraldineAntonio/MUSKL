@@ -610,11 +610,21 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen> {
                   ])),
                   _section('Ejercicios del día · ${exercises.length}'),
                   for (final exercise in exercises)
-                    _record(exercise['name'].toString(),
+                  _record(exercise['name'].toString(),
                         '${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s descanso',
                         badge: '${exercise['position'] ?? ''}',
-                        onTap: () => context
-                            .push('/home/exercise?id=${exercise['id']}')),
+                        onTap: () => context.push(Uri(
+                            path: '/home/exercise',
+                            queryParameters: {
+                              'id': exercise['id'].toString(),
+                              'name': exercise['name'].toString(),
+                              'media_url': exercise['media_url']?.toString() ?? '',
+                              'muscle_group': exercise['muscle_group']?.toString() ?? 'Rutina',
+                              'instructions': exercise['instructions']?.toString() ?? '',
+                              'sets': exercise['sets'].toString(),
+                              'reps': exercise['reps'].toString(),
+                              'rest_seconds': exercise['rest_seconds'].toString(),
+                            }).toString())),
                   if (exercises.isEmpty)
                     const Text('No hay ejercicios programados para este día.'),
                   MusklButton(
@@ -635,37 +645,68 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen> {
 }
 
 class ExerciseDetailScreen extends StatelessWidget {
-  const ExerciseDetailScreen({super.key, this.id = '1'});
+  const ExerciseDetailScreen({
+    super.key,
+    this.id = '1',
+    this.name = 'Sprint en cinta',
+    this.mediaUrl = '',
+    this.muscleGroup = 'Cardio',
+    this.instructions = '',
+    this.sets = '4',
+    this.reps = '30 s',
+    this.restSeconds = '60',
+  });
   final String id;
+  final String name;
+  final String mediaUrl;
+  final String muscleGroup;
+  final String instructions;
+  final String sets;
+  final String reps;
+  final String restSeconds;
   @override
   Widget build(BuildContext context) => WorkspacePage(
       title: 'Detalle de ejercicio',
       items: _clientNav,
       selected: 1,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-            height: 190,
-            decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(20)),
-            child: const Center(
-                child: Icon(Icons.play_circle_fill,
-                    size: 70, color: AppColors.red))),
-        _section('Cardio · Ejercicio $id'),
-        Text(id == '1' ? 'SPRINT EN CINTA' : 'EJERCICIO DE RUTINA',
+        ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            width: double.infinity,
+            height: 220,
+            color: AppColors.surface,
+            alignment: Alignment.center,
+            child: mediaUrl.isEmpty
+                ? const Icon(Icons.fitness_center, size: 70, color: AppColors.red)
+                : Image.network(
+                    mediaUrl,
+                    width: double.infinity,
+                    height: 220,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                        Icons.broken_image_outlined,
+                        size: 64,
+                        color: AppColors.textMuted),
+                  ),
+          ),
+        ),
+        _section('$muscleGroup · Ejercicio $id'),
+        Text(name.toUpperCase(),
             style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
         const SizedBox(height: 14),
         Row(children: [
-          _metric('4', 'Series'),
+          _metric(sets, 'Series'),
           const SizedBox(width: 8),
-          _metric('30 s', 'Trabajo'),
+          _metric(reps, 'Repeticiones'),
           const SizedBox(width: 8),
-          _metric('60 s', 'Descanso')
+          _metric('$restSeconds s', 'Descanso')
         ]),
         _section('Cómo se hace'),
-        const MusklCard(
-            child: Text(
-                'Ajusta la velocidad antes de comenzar. Mantén el torso firme y aumenta el ritmo durante el intervalo. Descansa caminando entre series.')),
+        MusklCard(
+            child: Text(instructions.isEmpty
+                ? 'Tu entrenador todavía no agregó instrucciones para este ejercicio.'
+                : instructions)),
         const SizedBox(height: 20),
         MusklButton(
             label: 'Terminar ejercicio',
@@ -1391,13 +1432,93 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
   final name = TextEditingController();
   String goal = 'Masa muscular';
   final Set<String> selectedDays = {'LUN', 'MIÉ', 'VIE'};
-  final exercises = <String>[];
+  final exercises = <Map<String, dynamic>>[];
   bool saving = false;
   String? error;
   @override
   void dispose() {
     name.dispose();
     super.dispose();
+  }
+
+  Future<void> _addExercise() async {
+    final searchController = TextEditingController();
+    var results = authController.trainerExerciseCatalog();
+    final selected = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * .78,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                  20, 16, 20, 16 + MediaQuery.viewInsetsOf(context).bottom),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Buscar ejercicio',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: searchController,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.search),
+                      hintText: 'Nombre, grupo muscular o equipo',
+                    ),
+                    onChanged: (value) => setSheetState(() => results =
+                        authController.trainerExerciseCatalog(search: value)),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: FutureBuilder<List<Map<String, dynamic>>>(
+                      future: results,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Center(
+                              child: Text('No se pudo buscar: ${snapshot.error}'));
+                        }
+                        final rows = snapshot.data ?? [];
+                        if (rows.isEmpty) {
+                          return const Center(
+                              child: Text('No hay ejercicios con esa búsqueda.'));
+                        }
+                        return ListView.builder(
+                          itemCount: rows.length,
+                          itemBuilder: (context, index) {
+                            final exercise = rows[index];
+                            return ListTile(
+                              leading: const Icon(Icons.fitness_center),
+                              title: Text(exercise['name'].toString()),
+                              subtitle: Text(
+                                  '${exercise['muscle_group']} · ${exercise['equipment']}'),
+                              onTap: () => Navigator.pop(sheetContext, exercise),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    searchController.dispose();
+    if (selected != null && mounted) {
+      setState(() {
+        exercises.add(selected);
+        error = null;
+      });
+    }
   }
 
   @override
@@ -1407,7 +1528,11 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
       selected: 2,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         MusklTextField(
-            label: 'Nombre de la rutina', controller: name, icon: Icons.edit),
+          label: 'Nombre de la rutina',
+          controller: name,
+          icon: Icons.edit,
+          onChanged: (_) => setState(() {}),
+        ),
         _section('Objetivo'),
         Wrap(
             spacing: 7,
@@ -1439,24 +1564,18 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                         })))
                 .toList()),
         _section('Ejercicios',
-            action: 'Agregar',
-            onAction: () => setState(() => exercises.add(''))),
+            action: 'Buscar y agregar', onAction: _addExercise),
         for (var i = 0; i < exercises.length; i++)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: Row(children: [
               Expanded(
-                child: TextFormField(
-                  key: ValueKey('routine-exercise-$i'),
-                  initialValue: exercises[i],
-                  decoration: InputDecoration(
-                    labelText: 'Ejercicio ${i + 1}',
-                    filled: true,
-                    fillColor: AppColors.surface,
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14)),
-                  ),
-                  onChanged: (value) => exercises[i] = value,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.fitness_center),
+                  title: Text(exercises[i]['name'].toString()),
+                  subtitle: Text(
+                      '${exercises[i]['muscle_group']} · ${exercises[i]['equipment']}'),
                 ),
               ),
               IconButton(
@@ -1475,7 +1594,8 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
             loading: saving,
             onPressed: selectedDays.length < 3 ||
                     exercises.isEmpty ||
-                    exercises.any((exercise) => exercise.trim().isEmpty) ||
+                    exercises.any((exercise) =>
+                        exercise['name'].toString().trim().isEmpty) ||
                     name.text.trim().isEmpty ||
                     saving
                 ? null
@@ -1500,9 +1620,7 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                         days:
                             selectedDays.map((day) => dayNumber[day]!).toList()
                               ..sort(),
-                        exercises: exercises
-                            .map((exercise) => exercise.trim())
-                            .toList(),
+                        exercises: exercises,
                       );
                       if (mounted) context.go('/trainer/routines');
                     } catch (e) {

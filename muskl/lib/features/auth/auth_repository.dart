@@ -82,6 +82,7 @@ abstract class AuthRepository {
   Future<Map<String, dynamic>> getTrainerClient({required String clientId});
   Future<List<Map<String, dynamic>>> getTrainerRoutines();
   Future<Map<String, dynamic>> getTrainerRoutine({required String routineId});
+  Future<List<Map<String, dynamic>>> getTrainerExerciseCatalog({String search = ''});
   Future<void> createTrainerPhase(
       {required String routineId,
       required String name,
@@ -93,7 +94,7 @@ abstract class AuthRepository {
       {required String name,
       required String goal,
       required List<int> days,
-      required List<String> exercises});
+      required List<Map<String, dynamic>> exercises});
   Future<void> publishTrainerRoutine({required String routineId});
   Future<void> assignTrainerRoutine(
       {required String routineId,
@@ -681,11 +682,14 @@ class FakeAuthRepository implements AuthRepository {
       {required String routineId, required String phaseId}) async {}
 
   @override
+  Future<List<Map<String, dynamic>>> getTrainerExerciseCatalog({String search = ''}) async => [];
+
+  @override
   Future<void> createTrainerRoutine(
       {required String name,
       required String goal,
       required List<int> days,
-      required List<String> exercises}) async {}
+      required List<Map<String, dynamic>> exercises}) async {}
 
   @override
   Future<void> publishTrainerRoutine({required String routineId}) async {}

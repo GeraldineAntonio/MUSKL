@@ -201,6 +201,7 @@ class ClientOnboardingRequest(BaseModel):
 
 
 class RoutineExerciseInput(BaseModel):
+    catalog_id: uuid.UUID | None = None
     name: str = Field(min_length=1, max_length=120)
     sets: int = Field(default=4, ge=1, le=20)
     reps: str = Field(default='8-12', min_length=1, max_length=40)
@@ -871,6 +872,32 @@ def trainer_routines(trainer: dict = Depends(active_trainer)) -> list[dict]:
     return [{**row, 'id': str(row['id'])} for row in rows]
 
 
+@app.get('/api/v1/trainer/exercises')
+def trainer_exercise_catalog(search: str = Query(default='', max_length=80),
+                             trainer: dict = Depends(active_trainer)) -> list[dict]:
+    term = search.strip()
+    pattern = f'%{term}%'
+    with pool.connection() as conn:
+        rows = conn.execute("""SELECT id, name, muscle_group, equipment, instructions, media_url
+            FROM exercise_catalog
+            WHERE active AND (%s = '' OR name ILIKE %s OR muscle_group ILIKE %s OR equipment ILIKE %s)
+            ORDER BY name LIMIT 50""",
+            (term, pattern, pattern, pattern)).fetchall()
+    return [{**row, 'id': str(row['id'])} for row in rows]
+
+
+def _resolve_catalog_exercise(
+    cur, exercise: RoutineExerciseInput
+) -> tuple[uuid.UUID | None, str, str | None, str | None]:
+    if exercise.catalog_id is None:
+        return None, exercise.name.strip(), None, None
+    catalog = cur.execute("""SELECT id, name, media_url, instructions FROM exercise_catalog
+        WHERE id = %s AND active""", (exercise.catalog_id,)).fetchone()
+    if catalog is None:
+        raise _problem(422, 'EXERCISE_NOT_AVAILABLE', 'El ejercicio elegido ya no está disponible.')
+    return catalog['id'], catalog['name'], catalog['media_url'], catalog['instructions']
+
+
 @app.post('/api/v1/trainer/routines', status_code=201)
 def create_trainer_routine(payload: RoutineCreateRequest,
                            trainer: dict = Depends(active_trainer)) -> dict:
@@ -883,9 +910,13 @@ def create_trainer_routine(payload: RoutineCreateRequest,
                                 (routine['id'],)).fetchone()
             for day_number in payload.days:
                 for position, exercise in enumerate(payload.exercises, start=1):
-                    cur.execute("""INSERT INTO routine_exercises (phase_id, day_number, position, name, sets, reps, rest_seconds)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                        (phase['id'], day_number, position, exercise.name.strip(), exercise.sets, exercise.reps, exercise.rest_seconds))
+                    catalog_id, exercise_name, media_url, instructions = _resolve_catalog_exercise(cur, exercise)
+                    cur.execute("""INSERT INTO routine_exercises
+                        (phase_id, day_number, position, exercise_catalog_id, name, sets, reps,
+                         rest_seconds, media_url, instructions)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (phase['id'], day_number, position, catalog_id, exercise_name,
+                         exercise.sets, exercise.reps, exercise.rest_seconds, media_url, instructions))
             cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, %s, %s)",
                         (trainer['gym_id'], trainer['id'], 'routine_created', Jsonb({'routine_id': str(routine['id']), 'phase_id': str(phase['id'])})))
     return {**routine, 'id': str(routine['id']), 'phase_id': str(phase['id']), 'status': 'draft'}
@@ -941,11 +972,13 @@ def create_routine_phase(routine_id: uuid.UUID, payload: RoutinePhaseCreateReque
                 (routine_id, number, payload.name.strip())).fetchone()
             for day in payload.days:
                 for position, exercise in enumerate(payload.exercises, 1):
+                    catalog_id, exercise_name, media_url, instructions = _resolve_catalog_exercise(cur, exercise)
                     cur.execute("""INSERT INTO routine_exercises
-                        (phase_id, day_number, position, name, sets, reps, rest_seconds)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                        (phase['id'], day, position, exercise.name.strip(), exercise.sets,
-                         exercise.reps, exercise.rest_seconds))
+                        (phase_id, day_number, position, exercise_catalog_id, name, sets, reps,
+                         rest_seconds, media_url, instructions)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (phase['id'], day, position, catalog_id, exercise_name, exercise.sets,
+                         exercise.reps, exercise.rest_seconds, media_url, instructions))
             cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, 'routine_phase_created', %s)",
                 (trainer['gym_id'], trainer['id'], Jsonb({'routine_id': str(routine_id), 'phase_id': str(phase['id']), 'phase_number': number})))
     return {**phase, 'id': str(phase['id'])}
@@ -1286,8 +1319,13 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(onboarde
             (client['id'],)).fetchone()
         if assignment is None:
             return {'assigned': False, 'exercises': []}
-        exercises = conn.execute("SELECT id, day_number, position, name, sets, reps, rest_seconds, instructions, media_key FROM routine_exercises WHERE phase_id = %s AND day_number = %s ORDER BY position",
-                                 (assignment['current_phase_id'], day)).fetchall()
+        exercises = conn.execute("""SELECT re.id, re.day_number, re.position, re.name, re.sets,
+                re.reps, re.rest_seconds, COALESCE(re.instructions, ec.instructions) AS instructions,
+                COALESCE(ec.media_url, re.media_url) AS media_url, ec.muscle_group, re.media_key
+            FROM routine_exercises re
+            LEFT JOIN exercise_catalog ec ON ec.id = re.exercise_catalog_id
+            WHERE re.phase_id = %s AND re.day_number = %s ORDER BY re.position""",
+            (assignment['current_phase_id'], day)).fetchall()
         today = conn.execute("SELECT (now() AT TIME ZONE timezone)::date AS d FROM gyms WHERE id = %s", (client['gym_id'],)).fetchone()['d']
         completed = conn.execute("SELECT id FROM workout_completions WHERE client_id = %s AND phase_id = %s AND workout_date = %s",
                                  (client['id'], assignment['current_phase_id'], today)).fetchone()

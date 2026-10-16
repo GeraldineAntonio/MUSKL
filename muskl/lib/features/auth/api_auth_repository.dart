@@ -480,6 +480,16 @@ class ApiAuthRepository implements AuthRepository {
           authenticated: true) as Map);
 
   @override
+  Future<List<Map<String, dynamic>>> getTrainerExerciseCatalog({String search = ''}) async {
+    final path = Uri(
+      path: '/api/v1/trainer/exercises',
+      queryParameters: search.trim().isEmpty ? null : {'search': search.trim()},
+    ).toString();
+    final rows = await _request('GET', path, authenticated: true) as List;
+    return rows.map((row) => Map<String, dynamic>.from(row as Map)).toList();
+  }
+
+  @override
   Future<void> createTrainerPhase(
       {required String routineId,
       required String name,
@@ -515,7 +525,7 @@ class ApiAuthRepository implements AuthRepository {
       {required String name,
       required String goal,
       required List<int> days,
-      required List<String> exercises}) async {
+      required List<Map<String, dynamic>> exercises}) async {
     await _request('POST', '/api/v1/trainer/routines',
         authenticated: true,
         body: {
@@ -524,7 +534,8 @@ class ApiAuthRepository implements AuthRepository {
           'days': days,
           'exercises': exercises
               .map((exercise) => {
-                    'name': exercise,
+                    'catalog_id': exercise['id'],
+                    'name': exercise['name'],
                     'sets': 4,
                     'reps': '8-12',
                     'rest_seconds': 60

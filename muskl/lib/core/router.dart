@@ -94,8 +94,15 @@ GoRouter buildRouter(AuthController auth) {
           builder: (_, __) => const ClientRoutineScreen()),
       GoRoute(
           path: '/home/exercise',
-          builder: (_, state) =>
-              ExerciseDetailScreen(id: state.uri.queryParameters['id'] ?? '1')),
+          builder: (_, state) => ExerciseDetailScreen(
+              id: state.uri.queryParameters['id'] ?? '1',
+              name: state.uri.queryParameters['name'] ?? 'Ejercicio',
+              mediaUrl: state.uri.queryParameters['media_url'] ?? '',
+              muscleGroup: state.uri.queryParameters['muscle_group'] ?? 'Rutina',
+              instructions: state.uri.queryParameters['instructions'] ?? '',
+              sets: state.uri.queryParameters['sets'] ?? '4',
+              reps: state.uri.queryParameters['reps'] ?? '8-12',
+              restSeconds: state.uri.queryParameters['rest_seconds'] ?? '60')),
       GoRoute(
           path: '/home/complete',
           builder: (_, state) => RoutineCompleteScreen(

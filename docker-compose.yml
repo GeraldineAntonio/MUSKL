@@ -16,6 +16,7 @@ services:
       - ./backend/db/005_refresh_tokens.sql:/docker-entrypoint-initdb.d/005_refresh_tokens.sql:ro
       - ./backend/db/006_admin_preferences.sql:/docker-entrypoint-initdb.d/006_admin_preferences.sql:ro
       - ./backend/db/007_group_memberships.sql:/docker-entrypoint-initdb.d/007_group_memberships.sql:ro
+      - ./backend/db/008_exercise_catalog.sql:/docker-entrypoint-initdb.d/008_exercise_catalog.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U muskl -d muskl"]
       interval: 5s
@@ -24,6 +25,7 @@ services:
 
   api:
     build: ./backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       DATABASE_URL: postgresql://muskl:${POSTGRES_PASSWORD}@db:5432/muskl
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in backend/.env}

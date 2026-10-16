@@ -154,6 +154,9 @@ class AuthController extends ChangeNotifier {
   Future<Map<String, dynamic>> trainerRoutine({required String routineId}) =>
       repository.getTrainerRoutine(routineId: routineId);
 
+  Future<List<Map<String, dynamic>>> trainerExerciseCatalog({String search = ''}) =>
+      repository.getTrainerExerciseCatalog(search: search);
+
   Future<void> createTrainerPhase(
           {required String routineId,
           required String name,
@@ -170,7 +173,7 @@ class AuthController extends ChangeNotifier {
           {required String name,
           required String goal,
           required List<int> days,
-          required List<String> exercises}) =>
+          required List<Map<String, dynamic>> exercises}) =>
       repository.createTrainerRoutine(
           name: name, goal: goal, days: days, exercises: exercises);
 

@@ -1,0 +1,21 @@
+# Local environment files and secrets (keep example templates in Git).
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+backend/uploads/
+backend/__pycache__/
+backend/app/__pycache__/
+backend/.venv/
+*.pem
+*.key
+*.jks
+*.keystore
+key.properties
+muskl/.dart_tool/
+muskl/.pub-cache/
+muskl/build/
+muskl/.flutter-plugins
+muskl/.flutter-plugins-dependencies

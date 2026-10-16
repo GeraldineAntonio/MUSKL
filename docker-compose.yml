@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: muskl
+      POSTGRES_USER: muskl
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Copy backend/.env.example to backend/.env and set secrets}
+    ports:
+      - "5432:5432"
+    volumes:
+      - muskl_pgdata:/var/lib/postgresql/data
+      - ./backend/db/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - ./backend/db/002_client_workouts_and_account_rules.sql:/docker-entrypoint-initdb.d/002_client_workouts_and_account_rules.sql:ro
+      - ./backend/db/003_trainer_preferences.sql:/docker-entrypoint-initdb.d/003_trainer_preferences.sql:ro
+      - ./backend/db/004_expired_account_deletion.sql:/docker-entrypoint-initdb.d/004_expired_account_deletion.sql:ro
+      - ./backend/db/005_refresh_tokens.sql:/docker-entrypoint-initdb.d/005_refresh_tokens.sql:ro
+      - ./backend/db/006_admin_preferences.sql:/docker-entrypoint-initdb.d/006_admin_preferences.sql:ro
+      - ./backend/db/007_group_memberships.sql:/docker-entrypoint-initdb.d/007_group_memberships.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U muskl -d muskl"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://muskl:${POSTGRES_PASSWORD}@db:5432/muskl
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in backend/.env}
+      MUSKL_ENV: ${MUSKL_ENV:-development}
+      MUSKL_UPLOAD_DIR: ${MUSKL_UPLOAD_DIR:-/app/uploads}
+      MUSKL_SMTP_HOST: ${MUSKL_SMTP_HOST:-}
+      MUSKL_SMTP_PORT: ${MUSKL_SMTP_PORT:-587}
+      MUSKL_SMTP_USER: ${MUSKL_SMTP_USER:-}
+      MUSKL_SMTP_PASSWORD: ${MUSKL_SMTP_PASSWORD:-}
+      MUSKL_SMTP_FROM: ${MUSKL_SMTP_FROM:-}
+      MUSKL_SMTP_STARTTLS: ${MUSKL_SMTP_STARTTLS:-true}
+      MUSKL_CORS_ORIGINS: ${MUSKL_CORS_ORIGINS:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  muskl_pgdata:

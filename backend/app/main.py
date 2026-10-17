@@ -1733,13 +1733,21 @@ def admin_users(search: str = Query(default='', max_length=100),
                 u.deactivated_at, u.reactivation_until,
                 concat_ws(' ', a.first_name, a.last_name) AS deactivated_by,
                 p.name AS membership_plan, m.ends_on AS membership_ends_on, tp.specialty,
-                (SELECT count(*) FROM trainer_client_assignments tca WHERE tca.trainer_id = u.id AND tca.ends_at IS NULL) AS assigned_clients
+                (SELECT count(*) FROM trainer_client_assignments tca WHERE tca.trainer_id = u.id AND tca.ends_at IS NULL) AS assigned_clients,
+                current_trainer.id AS trainer_id, current_trainer.name AS trainer_name
             FROM users u
             LEFT JOIN users a ON a.id = u.deactivated_by
             LEFT JOIN LATERAL (SELECT id, plan_id, ends_on FROM memberships
               WHERE client_id = u.id AND status = 'active' ORDER BY ends_on DESC LIMIT 1) m ON true
             LEFT JOIN membership_plans p ON p.id = m.plan_id
             LEFT JOIN trainer_profiles tp ON tp.user_id = u.id
+            LEFT JOIN LATERAL (
+                SELECT t.id, concat_ws(' ', t.first_name, t.last_name) AS name
+                FROM trainer_client_assignments tca
+                JOIN users t ON t.id = tca.trainer_id AND t.status = 'active'
+                WHERE tca.client_id = u.id AND tca.ends_at IS NULL
+                LIMIT 1
+            ) current_trainer ON true
             WHERE {where} ORDER BY u.created_at DESC LIMIT 500""", params).fetchall()
     return [{**row, 'id': str(row['id'])} for row in rows]
 

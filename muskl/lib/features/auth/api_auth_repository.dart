@@ -281,6 +281,14 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> reassignClientTrainer(
+      {required String clientId, required String trainerId}) async {
+    await _request('POST', '/api/v1/admin/trainers/reassign',
+        authenticated: true,
+        body: {'client_id': clientId, 'new_trainer_id': trainerId});
+  }
+
+  @override
   Future<List<Map<String, dynamic>>> getAdminRoutines(
       {String search = '', String? goal}) async {
     final query = <String, String>{};

@@ -38,7 +38,15 @@ Antes de iniciar el API en una base nueva, ejecuta una sola vez:
 python -m app.migrate
 ```
 
-El comando aplica `db/001_schema.sql` a `db/008_exercise_catalog.sql` en orden, guarda las versiones en `muskl_schema_migrations` y omite las ya aplicadas. Usa un bloqueo advisory para que dos despliegues no apliquen migraciones simultáneamente. La primera ejecución supone una base vacía. Si ya tienes datos locales que quieras conservar, primero hay que exportarlos e importarlos; crear la base en la nube no copia esos datos.
+El comando aplica todas las migraciones numeradas de `db/` en orden, guarda las versiones en `muskl_schema_migrations` y omite las ya aplicadas. Usa un bloqueo advisory para que dos despliegues no apliquen migraciones simultáneamente. La primera ejecución supone una base vacía. Si ya tienes datos locales que quieras conservar, primero hay que exportarlos e importarlos; crear la base en la nube no copia esos datos. Render ejecuta este comando al iniciar el servicio.
+
+Para crear el primer administrador en Neon desde tu computadora, instala los requisitos de `backend/requirements.txt` y ejecuta desde `backend`:
+
+```bash
+.venv/bin/python -m app.bootstrap_admin
+```
+
+El script solicita la URL de Neon sin mostrarla en pantalla, además de nombre, correo y contraseña. Después crea el admin activo y muestra una invitación de un solo uso para crear otros administradores. Si ya existe un admin activo, no crea otra cuenta.
 
 Configura también en el servicio del API `JWT_SECRET` con al menos 32 caracteres aleatorios, `MUSKL_ENV=production`, y las variables `MUSKL_SMTP_*` para recuperación de contraseña. Define `MUSKL_UPLOAD_DIR` sobre almacenamiento persistente/privado antes de aceptar certificaciones; el filesystem efímero de algunos planes gratuitos no sirve para conservar esos archivos. La URL pública del API debe ser HTTPS, y esa URL se compila en Flutter con `--dart-define=MUSKL_API_URL=https://...`.
 

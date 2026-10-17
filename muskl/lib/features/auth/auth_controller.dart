@@ -57,6 +57,11 @@ class AuthController extends ChangeNotifier {
           {String search = '', String? role, String? status}) =>
       repository.getAdminUsers(search: search, role: role, status: status);
 
+  Future<void> reassignClientTrainer(
+          {required String clientId, required String trainerId}) =>
+      repository.reassignClientTrainer(
+          clientId: clientId, trainerId: trainerId);
+
   Future<List<Map<String, dynamic>>> adminRoutines(
           {String search = '', String? goal}) =>
       repository.getAdminRoutines(search: search, goal: goal);

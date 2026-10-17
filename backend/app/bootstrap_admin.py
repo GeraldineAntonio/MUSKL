@@ -2,12 +2,23 @@ from __future__ import annotations
 
 import getpass
 import hashlib
+import os
 import secrets
-
-from .main import GYM_ID, _create_user, pool
 
 
 def main() -> None:
+    database_url = os.environ.get('DATABASE_URL') or getpass.getpass(
+        'URL de conexión de PostgreSQL/Neon (entrada oculta): '
+    )
+    if not database_url.strip():
+        raise SystemExit('La URL de PostgreSQL es obligatoria.')
+    os.environ['DATABASE_URL'] = database_url.strip()
+    # This one-off script does not issue sessions. Generate a temporary key
+    # when run outside the API container so the database URL is all it needs.
+    os.environ.setdefault('JWT_SECRET', secrets.token_hex(32))
+
+    from .main import GYM_ID, _create_user, pool
+
     first_name = input('Nombre del administrador: ').strip()
     last_name = input('Apellido: ').strip()
     email = input('Correo: ').strip().lower()

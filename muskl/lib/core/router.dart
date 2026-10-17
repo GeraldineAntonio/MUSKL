@@ -189,6 +189,8 @@ GoRouter buildRouter(AuthController auth) {
               plan: state.uri.queryParameters['plan'] ?? '',
               role: state.uri.queryParameters['role'] ?? 'client',
               deactivatedBy: state.uri.queryParameters['deactivated_by'] ?? '',
+              trainerId: state.uri.queryParameters['trainer_id'] ?? '',
+              trainerName: state.uri.queryParameters['trainer_name'] ?? '',
               reactivationUntil:
                   state.uri.queryParameters['reactivation_until'] ?? '')),
       GoRoute(

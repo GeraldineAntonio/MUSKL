@@ -42,6 +42,8 @@ abstract class AuthRepository {
       String? limitations});
   Future<List<Map<String, dynamic>>> getAdminUsers(
       {String search = '', String? role, String? status});
+  Future<void> reassignClientTrainer(
+      {required String clientId, required String trainerId});
   Future<List<Map<String, dynamic>>> getAdminRoutines(
       {String search = '', String? goal});
   Future<Map<String, dynamic>> getAdminRoutine({required String routineId});
@@ -316,7 +318,9 @@ class FakeAuthRepository implements AuthRepository {
           'last_name': 'Martínez',
           'email': 'diego@muskl.mx',
           'member_number': 'MSK-0142',
-          'membership_plan': 'Normal'
+          'membership_plan': 'Normal',
+          'trainer_id': 'demo-trainer-1',
+          'trainer_name': 'Marcos Rivas',
         },
         {
           'id': 'demo-client-2',
@@ -336,6 +340,10 @@ class FakeAuthRepository implements AuthRepository {
                   .toLowerCase()
                   .contains(search.toLowerCase())))
           .toList();
+
+  @override
+  Future<void> reassignClientTrainer(
+      {required String clientId, required String trainerId}) async {}
 
   @override
   Future<List<Map<String, dynamic>>> getAdminRoutines(

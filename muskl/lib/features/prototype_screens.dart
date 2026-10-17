@@ -394,7 +394,7 @@ class AdminMembersScreen extends StatelessWidget {
       ]));
 }
 
-class AdminMemberDetailScreen extends StatelessWidget {
+class AdminMemberDetailScreen extends StatefulWidget {
   const AdminMemberDetailScreen(
       {super.key,
       this.deactivated = false,
@@ -406,6 +406,8 @@ class AdminMemberDetailScreen extends StatelessWidget {
       this.plan = '',
       this.role = 'client',
       this.deactivatedBy = '',
+      this.trainerId = '',
+      this.trainerName = '',
       this.reactivationUntil = ''});
   final bool deactivated;
   final String? userId;
@@ -416,7 +418,71 @@ class AdminMemberDetailScreen extends StatelessWidget {
       plan,
       role,
       deactivatedBy,
+      trainerId,
+      trainerName,
       reactivationUntil;
+
+  @override
+  State<AdminMemberDetailScreen> createState() =>
+      _AdminMemberDetailScreenState();
+}
+
+class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
+  bool _assigningTrainer = false;
+
+  Future<void> _assignTrainer() async {
+    final clientId = widget.userId;
+    if (clientId == null || clientId.isEmpty || _assigningTrainer) return;
+    setState(() => _assigningTrainer = true);
+    try {
+      final trainers =
+          await authController.adminUsers(role: 'trainer', status: 'active');
+      if (!mounted) return;
+      if (trainers.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Primero debe haber un entrenador aprobado.')));
+        return;
+      }
+      final trainer = await showModalBottomSheet<Map<String, dynamic>>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const ListTile(title: Text('ASIGNAR ENTRENADOR')),
+              for (final option in trainers)
+                ListTile(
+                  leading: const Icon(Icons.fitness_center),
+                  title: Text('${option['first_name']} ${option['last_name']}'),
+                  subtitle: Text(option['specialty']?.toString() ?? ''),
+                  trailing: option['id'].toString() == widget.trainerId
+                      ? const Icon(Icons.check_circle, color: AppColors.red)
+                      : null,
+                  onTap: () => Navigator.pop(sheetContext, option),
+                ),
+            ],
+          ),
+        ),
+      );
+      if (trainer == null || !mounted) return;
+      if (trainer['id'].toString() == widget.trainerId) return;
+      await authController.reassignClientTrainer(
+          clientId: clientId, trainerId: trainer['id'].toString());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Socio asignado a ${trainer['first_name']} ${trainer['last_name']}.')));
+      Navigator.of(context).pop(true);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('No se pudo asignar el entrenador: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => _assigningTrainer = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => PrototypePage(
       title: 'Detalle de socio',
@@ -424,21 +490,34 @@ class AdminMemberDetailScreen extends StatelessWidget {
         MusklCard(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(name.toUpperCase(),
+          Text(widget.name.toUpperCase(),
               style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
-              '$memberNumber${plan.isEmpty ? '' : ' · Plan $plan'} · ${deactivated ? 'BAJA' : 'ACTIVO'}'),
-          Text('$email${phone.isEmpty ? '' : ' · $phone'}'),
-          if (deactivatedBy.isNotEmpty)
-            Text('Baja registrada por: $deactivatedBy'),
-          if (deactivated)
+              '${widget.memberNumber}${widget.plan.isEmpty ? '' : ' · Plan ${widget.plan}'} · ${widget.deactivated ? 'BAJA' : 'ACTIVO'}'),
+          Text(
+              '${widget.email}${widget.phone.isEmpty ? '' : ' · ${widget.phone}'}'),
+          if (widget.role == 'client')
+            Text(widget.trainerName.isEmpty
+                ? 'Sin entrenador asignado'
+                : 'Entrenador: ${widget.trainerName}'),
+          if (widget.deactivatedBy.isNotEmpty)
+            Text('Baja registrada por: ${widget.deactivatedBy}'),
+          if (widget.deactivated)
             Text(
-                'Reactivación disponible hasta ${reactivationUntil.isEmpty ? '—' : reactivationUntil.substring(0, 10)}',
+                'Reactivación disponible hasta ${widget.reactivationUntil.isEmpty ? '—' : widget.reactivationUntil.substring(0, 10)}',
                 style: const TextStyle(color: AppColors.accent))
         ])),
         const SizedBox(height: 16),
-        if (!deactivated && role == 'client')
+        if (!widget.deactivated && widget.role == 'client') ...[
+          MusklButton(
+              label: widget.trainerName.isEmpty
+                  ? 'Asignar entrenador'
+                  : 'Cambiar entrenador',
+              icon: Icons.fitness_center,
+              loading: _assigningTrainer,
+              onPressed: _assigningTrainer ? null : _assignTrainer),
+          const SizedBox(height: 10),
           MusklButton(
               label: 'Dar de baja al socio',
               icon: Icons.person_off_outlined,
@@ -447,15 +526,16 @@ class AdminMemberDetailScreen extends StatelessWidget {
                 final changed = await context.push<bool>(Uri(
                     path: '/admin/deactivate',
                     queryParameters: {
-                      'member': memberNumber,
-                      'id': userId ?? '',
-                      'name': name
+                      'member': widget.memberNumber,
+                      'id': widget.userId ?? '',
+                      'name': widget.name
                     }).toString());
                 if (changed == true && context.mounted) {
                   Navigator.of(context).pop(true);
                 }
               }),
-        if (deactivated)
+        ],
+        if (widget.deactivated)
           MusklButton(
               label: 'Reactivar socio',
               icon: Icons.person_add_alt,
@@ -463,8 +543,8 @@ class AdminMemberDetailScreen extends StatelessWidget {
               onPressed: () async {
                 try {
                   await authController.repository.reactivateMember(
-                      memberNumber: memberNumber,
-                      userId: userId,
+                      memberNumber: widget.memberNumber,
+                      userId: widget.userId,
                       by: 'Admin MUSKL');
                   if (context.mounted) Navigator.of(context).pop(true);
                 } catch (e) {
@@ -1033,8 +1113,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
       _plans.where((plan) {
         final minSize = (plan['min_group_size'] as num?)?.toInt() ?? 1;
         final maxSize = (plan['max_group_size'] as num?)?.toInt() ?? 1;
-        return minSize <= _selectedGroupSize &&
-            _selectedGroupSize <= maxSize;
+        return minSize <= _selectedGroupSize && _selectedGroupSize <= maxSize;
       }).toList();
 
   Future<void> _continue() async {
@@ -1353,7 +1432,8 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                                     fontWeight: FontWeight.bold,
                                     fontSize: 16,
                                     shadows: [
-                                      Shadow(blurRadius: 8, color: Colors.black),
+                                      Shadow(
+                                          blurRadius: 8, color: Colors.black),
                                     ],
                                   ),
                                 ),

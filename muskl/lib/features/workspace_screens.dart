@@ -2721,6 +2721,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                           'role': user['role'].toString(),
                           'deactivated_by':
                               (user['deactivated_by'] ?? '').toString(),
+                          'trainer_id': (user['trainer_id'] ?? '').toString(),
+                          'trainer_name':
+                              (user['trainer_name'] ?? '').toString(),
                           'reactivation_until':
                               user['reactivation_until']?.toString() ?? '',
                         }).toString());

@@ -110,7 +110,7 @@ class _LoginScreenState extends State<LoginScreen> {
             onPressed: () => context.push('/forgot'),
             child: const Text(
               '¿Olvidaste tu contraseña?',
-              style: TextStyle(color: AppColors.yellow, fontSize: 15),
+              style: TextStyle(color: AppColors.accent, fontSize: 15),
             ),
           ),
         ),

@@ -23,8 +23,8 @@ class PasswordStrength extends StatelessWidget {
     final score = passwordScore(password);
     final (label, color) = switch (score) {
       0 || 1 => ('Débil', AppColors.red),
-      2 => ('Regular', AppColors.yellow),
-      3 => ('Buena', AppColors.yellow),
+      2 => ('Regular', AppColors.accent),
+      3 => ('Buena', AppColors.accent),
       _ => ('Fuerte', AppColors.success),
     };
     return Column(

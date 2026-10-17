@@ -333,7 +333,7 @@ Widget _record(String title, String subtitle,
             if (badge != null)
               Text(badge,
                   style: const TextStyle(
-                      color: AppColors.yellow, fontWeight: FontWeight.bold)),
+                      color: AppColors.accent, fontWeight: FontWeight.bold)),
             const SizedBox(width: 4),
             const Icon(Icons.chevron_right, color: AppColors.textMuted),
           ]))),
@@ -431,7 +431,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
               _section('Tu actividad'),
               Row(children: [
                 _metric('${data['workouts_7d'] ?? 0}', 'Rutinas · 7 días',
-                    color: AppColors.bgDeep, background: AppColors.yellow),
+                    color: AppColors.bgDeep, background: AppColors.accent),
                 const SizedBox(width: 8),
                 _metric(
                     '${data['attendance_total'] ?? 0}', 'Asistencias totales')
@@ -632,7 +632,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen> {
                   MusklCard(
                       child: Row(children: [
                     const Icon(Icons.local_fire_department,
-                        color: AppColors.yellow),
+                        color: AppColors.accent),
                     const SizedBox(width: 8),
                     Expanded(
                         child: Text(
@@ -789,7 +789,7 @@ class RoutineCompleteScreen extends StatelessWidget {
           const SizedBox(width: 8),
           _metric('$exerciseCount', 'Ejercicios'),
           const SizedBox(width: 8),
-          _metric('420', 'Calorías', color: AppColors.yellow)
+          _metric('420', 'Calorías', color: AppColors.accent)
         ]),
         const SizedBox(height: 16),
         const MusklCard(
@@ -974,7 +974,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                           : Colors.transparent,
                                       border: !hasAttendance && isRoutineDay
                                           ? Border.all(
-                                              color: AppColors.yellow,
+                                              color: AppColors.accent,
                                               width: 1.5)
                                           : null),
                                   child: Text('$day',
@@ -982,7 +982,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                           color: hasAttendance
                                               ? AppColors.white
                                               : isRoutineDay
-                                                  ? AppColors.yellow
+                                                  ? AppColors.accent
                                                   : AppColors.textMuted,
                                           fontSize: 12)));
                             }))),
@@ -994,7 +994,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       _CalendarLegend(
                           color: AppColors.red, label: 'Asistí', filled: true),
                       _CalendarLegend(
-                          color: AppColors.yellow,
+                          color: AppColors.accent,
                           label: 'Día de rutina',
                           filled: false),
                     ],
@@ -1197,7 +1197,7 @@ class _ClientProfileWorkspaceScreenState
                   backgroundColor: AppColors.surfaceHigh,
                   child: photoBytes == null
                       ? const Icon(Icons.person,
-                          size: 42, color: AppColors.yellow)
+                          size: 42, color: AppColors.accent)
                       : ClipOval(
                           child: Image.memory(photoBytes,
                               width: 76,
@@ -1206,7 +1206,7 @@ class _ClientProfileWorkspaceScreenState
                               errorBuilder: (_, __, ___) => const Icon(
                                   Icons.person,
                                   size: 42,
-                                  color: AppColors.yellow)))),
+                                  color: AppColors.accent)))),
               const SizedBox(height: 10),
               Text('${data['first_name']} ${data['last_name']}'.toUpperCase(),
                   style: const TextStyle(
@@ -1240,7 +1240,7 @@ class _ClientProfileWorkspaceScreenState
             _section('Membresía'),
             MusklCard(
                 child: Row(children: [
-              const Icon(Icons.card_membership, color: AppColors.yellow),
+              const Icon(Icons.card_membership, color: AppColors.accent),
               const SizedBox(width: 10),
               Expanded(
                   child: Column(
@@ -1259,7 +1259,7 @@ class _ClientProfileWorkspaceScreenState
                   child: ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.hourglass_top,
-                          color: AppColors.yellow),
+                          color: AppColors.accent),
                       title: const Text('SOLICITUD DE BAJA PENDIENTE'),
                       subtitle: Text(
                           'Enviada ${data['deletion_requested_at'] ?? ''}. El gimnasio aún debe revisarla.'))),
@@ -1389,7 +1389,7 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
                     _metric('${clients.length}', 'Activos',
                         color: AppColors.red),
                     const SizedBox(width: 8),
-                    _metric('$atRisk', 'En riesgo', color: AppColors.yellow),
+                    _metric('$atRisk', 'En riesgo', color: AppColors.accent),
                   ]),
                   for (final client in clients)
                     _record('${client['first_name']} ${client['last_name']}',
@@ -1496,13 +1496,13 @@ class _TrainerClientDetailScreenState extends State<TrainerClientDetailScreen> {
                         Row(children: [
                           _metric(
                               '${client['workouts_7d'] ?? 0}', 'Sesiones 7d',
-                              color: AppColors.yellow),
+                              color: AppColors.accent),
                           const SizedBox(width: 8),
                           _metric('${client['attendance_total'] ?? 0}',
                               'Asistencias'),
                           const SizedBox(width: 8),
                           _metric('${client['workouts_total'] ?? 0}', 'Rutinas',
-                              color: AppColors.yellow)
+                              color: AppColors.accent)
                         ])
                       ])),
                   _section('Asistencia semanal'),
@@ -2136,7 +2136,7 @@ Widget _setting(String title, String subtitle, IconData icon,
         child: ListTile(
             onTap: onTap,
             contentPadding: EdgeInsets.zero,
-            leading: Icon(icon, color: AppColors.yellow),
+            leading: Icon(icon, color: AppColors.accent),
             title: Text(title),
             subtitle: Text(subtitle),
             trailing: const Icon(Icons.chevron_right)));
@@ -2249,7 +2249,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             border: Border.all(color: const Color(0xFF806414))),
                         child: Row(children: [
                           const CircleAvatar(
-                              backgroundColor: AppColors.yellow,
+                              backgroundColor: AppColors.accent,
                               child: Icon(Icons.person_add_alt,
                                   color: AppColors.bgDeep)),
                           const SizedBox(width: 10),
@@ -2258,7 +2258,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                   style: const TextStyle(
                                       fontWeight: FontWeight.w900))),
                           const Icon(Icons.chevron_right,
-                              color: AppColors.yellow),
+                              color: AppColors.accent),
                         ]),
                       ),
                     ),
@@ -2996,7 +2996,7 @@ class _AdminRequestsScreenState extends State<AdminRequestsScreen> {
                                   contentPadding: EdgeInsets.zero,
                                   leading: const Icon(
                                       Icons.notifications_active,
-                                      color: AppColors.yellow),
+                                      color: AppColors.accent),
                                   title: Text(notification['title'].toString()),
                                   subtitle:
                                       Text(notification['body'].toString()),

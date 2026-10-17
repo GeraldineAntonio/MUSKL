@@ -66,7 +66,7 @@ class PrototypePage extends StatelessWidget {
           if (step != null) ...[
             Text(step!,
                 style: const TextStyle(
-                    color: AppColors.yellow, fontWeight: FontWeight.bold)),
+                    color: AppColors.accent, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
           ],
           child,
@@ -214,7 +214,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         MusklCard(
             child: Row(children: [
-          const Icon(Icons.shield_outlined, color: AppColors.yellow),
+          const Icon(Icons.shield_outlined, color: AppColors.accent),
           const SizedBox(width: 12),
           Expanded(
               child: Text(_role == 'Cliente'
@@ -342,7 +342,7 @@ class _ChoiceScreenState extends State<ChoiceScreen> {
                           ? Icons.check_circle
                           : Icons.circle_outlined,
                       color: choice == option
-                          ? AppColors.yellow
+                          ? AppColors.accent
                           : AppColors.textMuted)
                 ])),
               )),
@@ -372,7 +372,7 @@ class AdminMembersScreen extends StatelessWidget {
                       : '/admin/member'),
                   child: MusklCard(
                       child: Row(children: [
-                    const Icon(Icons.person_outline, color: AppColors.yellow),
+                    const Icon(Icons.person_outline, color: AppColors.accent),
                     const SizedBox(width: 14),
                     Expanded(
                         child: Column(
@@ -435,7 +435,7 @@ class AdminMemberDetailScreen extends StatelessWidget {
           if (deactivated)
             Text(
                 'Reactivación disponible hasta ${reactivationUntil.isEmpty ? '—' : reactivationUntil.substring(0, 10)}',
-                style: const TextStyle(color: AppColors.yellow))
+                style: const TextStyle(color: AppColors.accent))
         ])),
         const SizedBox(height: 16),
         if (!deactivated && role == 'client')
@@ -810,7 +810,7 @@ class _NewPhaseScreenState extends State<NewPhaseScreen> {
                       notice == null
                           ? 'SIN CAMBIOS NUEVOS'
                           : 'FASE ${payload['phase_number'] ?? 'NUEVA'} · 8 SEMANAS',
-                      style: const TextStyle(color: AppColors.yellow)),
+                      style: const TextStyle(color: AppColors.accent)),
                   const SizedBox(height: 10),
                   Text(notice?['body']?.toString() ??
                       'No tienes una fase nueva por revisar.'),
@@ -874,7 +874,7 @@ class HomePrototypeScreen extends StatelessWidget {
               style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
-                  color: AppColors.yellow)),
+                  color: AppColors.accent)),
           Text('Racha: 4 semanas · Asistencias: 32')
         ])),
         const SizedBox(height: 12),
@@ -1188,7 +1188,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                     ],
                   ])),
               Icon(selected ? Icons.check_circle : Icons.circle_outlined,
-                  color: selected ? AppColors.yellow : AppColors.textMuted),
+                  color: selected ? AppColors.accent : AppColors.textMuted),
             ]),
           ),
         ),
@@ -1319,7 +1319,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: selected ? AppColors.yellow : Colors.white24,
+                          color: selected ? AppColors.accent : Colors.white24,
                           width: selected ? 3 : 1,
                         ),
                       ),
@@ -1364,7 +1364,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                                 top: 8,
                                 right: 8,
                                 child: Icon(Icons.check_circle,
-                                    color: AppColors.yellow),
+                                    color: AppColors.accent),
                               ),
                           ],
                         ),
@@ -1433,7 +1433,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text('INTEGRANTE ${index + 2}',
             style: const TextStyle(
-                color: AppColors.yellow, fontWeight: FontWeight.bold)),
+                color: AppColors.accent, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         MusklTextField(
             label: 'Nombre',

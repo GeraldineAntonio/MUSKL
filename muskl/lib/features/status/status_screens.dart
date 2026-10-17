@@ -116,7 +116,7 @@ class PendingScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const _StatusLayout(
         icon: Icons.hourglass_top,
-        iconColor: AppColors.yellow,
+        iconColor: AppColors.accent,
         title: 'Cuenta en revisión',
         message:
             'Tu solicitud está siendo revisada por el gimnasio. Te avisaremos por correo cuando sea aprobada.',

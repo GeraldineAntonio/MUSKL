@@ -136,7 +136,7 @@ class _VerifyCodeScreenState extends State<VerifyCodeScreen> {
                   onPressed: _resending ? null : _resend,
                   child: Text(
                     _resending ? 'Enviando…' : 'Reenviar código',
-                    style: TextStyle(color: AppColors.yellow, fontSize: 16),
+                    style: TextStyle(color: AppColors.accent, fontSize: 16),
                   ),
                 ),
         ),

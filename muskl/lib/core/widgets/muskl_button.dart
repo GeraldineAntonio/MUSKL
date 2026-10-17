@@ -29,7 +29,7 @@ class MusklButton extends StatelessWidget {
       MusklButtonStyle.primary => (AppColors.red, AppColors.white),
       MusklButtonStyle.secondary => (AppColors.surface, AppColors.white),
       MusklButtonStyle.light => (AppColors.white, AppColors.bgDeep),
-      MusklButtonStyle.accent => (AppColors.yellow, AppColors.bgDeep),
+      MusklButtonStyle.accent => (AppColors.accent, AppColors.bgDeep),
       MusklButtonStyle.ghost => (Colors.transparent, AppColors.textMuted),
     };
     final enabled = onPressed != null && !loading;

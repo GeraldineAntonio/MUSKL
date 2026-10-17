@@ -114,6 +114,8 @@ abstract class AuthRepository {
       {required int year, required int month});
   Future<Map<String, dynamic>> checkInClientAttendance();
   Future<Map<String, dynamic>> getClientRoutine({required int day});
+  Future<Map<String, dynamic>> completeClientExercise(
+      {required String exerciseId});
   Future<List<Map<String, dynamic>>> getClientNotifications();
   Future<void> markClientNotificationRead({required String notificationId});
   Future<List<Map<String, dynamic>>> getTrainerNotifications();
@@ -169,6 +171,7 @@ class FakeAuthRepository implements AuthRepository {
   // In-memory store of deactivated members for the fake implementation.
   final Map<String, Session> _deactivated = {};
   final Map<DateTime, DateTime> _fakeAttendance = {};
+  int _fakeCompletedWorkouts = 0;
   final List<Map<String, dynamic>> _staffRequests = [
     {
       'id': 'demo-request-trainer',
@@ -813,6 +816,11 @@ class FakeAuthRepository implements AuthRepository {
       };
 
   @override
+  Future<Map<String, dynamic>> completeClientExercise(
+          {required String exerciseId}) async =>
+      {'exercise_id': exerciseId, 'completed': true, 'created': true};
+
+  @override
   Future<List<Map<String, dynamic>>> getClientNotifications() async => [];
 
   @override
@@ -828,12 +836,16 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<Map<String, dynamic>> completeClientWorkout(
-          {int? durationSeconds}) async =>
-      {
-        'completed': true,
-        'exercise_count': 5,
-        'duration_seconds': durationSeconds
-      };
+      {int? durationSeconds}) async {
+    _fakeCompletedWorkouts++;
+    return {
+      'completed': true,
+      'exercise_count': 5,
+      'duration_seconds': durationSeconds,
+      'sessions_this_week': _fakeCompletedWorkouts,
+      'sessions_total': _fakeCompletedWorkouts,
+    };
+  }
 
   @override
   Future<void> requestAccountDeletion() async {}

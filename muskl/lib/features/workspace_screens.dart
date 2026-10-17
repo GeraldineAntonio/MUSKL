@@ -1,7 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/theme/app_colors.dart';
@@ -545,16 +549,106 @@ class ClientRoutineScreen extends StatefulWidget {
   State<ClientRoutineScreen> createState() => _ClientRoutineScreenState();
 }
 
-class _ClientRoutineScreenState extends State<ClientRoutineScreen> {
+class _ClientRoutineScreenState extends State<ClientRoutineScreen>
+    with WidgetsBindingObserver {
   late int _day;
   late Future<Map<String, dynamic>> _routine;
+  final Stopwatch _workoutClock = Stopwatch();
+  final AudioPlayer _applausePlayer = AudioPlayer();
+  final FlutterTts _speech = FlutterTts();
+  final Set<String> _completedExerciseIds = {};
+  Timer? _ticker;
+  Timer? _hideEncouragement;
+  int _elapsedSeconds = 0;
+  int _nextEncouragementSeconds = 20 * 60;
+  int _encouragementIndex = 0;
+  String? _encouragement;
+  bool _soundEnabled = true;
+  bool _isForeground = true;
+  bool _workoutFinished = false;
   bool _saving = false;
+
+  static const _encouragements = [
+    '¡Bien hecho! Mantén ese ritmo, vas muy bien.',
+    'Cada repetición cuenta. ¡Sigue así!',
+    '¡Buen trabajo! Estás más cerca de tu meta.',
+    'Tu esfuerzo se nota. ¡Tú puedes!',
+  ];
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _day = DateTime.now().weekday;
+    _workoutClock.start();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    _configureSpeech();
     _load();
+  }
+
+  Future<void> _configureSpeech() async {
+    try {
+      await _speech.setLanguage('es-MX');
+      await _speech.setSpeechRate(0.48);
+      await _speech.setVolume(0.9);
+      await _applausePlayer.setReleaseMode(ReleaseMode.stop);
+    } catch (_) {
+      // The visual encouragement still works if device speech is unavailable.
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _isForeground = state == AppLifecycleState.resumed;
+    if (_isForeground && !_workoutFinished) {
+      _workoutClock.start();
+    } else {
+      _workoutClock.stop();
+      _stopEncouragementAudio();
+    }
+  }
+
+  void _tick() {
+    if (!_isForeground || _workoutFinished) return;
+    final elapsed = _workoutClock.elapsed.inSeconds;
+    if (elapsed >= _nextEncouragementSeconds) {
+      _nextEncouragementSeconds += 20 * 60;
+      _showEncouragement();
+    }
+    if (elapsed != _elapsedSeconds && mounted) {
+      setState(() => _elapsedSeconds = elapsed);
+    }
+  }
+
+  void _showEncouragement() {
+    final message =
+        _encouragements[_encouragementIndex % _encouragements.length];
+    _encouragementIndex++;
+    _hideEncouragement?.cancel();
+    setState(() => _encouragement = message);
+    HapticFeedback.mediumImpact();
+    _hideEncouragement = Timer(const Duration(seconds: 14), () {
+      if (mounted) setState(() => _encouragement = null);
+    });
+    if (_soundEnabled) _playEncouragement(message);
+  }
+
+  Future<void> _playEncouragement(String message) async {
+    try {
+      await _applausePlayer.play(AssetSource('audio/applause.wav'),
+          volume: 0.55);
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      if (_soundEnabled && _isForeground) await _speech.speak(message);
+    } catch (_) {
+      // Audio is optional; never interrupt the exercise flow.
+    }
+  }
+
+  Future<void> _stopEncouragementAudio() async {
+    try {
+      await _speech.stop();
+      await _applausePlayer.stop();
+    } catch (_) {}
   }
 
   void _load() => _routine = authController.clientRoutine(day: _day);
@@ -562,10 +656,19 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen> {
   Future<void> _complete() async {
     setState(() => _saving = true);
     try {
-      final completion = await authController.completeClientWorkout();
+      final durationSeconds =
+          _workoutClock.elapsed.inSeconds.clamp(1, 86400).toInt();
+      final completion = await authController.completeClientWorkout(
+          durationSeconds: durationSeconds);
+      _workoutFinished = true;
+      _workoutClock.stop();
+      await _stopEncouragementAudio();
       if (mounted) {
         context.push(Uri(path: '/home/complete', queryParameters: {
           'exercise_count': completion['exercise_count'].toString(),
+          'sessions_this_week':
+              completion['sessions_this_week']?.toString() ?? '1',
+          'sessions_total': completion['sessions_total']?.toString() ?? '1',
           if (completion['duration_seconds'] != null)
             'duration_seconds': completion['duration_seconds'].toString(),
           'date': completion['date']?.toString() ?? '',
@@ -579,6 +682,17 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _ticker?.cancel();
+    _hideEncouragement?.cancel();
+    _stopEncouragementAudio();
+    _applausePlayer.dispose();
+    _speech.stop();
+    super.dispose();
   }
 
   @override
@@ -626,9 +740,36 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen> {
             final exercises = (data['exercises'] as List? ?? [])
                 .map((e) => Map<String, dynamic>.from(e as Map))
                 .toList();
+            final completedIds = <String>{
+              ...((data['completed_exercise_ids'] as List? ?? [])
+                  .map((id) => id.toString())),
+              ..._completedExerciseIds,
+            };
+            if (data['completed_today'] == true) {
+              completedIds.addAll(
+                  exercises.map((exercise) => exercise['id'].toString()));
+            }
+            final completedCount = exercises
+                .where((exercise) =>
+                    completedIds.contains(exercise['id'].toString()))
+                .length;
+            final nextIncompleteIndex = exercises.indexWhere((exercise) =>
+                !completedIds.contains(exercise['id'].toString()));
+            final allExercisesComplete =
+                exercises.isNotEmpty && completedCount == exercises.length;
             return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _WorkoutEncouragementCard(
+                    elapsedSeconds: _elapsedSeconds,
+                    secondsToNext: _nextEncouragementSeconds - _elapsedSeconds,
+                    encouragement: _encouragement,
+                    soundEnabled: _soundEnabled,
+                    onToggleSound: () {
+                      setState(() => _soundEnabled = !_soundEnabled);
+                      if (!_soundEnabled) _stopEncouragementAudio();
+                    },
+                  ),
                   MusklCard(
                       child: Row(children: [
                     const Icon(Icons.local_fire_department,
@@ -639,35 +780,79 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen> {
                             '${data['routine_name']} · ${data['phase_name']} · ${data['goal']}')),
                   ])),
                   _section('Ejercicios del día · ${exercises.length}'),
-                  for (final exercise in exercises)
-                    _record(exercise['name'].toString(),
-                        '${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s descanso',
-                        badge: '${exercise['position'] ?? ''}',
-                        onTap: () => context.push(
-                                Uri(path: '/home/exercise', queryParameters: {
-                              'id': exercise['id'].toString(),
-                              'name': exercise['name'].toString(),
-                              'media_url':
-                                  exercise['media_url']?.toString() ?? '',
-                              'muscle_group':
-                                  exercise['muscle_group']?.toString() ??
-                                      'Rutina',
-                              'instructions':
-                                  exercise['instructions']?.toString() ?? '',
-                              'sets': exercise['sets'].toString(),
-                              'reps': exercise['reps'].toString(),
-                              'rest_seconds':
-                                  exercise['rest_seconds'].toString(),
-                            }).toString())),
+                  if (exercises.isNotEmpty) ...[
+                    Text('Finalizados: $completedCount de ${exercises.length}'),
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: completedCount / exercises.length,
+                      color: AppColors.accent,
+                      backgroundColor: AppColors.surfaceHigh,
+                      minHeight: 6,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  ...exercises.asMap().entries.map((entry) {
+                    final exercise = entry.value;
+                    final exerciseId = exercise['id'].toString();
+                    final isCompleted = completedIds.contains(exerciseId);
+                    final isNext = entry.key == nextIncompleteIndex;
+                    final isUnlocked = isCompleted || isNext;
+                    return _record(
+                      exercise['name'].toString(),
+                      isUnlocked
+                          ? '${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s descanso'
+                          : 'Finaliza el ejercicio anterior para desbloquearlo.',
+                      badge:
+                          isCompleted ? '✓' : '${exercise['position'] ?? ''}',
+                      icon: isCompleted
+                          ? Icons.check_circle
+                          : isUnlocked
+                              ? Icons.fitness_center
+                              : Icons.lock_outline,
+                      onTap: isUnlocked
+                          ? () async {
+                              final finished = await context.push<bool>(
+                                  Uri(path: '/home/exercise', queryParameters: {
+                                'id': exerciseId,
+                                'name': exercise['name'].toString(),
+                                'media_url':
+                                    exercise['media_url']?.toString() ?? '',
+                                'muscle_group':
+                                    exercise['muscle_group']?.toString() ??
+                                        'Rutina',
+                                'instructions':
+                                    exercise['instructions']?.toString() ?? '',
+                                'sets': exercise['sets'].toString(),
+                                'reps': exercise['reps'].toString(),
+                                'rest_seconds':
+                                    exercise['rest_seconds'].toString(),
+                                'can_complete':
+                                    (_day == DateTime.now().weekday &&
+                                            data['completed_today'] != true)
+                                        .toString(),
+                                'already_completed': isCompleted.toString(),
+                              }).toString());
+                              if (finished == true && mounted) {
+                                setState(() =>
+                                    _completedExerciseIds.add(exerciseId));
+                              }
+                            }
+                          : null,
+                    );
+                  }),
                   if (exercises.isEmpty)
                     const Text('No hay ejercicios programados para este día.'),
                   MusklButton(
                       label: data['completed_today'] == true
                           ? 'Rutina completada'
-                          : 'Marcar rutina completada',
+                          : allExercisesComplete
+                              ? 'Finalizar rutina'
+                              : 'Finaliza ejercicios ($completedCount/${exercises.length})',
                       icon: Icons.check,
                       loading: _saving,
                       onPressed: exercises.isEmpty ||
+                              !allExercisesComplete ||
                               data['completed_today'] == true ||
                               _day != DateTime.now().weekday
                           ? null
@@ -678,7 +863,92 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen> {
       ]));
 }
 
-class ExerciseDetailScreen extends StatelessWidget {
+class _WorkoutEncouragementCard extends StatelessWidget {
+  const _WorkoutEncouragementCard({
+    required this.elapsedSeconds,
+    required this.secondsToNext,
+    required this.encouragement,
+    required this.soundEnabled,
+    required this.onToggleSound,
+  });
+
+  final int elapsedSeconds;
+  final int secondsToNext;
+  final String? encouragement;
+  final bool soundEnabled;
+  final VoidCallback onToggleSound;
+
+  String _time(int seconds) =>
+      '${(seconds ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = ((20 * 60 - secondsToNext) / (20 * 60)).clamp(0.0, 1.0);
+    return MusklCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.timer_outlined, color: AppColors.red),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('ENTRENAMIENTO · ${_time(elapsedSeconds)}',
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .5)),
+          ),
+          IconButton(
+            tooltip: soundEnabled ? 'Silenciar incentivos' : 'Activar sonido',
+            onPressed: onToggleSound,
+            visualDensity: VisualDensity.compact,
+            icon: Icon(soundEnabled ? Icons.volume_up : Icons.volume_off,
+                color: AppColors.textMuted),
+          ),
+        ]),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 500),
+          switchInCurve: Curves.easeOutBack,
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(scale: animation, child: child),
+          ),
+          child: encouragement == null
+              ? Text(
+                  'Tu próximo mensaje de ánimo en ${_time(secondsToNext.clamp(0, 20 * 60))}',
+                  key: const ValueKey('countdown'),
+                  style:
+                      const TextStyle(fontSize: 13, color: AppColors.textMuted),
+                )
+              : Row(
+                  key: ValueKey(encouragement),
+                  children: [
+                    const Icon(Icons.celebration,
+                        color: AppColors.accent, size: 24),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(encouragement!,
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w800)),
+                    ),
+                  ],
+                ),
+        ),
+        const SizedBox(height: 10),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 5,
+            color: AppColors.accent,
+            backgroundColor: AppColors.surfaceHigh,
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class ExerciseDetailScreen extends StatefulWidget {
   const ExerciseDetailScreen({
     super.key,
     this.id = '1',
@@ -689,6 +959,8 @@ class ExerciseDetailScreen extends StatelessWidget {
     this.sets = '4',
     this.reps = '30 s',
     this.restSeconds = '60',
+    this.canMarkComplete = false,
+    this.alreadyCompleted = false,
   });
   final String id;
   final String name;
@@ -698,6 +970,33 @@ class ExerciseDetailScreen extends StatelessWidget {
   final String sets;
   final String reps;
   final String restSeconds;
+  final bool canMarkComplete;
+  final bool alreadyCompleted;
+
+  @override
+  State<ExerciseDetailScreen> createState() => _ExerciseDetailScreenState();
+}
+
+class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
+  bool _saving = false;
+
+  Future<void> _finishExercise() async {
+    if (!widget.canMarkComplete || widget.alreadyCompleted || _saving) return;
+    setState(() => _saving = true);
+    try {
+      await authController.completeClientExercise(exerciseId: widget.id);
+      if (mounted) context.pop(true);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('No se pudo finalizar el ejercicio: $error'),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => WorkspacePage(
       title: 'Detalle de ejercicio',
@@ -711,11 +1010,11 @@ class ExerciseDetailScreen extends StatelessWidget {
             height: 220,
             color: AppColors.surface,
             alignment: Alignment.center,
-            child: mediaUrl.isEmpty
+            child: widget.mediaUrl.isEmpty
                 ? const Icon(Icons.fitness_center,
                     size: 70, color: AppColors.red)
                 : Image.network(
-                    mediaUrl,
+                    widget.mediaUrl,
                     width: double.infinity,
                     height: 220,
                     fit: BoxFit.contain,
@@ -726,27 +1025,34 @@ class ExerciseDetailScreen extends StatelessWidget {
                   ),
           ),
         ),
-        _section('$muscleGroup · Ejercicio $id'),
-        Text(name.toUpperCase(),
+        _section('${widget.muscleGroup} · Ejercicio ${widget.id}'),
+        Text(widget.name.toUpperCase(),
             style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
         const SizedBox(height: 14),
         Row(children: [
-          _metric(sets, 'Series'),
+          _metric(widget.sets, 'Series'),
           const SizedBox(width: 8),
-          _metric(reps, 'Repeticiones'),
+          _metric(widget.reps, 'Repeticiones'),
           const SizedBox(width: 8),
-          _metric('$restSeconds s', 'Descanso')
+          _metric('${widget.restSeconds} s', 'Descanso')
         ]),
         _section('Cómo se hace'),
         MusklCard(
-            child: Text(instructions.isEmpty
+            child: Text(widget.instructions.isEmpty
                 ? 'Tu entrenador todavía no agregó instrucciones para este ejercicio.'
-                : instructions)),
+                : widget.instructions)),
         const SizedBox(height: 20),
         MusklButton(
-            label: 'Terminar ejercicio',
+            label: widget.alreadyCompleted
+                ? 'Ejercicio finalizado'
+                : widget.canMarkComplete
+                    ? 'Marcar ejercicio finalizado'
+                    : 'Disponible en su día programado',
             icon: Icons.check,
-            onPressed: () => context.pop()),
+            loading: _saving,
+            onPressed: widget.canMarkComplete && !widget.alreadyCompleted
+                ? _finishExercise
+                : null),
       ]));
 }
 
@@ -754,9 +1060,13 @@ class RoutineCompleteScreen extends StatelessWidget {
   const RoutineCompleteScreen(
       {super.key,
       required this.exerciseCount,
+      required this.sessionsThisWeek,
+      required this.sessionsTotal,
       this.durationSeconds,
       this.date});
   final int exerciseCount;
+  final int sessionsThisWeek;
+  final int sessionsTotal;
   final int? durationSeconds;
   final String? date;
 
@@ -789,12 +1099,14 @@ class RoutineCompleteScreen extends StatelessWidget {
           const SizedBox(width: 8),
           _metric('$exerciseCount', 'Ejercicios'),
           const SizedBox(width: 8),
-          _metric('420', 'Calorías', color: AppColors.accent)
+          _metric('$sessionsThisWeek', 'Sesiones esta semana',
+              color: AppColors.bgDeep, background: AppColors.accent)
         ]),
         const SizedBox(height: 16),
-        const MusklCard(
+        MusklCard(
             selected: true,
-            child: Text('RACHA DE 8 DÍAS\nUn día más cumpliendo tu objetivo.',
+            child: Text(
+                'Tu historial ya suma $sessionsTotal rutinas completadas.',
                 textAlign: TextAlign.center)),
         const SizedBox(height: 18),
         MusklButton(

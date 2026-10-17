@@ -1460,12 +1460,53 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(onboarde
         today = conn.execute("SELECT (now() AT TIME ZONE timezone)::date AS d FROM gyms WHERE id = %s", (client['gym_id'],)).fetchone()['d']
         completed = conn.execute("SELECT id FROM workout_completions WHERE client_id = %s AND phase_id = %s AND workout_date = %s",
                                  (client['id'], assignment['current_phase_id'], today)).fetchone()
+        completed_exercises = conn.execute("""SELECT exercise_id
+            FROM workout_exercise_completions
+            WHERE client_id = %s AND phase_id = %s AND workout_date = %s""",
+            (client['id'], assignment['current_phase_id'], today)).fetchall()
     return {'assigned': True, 'routine_id': str(assignment['routine_id']), 'routine_name': assignment['routine_name'],
             'goal': assignment['goal'], 'days_per_week': assignment['days_per_week'],
             'phase_id': str(assignment['current_phase_id']), 'phase_number': assignment['phase_number'],
             'phase_name': assignment['phase_name'], 'phase_status': assignment['phase_status'],
             'phase_started_at': assignment['phase_started_at'].isoformat(), 'completed_today': completed is not None,
+            'completed_exercise_ids': [str(row['exercise_id']) for row in completed_exercises],
             'exercises': [{**exercise, 'id': str(exercise['id'])} for exercise in exercises]}
+
+
+@app.post('/api/v1/client/routine/exercises/{exercise_id}/complete')
+def complete_client_exercise(exercise_id: uuid.UUID,
+                             client: dict = Depends(onboarded_client)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            assignment = cur.execute("""SELECT cra.current_phase_id,
+                    (now() AT TIME ZONE g.timezone)::date AS today
+                FROM client_routine_assignments cra
+                JOIN gyms g ON g.id = %s
+                WHERE cra.client_id = %s AND cra.ended_at IS NULL LIMIT 1""",
+                (client['gym_id'], client['id'])).fetchone()
+            if assignment is None:
+                raise _problem(404, 'ROUTINE_NOT_ASSIGNED',
+                               'Todavía no tienes una rutina asignada.')
+            exercise = cur.execute("""SELECT id FROM routine_exercises
+                WHERE id = %s AND phase_id = %s
+                  AND day_number = extract(isodow FROM %s)::integer""",
+                (exercise_id, assignment['current_phase_id'], assignment['today'])).fetchone()
+            if exercise is None:
+                raise _problem(409, 'EXERCISE_NOT_SCHEDULED_TODAY',
+                               'Este ejercicio no está programado para hoy.')
+            if cur.execute("""SELECT 1 FROM workout_completions
+                WHERE client_id = %s AND phase_id = %s AND workout_date = %s""",
+                (client['id'], assignment['current_phase_id'], assignment['today'])).fetchone():
+                raise _problem(409, 'WORKOUT_ALREADY_COMPLETED',
+                               'La rutina de hoy ya fue completada.')
+            saved = cur.execute("""INSERT INTO workout_exercise_completions
+                    (client_id, phase_id, exercise_id, workout_date)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT DO NOTHING RETURNING exercise_id""",
+                (client['id'], assignment['current_phase_id'], exercise_id,
+                 assignment['today'])).fetchone()
+    return {'exercise_id': str(exercise_id), 'completed': True,
+            'created': saved is not None}
 
 
 @app.post('/api/v1/client/routine/complete', status_code=201)
@@ -1484,6 +1525,17 @@ def complete_client_workout(payload: WorkoutCompletionRequest,
                                           (row['current_phase_id'], row['today'])).fetchone()['total']
             if scheduled_count == 0:
                 raise _problem(409, 'REST_DAY', 'Hoy no tienes ejercicios programados en tu rutina.')
+            scheduled_ids = {exercise['id'] for exercise in cur.execute("""SELECT id
+                FROM routine_exercises WHERE phase_id = %s
+                  AND day_number = extract(isodow FROM %s)::integer""",
+                (row['current_phase_id'], row['today'])).fetchall()}
+            completed_ids = {exercise['exercise_id'] for exercise in cur.execute("""SELECT exercise_id
+                FROM workout_exercise_completions
+                WHERE client_id = %s AND phase_id = %s AND workout_date = %s""",
+                (client['id'], row['current_phase_id'], row['today'])).fetchall()}
+            if completed_ids != scheduled_ids:
+                raise _problem(409, 'EXERCISES_INCOMPLETE',
+                               'Finaliza todos los ejercicios programados antes de terminar la rutina.')
             completion = cur.execute("""INSERT INTO workout_completions (client_id, phase_id, workout_date, duration_seconds)
                 VALUES (%s, %s, %s, %s) ON CONFLICT (client_id, phase_id, workout_date) DO NOTHING RETURNING id""",
                 (client['id'], row['current_phase_id'], row['today'], payload.duration_seconds)).fetchone()
@@ -1505,8 +1557,15 @@ def complete_client_workout(payload: WorkoutCompletionRequest,
                     (trainer['trainer_id'], f'{trainer["client_name"]} completó su rutina de hoy.',
                      Jsonb({'client_id': str(client['id']), 'routine_id': str(trainer['routine_id']) if trainer['routine_id'] else None,
                             'completion_id': str(completion['id'])})))
+            activity = cur.execute("""SELECT
+                    count(*) FILTER (WHERE workout_date >= date_trunc('week', %s::timestamp)::date) AS sessions_this_week,
+                    count(*) AS sessions_total
+                FROM workout_completions WHERE client_id = %s""",
+                (row['today'], client['id'])).fetchone()
     return {'completed': True, 'date': row['today'].isoformat(),
-            'exercise_count': scheduled_count, 'duration_seconds': payload.duration_seconds}
+            'exercise_count': scheduled_count, 'duration_seconds': payload.duration_seconds,
+            'sessions_this_week': activity['sessions_this_week'],
+            'sessions_total': activity['sessions_total']}
 
 
 @app.post('/api/v1/client/account-deletion-request', status_code=201)

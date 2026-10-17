@@ -98,17 +98,28 @@ GoRouter buildRouter(AuthController auth) {
               id: state.uri.queryParameters['id'] ?? '1',
               name: state.uri.queryParameters['name'] ?? 'Ejercicio',
               mediaUrl: state.uri.queryParameters['media_url'] ?? '',
-              muscleGroup: state.uri.queryParameters['muscle_group'] ?? 'Rutina',
+              muscleGroup:
+                  state.uri.queryParameters['muscle_group'] ?? 'Rutina',
               instructions: state.uri.queryParameters['instructions'] ?? '',
               sets: state.uri.queryParameters['sets'] ?? '4',
               reps: state.uri.queryParameters['reps'] ?? '8-12',
-              restSeconds: state.uri.queryParameters['rest_seconds'] ?? '60')),
+              restSeconds: state.uri.queryParameters['rest_seconds'] ?? '60',
+              canMarkComplete:
+                  state.uri.queryParameters['can_complete'] == 'true',
+              alreadyCompleted:
+                  state.uri.queryParameters['already_completed'] == 'true')),
       GoRoute(
           path: '/home/complete',
           builder: (_, state) => RoutineCompleteScreen(
               exerciseCount: int.tryParse(
                       state.uri.queryParameters['exercise_count'] ?? '') ??
                   0,
+              sessionsThisWeek: int.tryParse(
+                      state.uri.queryParameters['sessions_this_week'] ?? '') ??
+                  1,
+              sessionsTotal: int.tryParse(
+                      state.uri.queryParameters['sessions_total'] ?? '') ??
+                  1,
               durationSeconds: int.tryParse(
                   state.uri.queryParameters['duration_seconds'] ?? ''),
               date: state.uri.queryParameters['date'])),

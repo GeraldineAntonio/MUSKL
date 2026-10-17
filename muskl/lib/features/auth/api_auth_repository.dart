@@ -857,6 +857,17 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<Map<String, dynamic>> completeClientExercise(
+      {required String exerciseId}) async {
+    final result = await _request(
+      'POST',
+      '/api/v1/client/routine/exercises/${Uri.encodeComponent(exerciseId)}/complete',
+      authenticated: true,
+    );
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  @override
   Future<List<Map<String, dynamic>>> getClientNotifications() async {
     final rows = await _request('GET', '/api/v1/client/notifications',
         authenticated: true) as List;

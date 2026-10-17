@@ -218,6 +218,10 @@ class AuthController extends ChangeNotifier {
   Future<Map<String, dynamic>> clientRoutine({required int day}) =>
       repository.getClientRoutine(day: day);
 
+  Future<Map<String, dynamic>> completeClientExercise(
+          {required String exerciseId}) =>
+      repository.completeClientExercise(exerciseId: exerciseId);
+
   Future<List<Map<String, dynamic>>> clientNotifications() =>
       repository.getClientNotifications();
 

@@ -933,6 +933,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
   String? _goal;
   String? _level;
   int? _days;
+  int _selectedGroupSize = 1;
   final List<_GroupMemberFields> _groupMembers = [];
   bool _editingGroupMembers = false;
   bool _groupRegistered = false;
@@ -1028,6 +1029,14 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
     _loadOptions();
   }
 
+  List<Map<String, dynamic>> get _plansForSelectedGroupSize =>
+      _plans.where((plan) {
+        final minSize = (plan['min_group_size'] as num?)?.toInt() ?? 1;
+        final maxSize = (plan['max_group_size'] as num?)?.toInt() ?? 1;
+        return minSize <= _selectedGroupSize &&
+            _selectedGroupSize <= maxSize;
+      }).toList();
+
   Future<void> _continue() async {
     final valid = switch (_step) {
       0 => _planId != null,
@@ -1041,13 +1050,10 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
       return;
     }
     if (_step == 0 && !_groupRegistered) {
-      final selectedPlan = _plans.firstWhere((plan) => plan['id'] == _planId);
-      final minGroupSize =
-          (selectedPlan['min_group_size'] as num?)?.toInt() ?? 1;
-      if (minGroupSize > 1 && !_editingGroupMembers) {
+      if (_selectedGroupSize > 1 && !_editingGroupMembers) {
         setState(() {
           _editingGroupMembers = true;
-          while (_groupMembers.length < minGroupSize - 1) {
+          while (_groupMembers.length < _selectedGroupSize - 1) {
             _groupMembers.add(_GroupMemberFields());
           }
         });
@@ -1209,35 +1215,8 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                 icon: const Icon(Icons.arrow_back),
                 label: const Text('Cambiar membresía'),
               ),
-              for (var i = 0; i < _groupMembers.length; i++) ...[
+              for (var i = 0; i < _groupMembers.length; i++)
                 _groupMemberForm(i),
-                if (_groupMembers.length > 3)
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: _saving
-                          ? null
-                          : () => setState(
-                              () => _groupMembers.removeAt(i).dispose()),
-                      icon: const Icon(Icons.remove_circle_outline),
-                      label: const Text('Quitar integrante'),
-                    ),
-                  ),
-              ],
-              if (((_plans.firstWhere(
-                                  (p) => p['id'] == _planId)['max_group_size']
-                              as num?)
-                          ?.toInt() ??
-                      1) >
-                  _groupMembers.length + 1)
-                OutlinedButton.icon(
-                  onPressed: _saving
-                      ? null
-                      : () => setState(
-                          () => _groupMembers.add(_GroupMemberFields())),
-                  icon: const Icon(Icons.person_add_alt_1),
-                  label: const Text('Agregar otra persona'),
-                ),
             ] else if (_groupRegistered) ...[
               const Text('MEMBRESÍA DEL GRUPO'),
               const SizedBox(height: 12),
@@ -1250,12 +1229,43 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                   selected: true,
                   onTap: () {}),
             ] else ...[
+              const Text('¿Cuántas personas se inscribirán?'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [1, 2, 3, 4].map((size) {
+                  final selected = _selectedGroupSize == size;
+                  return ChoiceChip(
+                    label: Text(size == 1 ? '1 persona' : '$size personas'),
+                    selected: selected,
+                    onSelected: _saving
+                        ? null
+                        : (_) => setState(() {
+                              _selectedGroupSize = size;
+                              _planId = null;
+                              _editingGroupMembers = false;
+                              for (final member in _groupMembers) {
+                                member.dispose();
+                              }
+                              _groupMembers.clear();
+                              _error = null;
+                            }),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
               const Text('Elige tu membresía'),
               const SizedBox(height: 14),
-              for (final plan in _plans)
+              if (_plansForSelectedGroupSize.isEmpty)
+                const Text(
+                  'El gimnasio todavía no ofrece una membresía para esta cantidad de personas.',
+                  style: TextStyle(color: AppColors.textMuted),
+                ),
+              for (final plan in _plansForSelectedGroupSize)
                 _option(plan['name'].toString(),
                     subtitle:
-                        '${plan['price_mxn'] == null ? 'Precio por confirmar' : '\$${plan['price_mxn']} MXN'} · ${plan['duration_days']} días${((plan['min_group_size'] as num?)?.toInt() ?? 1) > 1 ? ' · ${plan['min_group_size']} a ${plan['max_group_size']} personas' : ''}',
+                        '${plan['price_mxn'] == null ? 'Precio por confirmar' : '\$${plan['price_mxn']} MXN'} · ${plan['duration_days']} días · ${_selectedGroupSize == 1 ? 'Individual' : 'Para $_selectedGroupSize personas'}',
                     selected: _planId == plan['id'],
                     onTap: () => setState(() {
                           _planId = plan['id'].toString();
@@ -1497,14 +1507,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                                     : _step == 0 &&
                                             _planId != null &&
                                             !_groupRegistered &&
-                                            ((_plans.firstWhere((p) =>
-                                                                    p['id'] ==
-                                                                    _planId)[
-                                                                'min_group_size']
-                                                            as num?)
-                                                        ?.toInt() ??
-                                                    1) >
-                                                1
+                                            _selectedGroupSize > 1
                                         ? 'Agregar integrantes'
                                         : 'Continuar',
                     loading: _saving || _loadingRoutines,

@@ -842,6 +842,12 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<Map<String, dynamic>> checkInClientAttendance() async =>
+      Map<String, dynamic>.from(await _request(
+              'POST', '/api/v1/client/attendance/check-in', authenticated: true)
+          as Map);
+
+  @override
   Future<Map<String, dynamic>> getClientRoutine({required int day}) async {
     final path =
         Uri(path: '/api/v1/client/routine', queryParameters: {'day': '$day'})

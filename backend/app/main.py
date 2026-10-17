@@ -1386,7 +1386,55 @@ def client_attendance(year: int = Query(ge=2000, le=2200), month: int = Query(ge
         rows = conn.execute("""SELECT local_date, checked_in_at, source FROM attendance
             WHERE client_id = %s AND extract(year FROM local_date) = %s AND extract(month FROM local_date) = %s
             ORDER BY local_date""", (client['id'], year, month)).fetchall()
-    return {'days': [{'date': r['local_date'].isoformat(), 'checked_in_at': r['checked_in_at'].isoformat(), 'source': r['source']} for r in rows], 'total': len(rows)}
+        gym = conn.execute("""SELECT (now() AT TIME ZONE g.timezone)::date AS today,
+                EXISTS (SELECT 1 FROM memberships m WHERE m.client_id = %s
+                    AND m.status = 'active' AND m.starts_on <= (now() AT TIME ZONE g.timezone)::date
+                    AND m.ends_on >= (now() AT TIME ZONE g.timezone)::date) AS can_check_in
+            FROM gyms g WHERE g.id = %s""", (client['id'], client['gym_id'])).fetchone()
+        routine_days = conn.execute("""SELECT DISTINCT re.day_number
+            FROM client_routine_assignments cra
+            JOIN routine_exercises re ON re.phase_id = cra.current_phase_id
+            WHERE cra.client_id = %s AND cra.ended_at IS NULL
+            ORDER BY re.day_number""", (client['id'],)).fetchall()
+    return {
+        'days': [{'date': r['local_date'].isoformat(), 'checked_in_at': r['checked_in_at'].isoformat(), 'source': r['source']} for r in rows],
+        'total': len(rows),
+        'today': gym['today'].isoformat(),
+        'can_check_in': gym['can_check_in'],
+        'routine_days': [row['day_number'] for row in routine_days],
+    }
+
+
+@app.post('/api/v1/client/attendance/check-in', status_code=201)
+def client_attendance_check_in(client: dict = Depends(onboarded_client)) -> dict:
+    with pool.connection() as conn:
+        membership = conn.execute("""SELECT (now() AT TIME ZONE g.timezone)::date AS today
+            FROM gyms g WHERE g.id = %s AND EXISTS (
+                SELECT 1 FROM memberships m WHERE m.client_id = %s
+                    AND m.status = 'active'
+                    AND m.starts_on <= (now() AT TIME ZONE g.timezone)::date
+                    AND m.ends_on >= (now() AT TIME ZONE g.timezone)::date
+            )""", (client['gym_id'], client['id'])).fetchone()
+        if membership is None:
+            raise _problem(403, 'ACTIVE_MEMBERSHIP_REQUIRED',
+                           'Necesitas una membresía activa para registrar asistencia.')
+        attendance = conn.execute("""INSERT INTO attendance
+                (gym_id, client_id, local_date, source)
+            VALUES (%s, %s, %s, 'app')
+            ON CONFLICT (client_id, local_date) DO NOTHING
+            RETURNING local_date, checked_in_at, source""",
+            (client['gym_id'], client['id'], membership['today'])).fetchone()
+        created = attendance is not None
+        if attendance is None:
+            attendance = conn.execute("""SELECT local_date, checked_in_at, source
+                FROM attendance WHERE client_id = %s AND local_date = %s""",
+                (client['id'], membership['today'])).fetchone()
+    return {
+        'created': created,
+        'date': attendance['local_date'].isoformat(),
+        'checked_in_at': attendance['checked_in_at'].isoformat(),
+        'source': attendance['source'],
+    }
 
 
 @app.get('/api/v1/client/routine')

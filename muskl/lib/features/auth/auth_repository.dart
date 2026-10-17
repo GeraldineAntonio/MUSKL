@@ -112,6 +112,7 @@ abstract class AuthRepository {
       bool removePhoto = false});
   Future<Map<String, dynamic>> getClientAttendance(
       {required int year, required int month});
+  Future<Map<String, dynamic>> checkInClientAttendance();
   Future<Map<String, dynamic>> getClientRoutine({required int day});
   Future<List<Map<String, dynamic>>> getClientNotifications();
   Future<void> markClientNotificationRead({required String notificationId});
@@ -167,6 +168,7 @@ abstract class AuthRepository {
 class FakeAuthRepository implements AuthRepository {
   // In-memory store of deactivated members for the fake implementation.
   final Map<String, Session> _deactivated = {};
+  final Map<DateTime, DateTime> _fakeAttendance = {};
   final List<Map<String, dynamic>> _staffRequests = [
     {
       'id': 'demo-request-trainer',
@@ -748,8 +750,37 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<Map<String, dynamic>> getClientAttendance(
-          {required int year, required int month}) async =>
-      {'days': [], 'total': 0};
+      {required int year, required int month}) async {
+    final days = _fakeAttendance.entries
+        .where((entry) => entry.key.year == year && entry.key.month == month)
+        .map((entry) => {
+              'date': entry.key.toIso8601String().substring(0, 10),
+              'checked_in_at': entry.value.toIso8601String(),
+              'source': 'app',
+            })
+        .toList();
+    return {
+      'days': days,
+      'total': days.length,
+      'today': DateTime.now().toIso8601String().substring(0, 10),
+      'can_check_in': true,
+      'routine_days': [1, 3, 5],
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> checkInClientAttendance() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final created = !_fakeAttendance.containsKey(today);
+    final checkedInAt = _fakeAttendance.putIfAbsent(today, () => now);
+    return {
+      'created': created,
+      'date': today.toIso8601String().substring(0, 10),
+      'checked_in_at': checkedInAt.toIso8601String(),
+      'source': 'app',
+    };
+  }
 
   @override
   Future<Map<String, dynamic>> getClientRoutine({required int day}) async => {

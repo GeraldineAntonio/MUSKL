@@ -212,6 +212,9 @@ class AuthController extends ChangeNotifier {
           {required int year, required int month}) =>
       repository.getClientAttendance(year: year, month: month);
 
+  Future<Map<String, dynamic>> checkInClientAttendance() =>
+      repository.checkInClientAttendance();
+
   Future<Map<String, dynamic>> clientRoutine({required int day}) =>
       repository.getClientRoutine(day: day);
 

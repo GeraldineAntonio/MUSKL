@@ -254,6 +254,33 @@ Widget _section(String title, {String? action, VoidCallback? onAction}) =>
       ]),
     );
 
+class _CalendarLegend extends StatelessWidget {
+  const _CalendarLegend(
+      {required this.color, required this.label, required this.filled});
+
+  final Color color;
+  final String label;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: filled ? color : Colors.transparent,
+              border: filled ? null : Border.all(color: color),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(label, style: const TextStyle(color: AppColors.textMuted)),
+        ],
+      );
+}
+
 Widget _metric(String value, String label,
         {Color color = AppColors.white,
         Color background = AppColors.surface}) =>
@@ -785,6 +812,7 @@ class AttendanceScreen extends StatefulWidget {
 class _AttendanceScreenState extends State<AttendanceScreen> {
   late int _year, _month;
   late Future<Map<String, dynamic>> _attendance;
+  bool _checkingIn = false;
 
   @override
   void initState() {
@@ -807,6 +835,29 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     });
   }
 
+  Future<void> _checkIn() async {
+    if (_checkingIn) return;
+    setState(() => _checkingIn = true);
+    try {
+      final result = await authController.checkInClientAttendance();
+      if (!mounted) return;
+      setState(_load);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result['created'] == true
+            ? 'Asistencia registrada para hoy.'
+            : 'Tu asistencia de hoy ya estaba registrada.'),
+      ));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('No se pudo registrar la asistencia: $error'),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _checkingIn = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => WorkspacePage(
       title: 'Mi asistencia',
@@ -824,14 +875,40 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           final rows = (data['days'] as List? ?? [])
               .map((e) => Map<String, dynamic>.from(e as Map))
               .toList();
+          final attendedDates = rows.map((e) => e['date'].toString()).toSet();
           final attended =
-              rows.map((e) => DateTime.parse(e['date'].toString()).day).toSet();
+              attendedDates.map((date) => DateTime.parse(date).day).toSet();
+          final routineDays = (data['routine_days'] as List? ?? [])
+              .map((day) => (day as num).toInt())
+              .toSet();
+          final today = data['today']?.toString() ??
+              DateTime.now().toIso8601String().substring(0, 10);
+          final alreadyCheckedIn = attendedDates.contains(today);
           final offset = DateTime(_year, _month, 1).weekday - 1;
           final daysInMonth = DateTime(_year, _month + 1, 0).day;
           final cellCount = ((offset + daysInMonth + 6) ~/ 7) * 7;
           return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (data['can_check_in'] == true)
+                  MusklButton(
+                    label: _checkingIn
+                        ? 'Registrando...'
+                        : alreadyCheckedIn
+                            ? 'Asistencia registrada hoy'
+                            : 'Registrar asistencia de hoy',
+                    icon: alreadyCheckedIn
+                        ? Icons.check_circle_outline
+                        : Icons.how_to_reg_outlined,
+                    onPressed:
+                        _checkingIn || alreadyCheckedIn ? null : _checkIn,
+                  )
+                else
+                  const Text(
+                    'Necesitas una membresía activa para registrar asistencia.',
+                    style: TextStyle(color: AppColors.textMuted),
+                  ),
+                const SizedBox(height: 12),
                 MusklCard(
                     child: Column(children: [
                   Row(
@@ -882,7 +959,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                               final day = row * 7 + col - offset + 1;
                               if (day < 1 || day > daysInMonth)
                                 return const SizedBox(width: 30, height: 32);
+                              final date = DateTime(_year, _month, day);
                               final hasAttendance = attended.contains(day);
+                              final isRoutineDay =
+                                  routineDays.contains(date.weekday);
                               return Container(
                                   width: 30,
                                   height: 32,
@@ -891,14 +971,34 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                       shape: BoxShape.circle,
                                       color: hasAttendance
                                           ? AppColors.red
-                                          : Colors.transparent),
+                                          : Colors.transparent,
+                                      border: !hasAttendance && isRoutineDay
+                                          ? Border.all(
+                                              color: AppColors.yellow,
+                                              width: 1.5)
+                                          : null),
                                   child: Text('$day',
                                       style: TextStyle(
                                           color: hasAttendance
                                               ? AppColors.white
-                                              : AppColors.textMuted,
+                                              : isRoutineDay
+                                                  ? AppColors.yellow
+                                                  : AppColors.textMuted,
                                           fontSize: 12)));
                             }))),
+                  const SizedBox(height: 12),
+                  const Wrap(
+                    spacing: 14,
+                    runSpacing: 8,
+                    children: [
+                      _CalendarLegend(
+                          color: AppColors.red, label: 'Asistí', filled: true),
+                      _CalendarLegend(
+                          color: AppColors.yellow,
+                          label: 'Día de rutina',
+                          filled: false),
+                    ],
+                  ),
                 ])),
                 _section('Resumen del mes'),
                 Row(children: [
@@ -906,6 +1006,30 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   const SizedBox(width: 8),
                   _metric('${attended.length}', 'Días asistidos'),
                 ]),
+                _section('Registro del mes'),
+                if (rows.isEmpty)
+                  const Text('Todavía no hay asistencias registradas este mes.',
+                      style: TextStyle(color: AppColors.textMuted)),
+                for (final entry in rows.reversed)
+                  _record(
+                    DateTime.parse(entry['date'].toString()).day.toString() +
+                        ' de ${[
+                          'enero',
+                          'febrero',
+                          'marzo',
+                          'abril',
+                          'mayo',
+                          'junio',
+                          'julio',
+                          'agosto',
+                          'septiembre',
+                          'octubre',
+                          'noviembre',
+                          'diciembre'
+                        ][DateTime.parse(entry['date'].toString()).month - 1]}',
+                    '${DateTime.parse(entry['checked_in_at'].toString()).toLocal().hour.toString().padLeft(2, '0')}:${DateTime.parse(entry['checked_in_at'].toString()).toLocal().minute.toString().padLeft(2, '0')} · ${entry['source'] == 'app' ? 'Registrada en la app' : 'Registrada por el gimnasio'}',
+                    icon: Icons.event_available,
+                  ),
               ]);
         },
       ));

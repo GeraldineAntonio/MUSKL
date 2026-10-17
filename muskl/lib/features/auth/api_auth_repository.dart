@@ -227,9 +227,9 @@ class ApiAuthRepository implements AuthRepository {
 
   @override
   Future<Map<String, dynamic>> getClientOnboardingOptions() async =>
-      Map<String, dynamic>.from(
-          await _request('GET', '/api/v1/client/onboarding/options',
-              authenticated: true) as Map);
+      Map<String, dynamic>.from(await _request(
+              'GET', '/api/v1/client/onboarding/options', authenticated: true)
+          as Map);
 
   @override
   Future<List<Map<String, dynamic>>> getClientOnboardingRoutines(
@@ -480,7 +480,8 @@ class ApiAuthRepository implements AuthRepository {
           authenticated: true) as Map);
 
   @override
-  Future<List<Map<String, dynamic>>> getTrainerExerciseCatalog({String search = ''}) async {
+  Future<List<Map<String, dynamic>>> getTrainerExerciseCatalog(
+      {String search = ''}) async {
     final path = Uri(
       path: '/api/v1/trainer/exercises',
       queryParameters: search.trim().isEmpty ? null : {'search': search.trim()},
@@ -808,6 +809,29 @@ class ApiAuthRepository implements AuthRepository {
               as Map);
 
   @override
+  Future<Map<String, dynamic>> updateClientProfile(
+      {String? firstName,
+      String? lastName,
+      String? email,
+      String? phone,
+      String? photoData,
+      String? photoMime,
+      bool removePhoto = false}) async {
+    final body = <String, dynamic>{
+      if (firstName != null) 'first_name': firstName,
+      if (lastName != null) 'last_name': lastName,
+      if (email != null) 'email': email,
+      if (phone != null) 'phone': phone,
+      if (photoData != null) 'photo_data': photoData,
+      if (photoMime != null) 'photo_mime': photoMime,
+      if (removePhoto) 'remove_photo': true,
+    };
+    return Map<String, dynamic>.from(await _request(
+            'PATCH', '/api/v1/client/profile', authenticated: true, body: body)
+        as Map);
+  }
+
+  @override
   Future<Map<String, dynamic>> getClientAttendance(
       {required int year, required int month}) async {
     final path = Uri(
@@ -857,7 +881,8 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<Map<String, dynamic>> completeClientWorkout({int? durationSeconds}) async {
+  Future<Map<String, dynamic>> completeClientWorkout(
+      {int? durationSeconds}) async {
     final result = await _request('POST', '/api/v1/client/routine/complete',
         authenticated: true, body: {'duration_seconds': durationSeconds});
     return Map<String, dynamic>.from(result as Map);

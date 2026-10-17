@@ -154,7 +154,8 @@ class AuthController extends ChangeNotifier {
   Future<Map<String, dynamic>> trainerRoutine({required String routineId}) =>
       repository.getTrainerRoutine(routineId: routineId);
 
-  Future<List<Map<String, dynamic>>> trainerExerciseCatalog({String search = ''}) =>
+  Future<List<Map<String, dynamic>>> trainerExerciseCatalog(
+          {String search = ''}) =>
       repository.getTrainerExerciseCatalog(search: search);
 
   Future<void> createTrainerPhase(
@@ -189,6 +190,23 @@ class AuthController extends ChangeNotifier {
 
   Future<Map<String, dynamic>> clientDashboard() =>
       repository.getClientDashboard();
+
+  Future<Map<String, dynamic>> updateClientProfile(
+          {String? firstName,
+          String? lastName,
+          String? email,
+          String? phone,
+          String? photoData,
+          String? photoMime,
+          bool removePhoto = false}) =>
+      repository.updateClientProfile(
+          firstName: firstName,
+          lastName: lastName,
+          email: email,
+          phone: phone,
+          photoData: photoData,
+          photoMime: photoMime,
+          removePhoto: removePhoto);
 
   Future<Map<String, dynamic>> clientAttendance(
           {required int year, required int month}) =>

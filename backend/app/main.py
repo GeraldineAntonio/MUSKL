@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
 import logging
 import os
@@ -198,6 +200,16 @@ class ClientOnboardingRequest(BaseModel):
     days_per_week: int = Field(ge=3, le=6)
     limitations: str | None = Field(default=None, max_length=2000)
     routine_id: uuid.UUID | None = None
+
+
+class ClientProfileUpdate(BaseModel):
+    first_name: str | None = Field(default=None, min_length=1, max_length=80)
+    last_name: str | None = Field(default=None, min_length=1, max_length=100)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=30)
+    photo_data: str | None = Field(default=None, max_length=2_800_000)
+    photo_mime: Literal['image/jpeg', 'image/png'] | None = None
+    remove_photo: bool = False
 
 
 class RoutineExerciseInput(BaseModel):
@@ -1225,6 +1237,7 @@ def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
     with pool.connection() as conn:
         _advance_due_client_phase(conn, client['id'])
         row = conn.execute("""SELECT u.first_name, u.last_name, u.member_number, u.email, u.phone, cp.goal,
+                cp.profile_photo, cp.profile_photo_mime,
                 g.timezone, p.name AS plan_name, m.ends_on AS membership_ends_on,
                 concat_ws(' ', t.first_name, t.last_name) AS trainer_name,
                 r.name AS routine_name, cra.current_phase_id, rp.phase_number,
@@ -1252,11 +1265,81 @@ def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
             ORDER BY created_at DESC LIMIT 1""", (client['id'],)).fetchone()
     attendance_days = {d['local_date'].isoformat() for d in attendance}
     return {**row, 'today': row['today'].isoformat(),
+            'profile_photo_data': (base64.b64encode(bytes(row['profile_photo'])).decode('ascii')
+                                   if row['profile_photo'] else None),
+            'profile_photo_mime': row['profile_photo_mime'],
             'membership_ends_on': row['membership_ends_on'].isoformat() if row['membership_ends_on'] else None,
             'phase_started_at': row['phase_started_at'].isoformat() if row['phase_started_at'] else None,
             'deletion_requested_at': row['deletion_requested_at'].isoformat() if row['deletion_requested_at'] else None,
             'attendance_7d_dates': sorted(attendance_days),
             'new_phase_notification': ({**phase_notice, 'id': str(phase_notice['id'])} if phase_notice else None)}
+
+
+@app.patch('/api/v1/client/profile')
+def update_client_profile(payload: ClientProfileUpdate,
+                          client: dict = Depends(onboarded_client)) -> dict:
+    fields = payload.model_fields_set
+    if not (fields & {'first_name', 'last_name', 'email', 'phone', 'photo_data', 'photo_mime'}) \
+            and not payload.remove_photo:
+        raise _problem(422, 'EMPTY_PROFILE_UPDATE', 'Incluye al menos un cambio de perfil.')
+    if payload.photo_data is not None and payload.remove_photo:
+        raise _problem(422, 'INVALID_PROFILE_PHOTO', 'Elige una foto nueva o quita la foto actual.')
+
+    photo_bytes = None
+    if payload.photo_data is not None:
+        if payload.photo_mime is None:
+            raise _problem(415, 'INVALID_PROFILE_PHOTO', 'El formato de la foto no es válido.')
+        try:
+            photo_bytes = base64.b64decode(payload.photo_data, validate=True)
+        except (ValueError, binascii.Error):
+            raise _problem(415, 'INVALID_PROFILE_PHOTO', 'No se pudo leer la imagen seleccionada.')
+        if not photo_bytes or len(photo_bytes) > 2 * 1024 * 1024:
+            raise _problem(413, 'PROFILE_PHOTO_SIZE', 'La foto debe pesar máximo 2 MB.')
+        valid_signature = (
+            payload.photo_mime == 'image/jpeg' and photo_bytes.startswith(b'\xff\xd8\xff')
+        ) or (
+            payload.photo_mime == 'image/png'
+            and photo_bytes.startswith(b'\x89PNG\r\n\x1a\n')
+        )
+        if not valid_signature:
+            raise _problem(415, 'INVALID_PROFILE_PHOTO', 'Usa una imagen JPG o PNG válida.')
+    elif payload.photo_mime is not None:
+        raise _problem(415, 'INVALID_PROFILE_PHOTO', 'Faltan los datos de la foto seleccionada.')
+
+    first_name = (payload.first_name.strip() if payload.first_name is not None
+                  else client['first_name'])
+    last_name = (payload.last_name.strip() if payload.last_name is not None
+                 else client['last_name'])
+    email = str(payload.email).lower() if payload.email is not None else client['email']
+    phone = client['phone']
+    if 'phone' in fields:
+        phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
+
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""UPDATE users SET first_name = %s, last_name = %s,
+                    email = %s, phone = %s, updated_at = now() WHERE id = %s""",
+                    (first_name, last_name, email, phone, client['id']))
+                if payload.remove_photo:
+                    cur.execute("""UPDATE client_profiles SET profile_photo = NULL,
+                        profile_photo_mime = NULL, updated_at = now() WHERE user_id = %s""",
+                        (client['id'],))
+                elif photo_bytes is not None:
+                    cur.execute("""UPDATE client_profiles SET profile_photo = %s,
+                        profile_photo_mime = %s, updated_at = now() WHERE user_id = %s""",
+                        (photo_bytes, payload.photo_mime, client['id']))
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, subject_id, event_type, details)
+                    VALUES (%s, %s, %s, 'client_profile_updated', %s)""",
+                    (client['gym_id'], client['id'], client['id'],
+                     Jsonb({'email': email, 'photo_changed': photo_bytes is not None or payload.remove_photo})))
+    except Exception as exc:
+        constraint = getattr(getattr(exc, 'diag', None), 'constraint_name', '')
+        if constraint == 'users_email_per_gym_uq':
+            raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado en el gimnasio.')
+        raise
+    return client_dashboard(client)
 
 
 @app.get('/api/v1/client/notifications')

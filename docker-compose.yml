@@ -17,6 +17,7 @@ services:
       - ./backend/db/006_admin_preferences.sql:/docker-entrypoint-initdb.d/006_admin_preferences.sql:ro
       - ./backend/db/007_group_memberships.sql:/docker-entrypoint-initdb.d/007_group_memberships.sql:ro
       - ./backend/db/008_exercise_catalog.sql:/docker-entrypoint-initdb.d/008_exercise_catalog.sql:ro
+      - ./backend/db/009_client_profile_photo.sql:/docker-entrypoint-initdb.d/009_client_profile_photo.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U muskl -d muskl"]
       interval: 5s

@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -610,20 +613,24 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen> {
                   ])),
                   _section('Ejercicios del día · ${exercises.length}'),
                   for (final exercise in exercises)
-                  _record(exercise['name'].toString(),
+                    _record(exercise['name'].toString(),
                         '${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s descanso',
                         badge: '${exercise['position'] ?? ''}',
-                        onTap: () => context.push(Uri(
-                            path: '/home/exercise',
-                            queryParameters: {
+                        onTap: () => context.push(
+                                Uri(path: '/home/exercise', queryParameters: {
                               'id': exercise['id'].toString(),
                               'name': exercise['name'].toString(),
-                              'media_url': exercise['media_url']?.toString() ?? '',
-                              'muscle_group': exercise['muscle_group']?.toString() ?? 'Rutina',
-                              'instructions': exercise['instructions']?.toString() ?? '',
+                              'media_url':
+                                  exercise['media_url']?.toString() ?? '',
+                              'muscle_group':
+                                  exercise['muscle_group']?.toString() ??
+                                      'Rutina',
+                              'instructions':
+                                  exercise['instructions']?.toString() ?? '',
                               'sets': exercise['sets'].toString(),
                               'reps': exercise['reps'].toString(),
-                              'rest_seconds': exercise['rest_seconds'].toString(),
+                              'rest_seconds':
+                                  exercise['rest_seconds'].toString(),
                             }).toString())),
                   if (exercises.isEmpty)
                     const Text('No hay ejercicios programados para este día.'),
@@ -678,7 +685,8 @@ class ExerciseDetailScreen extends StatelessWidget {
             color: AppColors.surface,
             alignment: Alignment.center,
             child: mediaUrl.isEmpty
-                ? const Icon(Icons.fitness_center, size: 70, color: AppColors.red)
+                ? const Icon(Icons.fitness_center,
+                    size: 70, color: AppColors.red)
                 : Image.network(
                     mediaUrl,
                     width: double.infinity,
@@ -913,11 +921,99 @@ class ClientProfileWorkspaceScreen extends StatefulWidget {
 class _ClientProfileWorkspaceScreenState
     extends State<ClientProfileWorkspaceScreen> {
   late Future<Map<String, dynamic>> _profile;
+  bool _savingProfile = false;
 
   @override
   void initState() {
     super.initState();
     _profile = authController.clientDashboard();
+  }
+
+  Future<void> _editPersonal(Map<String, dynamic> data) async {
+    final result = await _editFields(context, 'EDITAR DATOS PERSONALES', [
+      'Nombre',
+      'Apellidos',
+      'Correo electrónico',
+      'Teléfono',
+    ], [
+      (data['first_name'] ?? '').toString(),
+      (data['last_name'] ?? '').toString(),
+      (data['email'] ?? '').toString(),
+      (data['phone'] ?? '').toString(),
+    ]);
+    if (!mounted || result == null) return;
+    await _saveClientProfile(
+        firstName: result[0],
+        lastName: result[1],
+        email: result[2],
+        phone: result[3]);
+  }
+
+  Future<void> _pickProfilePhoto() async {
+    final picked = await FilePicker.platform
+        .pickFiles(type: FileType.image, allowMultiple: false, withData: true);
+    if (!mounted || picked == null) return;
+    final file = picked.files.single;
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      _showProfileMessage('No se pudo leer la foto seleccionada.');
+      return;
+    }
+    if (bytes.length > 2 * 1024 * 1024) {
+      _showProfileMessage('La foto debe pesar máximo 2 MB.');
+      return;
+    }
+    final extension = file.extension?.toLowerCase();
+    final mime = switch (extension) {
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      _ => null,
+    };
+    if (mime == null) {
+      _showProfileMessage('Elige una imagen JPG o PNG.');
+      return;
+    }
+    await _saveClientProfile(photoData: base64Encode(bytes), photoMime: mime);
+  }
+
+  Future<void> _removeProfilePhoto() async {
+    await _saveClientProfile(removePhoto: true);
+  }
+
+  Future<void> _saveClientProfile(
+      {String? firstName,
+      String? lastName,
+      String? email,
+      String? phone,
+      String? photoData,
+      String? photoMime,
+      bool removePhoto = false}) async {
+    setState(() => _savingProfile = true);
+    try {
+      final saved = await authController.updateClientProfile(
+          firstName: firstName,
+          lastName: lastName,
+          email: email,
+          phone: phone,
+          photoData: photoData,
+          photoMime: photoMime,
+          removePhoto: removePhoto);
+      if (mounted) {
+        setState(() => _profile = Future.value(saved));
+        _showProfileMessage('Perfil actualizado.');
+      }
+    } catch (error) {
+      _showProfileMessage('No se pudo actualizar el perfil: $error');
+    } finally {
+      if (mounted) setState(() => _savingProfile = false);
+    }
+  }
+
+  void _showProfileMessage(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   Future<void> _requestDeletion() async {
@@ -965,13 +1061,28 @@ class _ClientProfileWorkspaceScreenState
             return Text('No se pudo cargar tu perfil: ${snapshot.error}',
                 style: const TextStyle(color: AppColors.red));
           final data = snapshot.data ?? {};
+          final photo = data['profile_photo_data'];
+          final photoBytes =
+              photo is String && photo.isNotEmpty ? base64Decode(photo) : null;
           return Column(children: [
+            if (_savingProfile) const LinearProgressIndicator(),
             MusklCard(
                 child: Column(children: [
-              const CircleAvatar(
+              CircleAvatar(
                   radius: 38,
                   backgroundColor: AppColors.surfaceHigh,
-                  child: Icon(Icons.person, size: 42, color: AppColors.yellow)),
+                  child: photoBytes == null
+                      ? const Icon(Icons.person,
+                          size: 42, color: AppColors.yellow)
+                      : ClipOval(
+                          child: Image.memory(photoBytes,
+                              width: 76,
+                              height: 76,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.person,
+                                  size: 42,
+                                  color: AppColors.yellow)))),
               const SizedBox(height: 10),
               Text('${data['first_name']} ${data['last_name']}'.toUpperCase(),
                   style: const TextStyle(
@@ -982,6 +1093,18 @@ class _ClientProfileWorkspaceScreenState
               Text('${data['goal'] ?? 'OBJETIVO PENDIENTE'}',
                   style: const TextStyle(color: AppColors.textMuted)),
             ])),
+            _setting('Editar datos personales',
+                'Actualiza tu nombre, correo y teléfono', Icons.edit_outlined,
+                onTap: _savingProfile ? null : () => _editPersonal(data)),
+            _setting(
+                'Cambiar foto de perfil',
+                'Elige una imagen JPG o PNG (máximo 2 MB)',
+                Icons.add_a_photo_outlined,
+                onTap: _savingProfile ? null : _pickProfilePhoto),
+            if (photoBytes != null)
+              _setting('Quitar foto de perfil',
+                  'Volver a la imagen predeterminada', Icons.delete_outline,
+                  onTap: _savingProfile ? null : _removeProfilePhoto),
             _section('Datos personales'),
             _record('Correo', (data['email'] ?? '').toString(),
                 icon: Icons.mail_outline),
@@ -1477,17 +1600,21 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                     child: FutureBuilder<List<Map<String, dynamic>>>(
                       future: results,
                       builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                              child: CircularProgressIndicator());
                         }
                         if (snapshot.hasError) {
                           return Center(
-                              child: Text('No se pudo buscar: ${snapshot.error}'));
+                              child:
+                                  Text('No se pudo buscar: ${snapshot.error}'));
                         }
                         final rows = snapshot.data ?? [];
                         if (rows.isEmpty) {
                           return const Center(
-                              child: Text('No hay ejercicios con esa búsqueda.'));
+                              child:
+                                  Text('No hay ejercicios con esa búsqueda.'));
                         }
                         return ListView.builder(
                           itemCount: rows.length,
@@ -1498,7 +1625,8 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                               title: Text(exercise['name'].toString()),
                               subtitle: Text(
                                   '${exercise['muscle_group']} · ${exercise['equipment']}'),
-                              onTap: () => Navigator.pop(sheetContext, exercise),
+                              onTap: () =>
+                                  Navigator.pop(sheetContext, exercise),
                             );
                           },
                         );

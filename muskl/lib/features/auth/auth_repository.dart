@@ -82,7 +82,8 @@ abstract class AuthRepository {
   Future<Map<String, dynamic>> getTrainerClient({required String clientId});
   Future<List<Map<String, dynamic>>> getTrainerRoutines();
   Future<Map<String, dynamic>> getTrainerRoutine({required String routineId});
-  Future<List<Map<String, dynamic>>> getTrainerExerciseCatalog({String search = ''});
+  Future<List<Map<String, dynamic>>> getTrainerExerciseCatalog(
+      {String search = ''});
   Future<void> createTrainerPhase(
       {required String routineId,
       required String name,
@@ -101,6 +102,14 @@ abstract class AuthRepository {
       required String phaseId,
       required String clientId});
   Future<Map<String, dynamic>> getClientDashboard();
+  Future<Map<String, dynamic>> updateClientProfile(
+      {String? firstName,
+      String? lastName,
+      String? email,
+      String? phone,
+      String? photoData,
+      String? photoMime,
+      bool removePhoto = false});
   Future<Map<String, dynamic>> getClientAttendance(
       {required int year, required int month});
   Future<Map<String, dynamic>> getClientRoutine({required int day});
@@ -682,7 +691,9 @@ class FakeAuthRepository implements AuthRepository {
       {required String routineId, required String phaseId}) async {}
 
   @override
-  Future<List<Map<String, dynamic>>> getTrainerExerciseCatalog({String search = ''}) async => [];
+  Future<List<Map<String, dynamic>>> getTrainerExerciseCatalog(
+          {String search = ''}) async =>
+      [];
 
   @override
   Future<void> createTrainerRoutine(
@@ -713,6 +724,26 @@ class FakeAuthRepository implements AuthRepository {
         'attendance_total': 19,
         'workouts_7d': 4,
         'attendance_7d_dates': [],
+      };
+
+  @override
+  Future<Map<String, dynamic>> updateClientProfile(
+          {String? firstName,
+          String? lastName,
+          String? email,
+          String? phone,
+          String? photoData,
+          String? photoMime,
+          bool removePhoto = false}) async =>
+      {
+        ...await getClientDashboard(),
+        if (firstName != null) 'first_name': firstName,
+        if (lastName != null) 'last_name': lastName,
+        if (email != null) 'email': email,
+        if (phone != null) 'phone': phone,
+        if (photoData != null) 'profile_photo_data': photoData,
+        if (photoMime != null) 'profile_photo_mime': photoMime,
+        if (removePhoto) 'profile_photo_data': null,
       };
 
   @override
@@ -765,8 +796,13 @@ class FakeAuthRepository implements AuthRepository {
       {required String notificationId}) async {}
 
   @override
-  Future<Map<String, dynamic>> completeClientWorkout({int? durationSeconds}) async =>
-      {'completed': true, 'exercise_count': 5, 'duration_seconds': durationSeconds};
+  Future<Map<String, dynamic>> completeClientWorkout(
+          {int? durationSeconds}) async =>
+      {
+        'completed': true,
+        'exercise_count': 5,
+        'duration_seconds': durationSeconds
+      };
 
   @override
   Future<void> requestAccountDeletion() async {}

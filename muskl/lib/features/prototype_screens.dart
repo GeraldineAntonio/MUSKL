@@ -938,6 +938,32 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
     _loadOptions();
   }
 
+  Future<void> _goBack() async {
+    if (_step > 0) {
+      setState(() {
+        _step--;
+        _error = null;
+      });
+      return;
+    }
+    final shouldSignOut = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+              title: const Text('SALIR DEL REGISTRO'),
+              content: const Text(
+                  'Tu perfil aún está incompleto. Puedes volver a iniciar sesión y continuar después.'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: const Text('Seguir aquí')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(dialogContext, true),
+                    child: const Text('Cerrar sesión')),
+              ],
+            ));
+    if (shouldSignOut == true) await authController.signOut();
+  }
+
   @override
   void dispose() {
     _limitations.dispose();
@@ -966,7 +992,8 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         _loading = false;
         _optionsFailed = false;
         if (_plans.isEmpty) {
-          _error = 'El gimnasio todavía no tiene membresías activas. Contacta al administrador.';
+          _error =
+              'El gimnasio todavía no tiene membresías activas. Contacta al administrador.';
         }
       });
     } on AuthException catch (e) {
@@ -1351,12 +1378,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         title: 'Completa tu perfil',
         step: _step < 4 ? 'PASO ${_step + 1} DE 4' : 'OPCIONES DE RUTINA',
         backWithinFlow: true,
-        onBack: _step > 0 && !_saving
-            ? () => setState(() {
-                  _step--;
-                  _error = null;
-                })
-            : null,
+        onBack: _saving ? null : _goBack,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

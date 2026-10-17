@@ -12,6 +12,12 @@ import '../main.dart';
 import 'auth/auth_models.dart';
 
 const _goals = ['Bajar de peso', 'Masa muscular', 'Resistencia', 'Fuerza'];
+const _goalImages = {
+  'Bajar de peso': 'assets/images/goals/bajar_de_peso.jpeg',
+  'Masa muscular': 'assets/images/goals/masa_muscular.jpg',
+  'Resistencia': 'assets/images/goals/resistencia.jpeg',
+  'Fuerza': 'assets/images/goals/fuerza.jpeg',
+};
 
 class _GroupMemberFields {
   final firstName = TextEditingController();
@@ -1279,10 +1285,85 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         2 => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const Text('¿Cuál es tu objetivo?'),
             const SizedBox(height: 14),
-            for (final goal in _goals)
-              _option(goal,
-                  selected: _goal == goal,
-                  onTap: () => setState(() => _goal = goal)),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _goals.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 1,
+              ),
+              itemBuilder: (context, index) {
+                final goal = _goals[index];
+                final selected = _goal == goal;
+                return Semantics(
+                  button: true,
+                  selected: selected,
+                  label: goal,
+                  child: InkWell(
+                    onTap: () => setState(() => _goal = goal),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: selected ? AppColors.yellow : Colors.white24,
+                          width: selected ? 3 : 1,
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.asset(_goalImages[goal]!, fit: BoxFit.cover),
+                            const DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    Color(0xCC000000),
+                                  ],
+                                  stops: [0.35, 1],
+                                ),
+                              ),
+                            ),
+                            Align(
+                              alignment: Alignment.bottomLeft,
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Text(
+                                  goal,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    shadows: [
+                                      Shadow(blurRadius: 8, color: Colors.black),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            if (selected)
+                              const Positioned(
+                                top: 8,
+                                right: 8,
+                                child: Icon(Icons.check_circle,
+                                    color: AppColors.yellow),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
           ]),
         3 => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('Nivel de experiencia'),

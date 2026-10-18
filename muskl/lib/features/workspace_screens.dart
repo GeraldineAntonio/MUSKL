@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pdfrx/pdfrx.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/widgets/muskl_bottom_nav.dart';
@@ -3337,30 +3338,42 @@ class _AdminRequestsScreenState extends State<AdminRequestsScreen> {
         certificationId: certificate['id'].toString(),
       );
       if (!mounted) return;
+      final title = certificate['title']?.toString() ?? 'Certificado';
+      final extension = title.split('.').last.toLowerCase();
       await showDialog<void>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(certificate['title']?.toString() ?? 'Certificado'),
-          content: const Text(
-              'Este enlace privado vence en 10 minutos. Cópialo y ábrelo en el navegador para revisar el documento.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cerrar'),
+        builder: (dialogContext) => Dialog.fullscreen(
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+              leading: IconButton(
+                tooltip: 'Cerrar',
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                icon: const Icon(Icons.close),
+              ),
             ),
-            FilledButton.icon(
-              onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: url));
-                if (dialogContext.mounted) Navigator.of(dialogContext).pop();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text('Enlace temporal copiado.')));
-                }
-              },
-              icon: const Icon(Icons.copy),
-              label: const Text('Copiar enlace'),
-            ),
-          ],
+            body: extension == 'pdf'
+                ? PdfViewer.uri(Uri.parse(url))
+                : InteractiveViewer(
+                    minScale: 0.5,
+                    maxScale: 5,
+                    child: Center(
+                      child: Image.network(
+                        url,
+                        fit: BoxFit.contain,
+                        loadingBuilder: (context, child, progress) =>
+                            progress == null
+                                ? child
+                                : const Center(
+                                    child: CircularProgressIndicator()),
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Center(
+                          child: Text('No se pudo cargar la imagen.'),
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
         ),
       );
     } catch (e) {

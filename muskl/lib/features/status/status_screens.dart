@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/muskl_button.dart';
@@ -32,6 +33,8 @@ class _StatusLayout extends StatelessWidget {
     required this.message,
     this.details = const [],
     this.buttonLabel = 'Entendido',
+    this.onExit,
+    this.returnHomeOnBack = false,
   });
 
   final IconData icon;
@@ -40,69 +43,86 @@ class _StatusLayout extends StatelessWidget {
   final String message;
   final List<(String, String)> details;
   final String buttonLabel;
+  final Future<void> Function()? onExit;
+  final bool returnHomeOnBack;
+
+  Future<void> _leave(BuildContext context) async {
+    try {
+      await (onExit ?? authController.signOut)();
+    } catch (_) {
+      // La sesión local también se elimina si el servidor no responde.
+    } finally {
+      if (returnHomeOnBack && context.mounted) context.go('/welcome');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              const Spacer(),
-              Container(
-                width: 88,
-                height: 88,
-                decoration: BoxDecoration(
-                  color: iconColor.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, size: 44, color: iconColor),
-              ),
-              const SizedBox(height: 24),
-              Text(title.toUpperCase(),
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.headlineMedium),
-              const SizedBox(height: 12),
-              Text(message,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: AppColors.textMuted, fontSize: 16)),
-              if (details.isNotEmpty) ...[
-                const SizedBox(height: 24),
-                MusklCard(
-                  child: Column(
-                    children: [
-                      for (final (k, v) in details)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Text(k.toUpperCase(),
-                                    style: theme.textTheme.labelSmall
-                                        ?.copyWith(color: AppColors.textMuted)),
-                              ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(v,
-                                    textAlign: TextAlign.right,
-                                    style: theme.textTheme.titleMedium),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
+    return PopScope(
+      canPop: !returnHomeOnBack,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && returnHomeOnBack) _leave(context);
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                const Spacer(),
+                Container(
+                  width: 88,
+                  height: 88,
+                  decoration: BoxDecoration(
+                    color: iconColor.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
                   ),
+                  child: Icon(icon, size: 44, color: iconColor),
                 ),
+                const SizedBox(height: 24),
+                Text(title.toUpperCase(),
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.headlineMedium),
+                const SizedBox(height: 12),
+                Text(message,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                        color: AppColors.textMuted, fontSize: 16)),
+                if (details.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  MusklCard(
+                    child: Column(
+                      children: [
+                        for (final (k, v) in details)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Text(k.toUpperCase(),
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(color: AppColors.textMuted)),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(v,
+                                      textAlign: TextAlign.right,
+                                      style: theme.textTheme.titleMedium),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+                const Spacer(),
+                MusklButton(
+                    label: buttonLabel, onPressed: () => _leave(context)),
               ],
-              const Spacer(),
-              // "Entendido" cierra la sesión; el router vuelve al login.
-              MusklButton(
-                  label: buttonLabel, onPressed: authController.signOut),
-            ],
+            ),
           ),
         ),
       ),
@@ -114,13 +134,14 @@ class _StatusLayout extends StatelessWidget {
 class PendingScreen extends StatelessWidget {
   const PendingScreen({super.key});
   @override
-  Widget build(BuildContext context) => const _StatusLayout(
+  Widget build(BuildContext context) => _StatusLayout(
         icon: Icons.hourglass_top,
         iconColor: AppColors.accent,
         title: 'Cuenta en revisión',
         message:
             'Tu solicitud está siendo revisada por el gimnasio. Te avisaremos por correo cuando sea aprobada.',
         buttonLabel: 'Cerrar sesión',
+        returnHomeOnBack: true,
       );
 }
 

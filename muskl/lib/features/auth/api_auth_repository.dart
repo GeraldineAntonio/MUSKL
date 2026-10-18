@@ -268,6 +268,8 @@ class ApiAuthRepository implements AuthRepository {
       required String goal,
       required String experienceLevel,
       required int daysPerWeek,
+      required double weightKg,
+      double? heightCm,
       String? limitations}) async {
     final result = await _request('POST', '/api/v1/client/onboarding', body: {
       'plan_id': planId,
@@ -276,6 +278,8 @@ class ApiAuthRepository implements AuthRepository {
       'goal': goal,
       'experience_level': experienceLevel,
       'days_per_week': daysPerWeek,
+      'weight_kg': weightKg,
+      'height_cm': heightCm,
       'limitations': limitations,
     });
     return _sessionFromResponse(Map<String, dynamic>.from(result as Map));
@@ -391,6 +395,8 @@ class ApiAuthRepository implements AuthRepository {
       required String name,
       required double priceMxn,
       required int durationDays,
+      int minGroupSize = 1,
+      int maxGroupSize = 1,
       required bool active}) async {
     final result = await _request(
         id == null ? 'POST' : 'PUT',
@@ -402,6 +408,8 @@ class ApiAuthRepository implements AuthRepository {
           'name': name,
           'price_mxn': priceMxn,
           'duration_days': durationDays,
+          'min_group_size': minGroupSize,
+          'max_group_size': maxGroupSize,
           'active': active,
         }) as Map;
     return Map<String, dynamic>.from(result);
@@ -441,9 +449,7 @@ class ApiAuthRepository implements AuthRepository {
 
   @override
   Future<Map<String, dynamic>> updateOwnProfilePhoto(
-      {String? photoData,
-      String? photoMime,
-      bool removePhoto = false}) async {
+      {String? photoData, String? photoMime, bool removePhoto = false}) async {
     final body = <String, dynamic>{
       if (photoData != null) 'photo_data': photoData,
       if (photoMime != null) 'photo_mime': photoMime,
@@ -491,10 +497,20 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<String?> sendPasswordChangeCode() async {
+  Future<String?> sendPasswordChangeCode(
+      {required String currentPassword}) async {
     final result = await _request('POST', '/api/v1/auth/password/change-code',
-        authenticated: true) as Map;
+        authenticated: true,
+        body: {'current_password': currentPassword}) as Map;
     return result['channel']?.toString();
+  }
+
+  @override
+  Future<void> verifyPasswordChangeCode(
+      {required String currentPassword, required String code}) async {
+    await _request('POST', '/api/v1/auth/password/change-verify',
+        authenticated: true,
+        body: {'current_password': currentPassword, 'code': code});
   }
 
   @override
@@ -932,8 +948,7 @@ class ApiAuthRepository implements AuthRepository {
   @override
   Future<Session> verifyRegistrationEmail(
       {required String email, required String code}) async {
-    final result = await _request(
-        'POST', '/api/v1/auth/register/verify-email',
+    final result = await _request('POST', '/api/v1/auth/register/verify-email',
         body: {'email': email, 'code': code});
     return _sessionFromResponse(Map<String, dynamic>.from(result as Map));
   }
@@ -962,8 +977,12 @@ class ApiAuthRepository implements AuthRepository {
   Future<void> signOut() async {
     try {
       if (_accessToken != null) {
-        await _request('POST', '/api/v1/auth/logout', authenticated: true);
+        await _request('POST', '/api/v1/auth/logout',
+                authenticated: true, retriedAfterRefresh: true)
+            .timeout(const Duration(seconds: 3));
       }
+    } catch (_) {
+      // Cierra la sesión local aunque el backend no esté disponible.
     } finally {
       await _clearStoredSession();
     }

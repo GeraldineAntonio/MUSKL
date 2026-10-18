@@ -14,6 +14,7 @@ import '../core/widgets/muskl_bottom_nav.dart';
 import '../core/widgets/muskl_button.dart';
 import '../core/widgets/muskl_card.dart';
 import '../core/widgets/muskl_text_field.dart';
+import '../core/widgets/password_strength.dart';
 import '../core/widgets/profile_photo_avatar.dart';
 import 'auth/auth_models.dart';
 import '../main.dart';
@@ -382,6 +383,11 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
             Set<String>.from(data['attendance_7d_dates'] as List? ?? []);
         final now = DateTime.tryParse(data['today']?.toString() ?? '') ??
             DateTime.now();
+        final hours = data['gym_opening_hours'];
+        final hoursText = hours is Map
+            ? (hours['display']?.toString() ??
+                hours.entries.map((entry) => '${entry.key}: ${entry.value}').join('\n'))
+            : '';
         final today = DateTime(now.year, now.month, now.day);
         final week =
             List.generate(7, (i) => today.subtract(Duration(days: 6 - i)));
@@ -433,6 +439,23 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                           onPressed: () => context.go('/home/profile'),
                           child: const Text('Mi perfil'))
                     ])
+                  ])),
+              _section('Tu gimnasio'),
+              MusklCard(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text((data['gym_name'] ?? 'Gimnasio').toString(),
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    if ((data['gym_address'] ?? '').toString().isNotEmpty)
+                      Text(data['gym_address'].toString()),
+                    if ((data['gym_phone'] ?? '').toString().isNotEmpty)
+                      Text(data['gym_phone'].toString()),
+                    if (hoursText.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(hoursText,
+                          style: const TextStyle(color: AppColors.textMuted)),
+                    ],
                   ])),
               _section('Tu actividad'),
               Row(children: [
@@ -1396,14 +1419,11 @@ class _ClientProfileWorkspaceScreenState
       final selected = await pickProfilePhoto(context);
       if (!mounted || selected == null) return;
       await _saveClientProfile(
-          photoData: base64Encode(selected.bytes), photoMime: selected.mimeType);
+          photoData: base64Encode(selected.bytes),
+          photoMime: selected.mimeType);
     } catch (e) {
       _showProfileMessage(e.toString().replaceFirst('FormatException: ', ''));
     }
-  }
-
-  Future<void> _removeProfilePhoto() async {
-    await _saveClientProfile(removePhoto: true);
   }
 
   Future<void> _saveClientProfile(
@@ -1517,15 +1537,6 @@ class _ClientProfileWorkspaceScreenState
             _setting('Editar datos personales',
                 'Actualiza tu nombre, correo y teléfono', Icons.edit_outlined,
                 onTap: _savingProfile ? null : () => _editPersonal(data)),
-            _setting(
-                'Cambiar foto de perfil',
-                'Elige una imagen JPG o PNG (máximo 2 MB)',
-                Icons.add_a_photo_outlined,
-                onTap: _savingProfile ? null : _pickProfilePhoto),
-            if (photoBytes != null || (photoUrl != null && photoUrl.isNotEmpty))
-              _setting('Quitar foto de perfil',
-                  'Volver a la imagen predeterminada', Icons.delete_outline,
-                  onTap: _savingProfile ? null : _removeProfilePhoto),
             _section('Datos personales'),
             _record('Correo', (data['email'] ?? '').toString(),
                 icon: Icons.mail_outline),
@@ -2309,26 +2320,15 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
     setState(() => _saving = true);
     try {
       final saved = await authController.updateOwnProfilePhoto(
-          photoData: base64Encode(selected.bytes), photoMime: selected.mimeType);
+          photoData: base64Encode(selected.bytes),
+          photoMime: selected.mimeType);
       if (mounted) {
-        setState(() => _profile['profile_photo_url'] = saved['profile_photo_url']);
+        setState(
+            () => _profile['profile_photo_url'] = saved['profile_photo_url']);
       }
       _message('Foto de perfil actualizada.');
     } catch (e) {
       _message('No se pudo guardar la foto: $e');
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  Future<void> _removeProfilePhoto() async {
-    setState(() => _saving = true);
-    try {
-      await authController.updateOwnProfilePhoto(removePhoto: true);
-      if (mounted) setState(() => _profile['profile_photo_url'] = null);
-      _message('Foto de perfil quitada.');
-    } catch (e) {
-      _message('No se pudo quitar la foto: $e');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -2439,44 +2439,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
   }
 
   Future<void> _changePassword() async {
-    try {
-      final channel = await authController.sendPasswordChangeCode();
-      if (!mounted) return;
-      _message(channel == 'development'
-          ? 'Código de prueba generado; revisa la consola del API.'
-          : 'Enviamos un código al correo vinculado.');
-    } catch (e) {
-      _message('No se pudo enviar el código de seguridad: $e');
-      return;
-    }
-    final result = await _editFields(
-        context,
-        'CAMBIAR CONTRASEÑA',
-        [
-          'Código de seguridad (6 dígitos)',
-          'Contraseña actual',
-          'Nueva contraseña',
-          'Confirmar contraseña'
-        ],
-        ['', '', '', ''],
-        obscure: true);
-    if (!mounted) return;
-    if (result == null) return;
-    if (result[0].length != 6 ||
-        result[2].length < 8 ||
-        result[2] != result[3]) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-              'Escribe el código de 6 dígitos y revisa que la nueva contraseña tenga al menos 8 caracteres y coincida.')));
-      return;
-    }
-    try {
-      await authController.changePassword(
-          currentPassword: result[1], newPassword: result[2], code: result[0]);
-      _message('Contraseña actualizada. Las demás sesiones se cerraron.');
-    } catch (e) {
-      _message('No se pudo cambiar la contraseña: $e');
-    }
+    await _changeAccountPassword(context);
   }
 
   Widget _preference(String label, String key, bool fallback) {
@@ -2523,13 +2486,6 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                       Text('Entrenador · ${_value('specialty')}'),
                     ])),
               ])),
-              _setting('Cambiar foto de perfil',
-                  'JPG o PNG · máximo 2 MB', Icons.add_a_photo_outlined,
-                  onTap: _saving ? null : _changeProfilePhoto),
-              if (_value('profile_photo_url').isNotEmpty)
-                _setting('Quitar foto de perfil', 'Usar imagen predeterminada',
-                    Icons.delete_outline,
-                    onTap: _saving ? null : _removeProfilePhoto),
               _setting(
                   'Datos personales',
                   '${_value('email')} · ${_value('phone')}',
@@ -2635,7 +2591,9 @@ Future<bool> _verifyEmailChange(BuildContext context, String newEmail) async {
 
 Future<List<String>?> _editFields(BuildContext context, String title,
     List<String> labels, List<String> values,
-    {bool obscure = false, Set<int> multiline = const {}}) async {
+    {bool obscure = false,
+    bool trim = true,
+    Set<int> multiline = const {}}) async {
   final controllers = List.generate(
       values.length, (i) => TextEditingController(text: values[i]));
   try {
@@ -2666,8 +2624,11 @@ Future<List<String>?> _editFields(BuildContext context, String title,
               onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancelar')),
           FilledButton(
-              onPressed: () => Navigator.pop(dialogContext,
-                  controllers.map((c) => c.text.trim()).toList()),
+              onPressed: () => Navigator.pop(
+                  dialogContext,
+                  controllers
+                      .map((c) => trim ? c.text.trim() : c.text)
+                      .toList()),
               child: const Text('Guardar'))
         ],
       ),
@@ -2691,41 +2652,64 @@ Widget _setting(String title, String subtitle, IconData icon,
             trailing: const Icon(Icons.chevron_right)));
 
 Future<void> _changeAccountPassword(BuildContext context) async {
+  final currentValues = await _editFields(
+      context, 'PASO 1 DE 3 · CONTRASEÑA ACTUAL', ['Contraseña actual'], [''],
+      obscure: true, trim: false);
+  if (!context.mounted || currentValues == null) return;
+  final currentPassword = currentValues.single;
+  if (currentPassword.isEmpty) return;
+
+  String? channel;
   try {
-    final channel = await authController.sendPasswordChangeCode();
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(channel == 'development'
-            ? 'Código de prueba generado; revisa la consola del API.'
-            : 'Enviamos un código al correo vinculado.')));
+    channel = await authController.sendPasswordChangeCode(
+        currentPassword: currentPassword);
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('No se pudo enviar el código de seguridad: $e')));
+          content: Text('No se pudo validar la contraseña actual: $e')));
     }
     return;
   }
-  final values = await _editFields(
-      context,
-      'CAMBIAR CONTRASEÑA',
-      [
-        'Código de seguridad (6 dígitos)',
-        'Contraseña actual',
-        'Nueva contraseña',
-        'Confirmar contraseña',
-      ],
-      ['', '', '', ''],
-      obscure: true);
-  if (!context.mounted || values == null) return;
-  if (values[0].length != 6 || values[2].length < 8 || values[2] != values[3]) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-            'Escribe el código de 6 dígitos y asegúrate de que la nueva contraseña tenga al menos 8 caracteres y coincida.')));
-    return;
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(channel == 'development'
+          ? 'Código de prueba generado; revisa la consola del API.'
+          : 'Contraseña actual confirmada. Enviamos un código al correo vinculado.')));
+
+  String? code;
+  while (context.mounted) {
+    final codeValues = await _editFields(
+        context,
+        'PASO 2 DE 3 · CÓDIGO DE SEGURIDAD',
+        ['Código enviado a tu correo'],
+        ['']);
+    if (!context.mounted || codeValues == null) return;
+    final candidate = codeValues.single;
+    if (!RegExp(r'^\d{6}$').hasMatch(candidate)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Escribe el código de seguridad de 6 dígitos.')));
+      continue;
+    }
+    try {
+      await authController.verifyPasswordChangeCode(
+          currentPassword: currentPassword, code: candidate);
+      code = candidate;
+      break;
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo verificar el código: $e')));
+    }
   }
+  if (!context.mounted || code == null) return;
+
+  final newValues = await _editNewPassword(context);
+  if (!context.mounted || newValues == null) return;
   try {
     await authController.changePassword(
-        currentPassword: values[1], newPassword: values[2], code: values[0]);
+        currentPassword: currentPassword,
+        newPassword: newValues[0],
+        code: code);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content:
@@ -2736,6 +2720,67 @@ Future<void> _changeAccountPassword(BuildContext context) async {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('No se pudo cambiar la contraseña: $e')));
     }
+  }
+}
+
+Future<List<String>?> _editNewPassword(BuildContext context) async {
+  final password = TextEditingController();
+  final confirmation = TextEditingController();
+  try {
+    return await showDialog<List<String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final valid = isStrongPassword(password.text) &&
+              password.text == confirmation.text;
+          return AlertDialog(
+            title: const Text('PASO 3 DE 3 · CONTRASEÑA NUEVA'),
+            content: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                TextField(
+                  controller: password,
+                  obscureText: true,
+                  onChanged: (_) => setDialogState(() {}),
+                  decoration: const InputDecoration(
+                      labelText: 'Nueva contraseña',
+                      border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 12),
+                PasswordStrength(password: password.text),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: confirmation,
+                  obscureText: true,
+                  onChanged: (_) => setDialogState(() {}),
+                  decoration: InputDecoration(
+                      labelText: 'Confirmar contraseña',
+                      errorText: confirmation.text.isNotEmpty &&
+                              password.text != confirmation.text
+                          ? 'Las contraseñas no coinciden'
+                          : null,
+                      border: const OutlineInputBorder()),
+                ),
+              ]),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancelar')),
+              FilledButton(
+                onPressed: valid
+                    ? () => Navigator.pop(
+                        dialogContext, [password.text, confirmation.text])
+                    : null,
+                child: const Text('Guardar contraseña'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  } finally {
+    password.dispose();
+    confirmation.dispose();
   }
 }
 
@@ -2914,18 +2959,71 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
   Future<void> _deactivateUser(Map<String, dynamic> user) async {
     final name = '${user['first_name']} ${user['last_name']}';
+    final userId = user['id']?.toString();
+    final memberNumber = user['member_number']?.toString() ?? '';
+    if ((userId == null || userId.isEmpty) && memberNumber.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('No se encontró el identificador de esta cuenta.')));
+      return;
+    }
     final changed = await context.push<bool>(
       Uri(
         path: '/admin/deactivate',
         queryParameters: {
-          'id': user['id'].toString(),
-          'member': (user['member_number'] ?? '').toString(),
+          'id': userId ?? '',
+          'member': memberNumber,
           'name': name,
           'role': user['role'].toString(),
         },
       ).toString(),
     );
     if (changed == true && mounted) setState(_reload);
+  }
+
+  Widget _userRecord(Map<String, dynamic> user) {
+    final role = user['role']?.toString().toLowerCase();
+    final status = user['status']?.toString().toLowerCase();
+    final canDeactivate =
+        (role == 'client' || role == 'trainer') && status != 'deactivated';
+    final roleLabel = role == 'trainer' ? 'entrenador' : 'socio';
+    return Column(children: [
+      _record(
+        '${user['first_name']} ${user['last_name']}',
+        '${role == 'client' ? 'Socio' : role == 'trainer' ? 'Entrenador' : 'Admin'} · ${status == 'deactivated' ? 'Baja' : status == 'pending' ? 'En revisión' : status == 'rejected' ? 'Rechazado' : 'Activo'}${user['member_number'] == null ? '' : ' · ${user['member_number']}'}',
+        icon: Icons.person_outline,
+        onTap: () async {
+          final changed = await context
+              .push<bool>(Uri(path: '/admin/member', queryParameters: {
+            'id': user['id'].toString(),
+            'member': (user['member_number'] ?? '').toString(),
+            'name': '${user['first_name']} ${user['last_name']}',
+            'role': role ?? '',
+            'email': (user['email'] ?? '').toString(),
+            'phone': (user['phone'] ?? '').toString(),
+            'plan': (user['membership_plan'] ?? '').toString(),
+            'status': status ?? '',
+            'deactivated_by': (user['deactivated_by'] ?? '').toString(),
+            'trainer_id': (user['trainer_id'] ?? '').toString(),
+            'trainer_name': (user['trainer_name'] ?? '').toString(),
+            'reactivation_until': user['reactivation_until']?.toString() ?? '',
+          }).toString());
+          if (changed == true && mounted) setState(_reload);
+        },
+      ),
+      if (canDeactivate)
+        Padding(
+          padding: const EdgeInsets.only(left: 8, bottom: 12),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              onPressed: () => _deactivateUser(user),
+              icon: const Icon(Icons.person_off_outlined),
+              label: Text('Dar de baja $roleLabel'),
+              style: OutlinedButton.styleFrom(foregroundColor: AppColors.red),
+            ),
+          ),
+        ),
+    ]);
   }
 
   @override
@@ -2971,52 +3069,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   _section('${rows.length} usuarios'),
                   if (rows.isEmpty)
                     const Text('No hay usuarios que coincidan.'),
-                  for (final user in rows) ...[
-                    _record(
-                      '${user['first_name']} ${user['last_name']}',
-                      '${user['role'] == 'client' ? 'Socio' : user['role'] == 'trainer' ? 'Entrenador' : 'Admin'} · ${user['status'] == 'deactivated' ? 'Baja' : user['status'] == 'pending' ? 'En revisión' : user['status'] == 'rejected' ? 'Rechazado' : 'Activo'}${user['member_number'] == null ? '' : ' · ${user['member_number']}'}',
-                      icon: Icons.person_outline,
-                      onTap: () async {
-                        final changed = await context.push<bool>(
-                            Uri(path: '/admin/member', queryParameters: {
-                          'id': user['id'].toString(),
-                          'member': (user['member_number'] ?? '').toString(),
-                          'name': '${user['first_name']} ${user['last_name']}',
-                          'role': user['role'].toString(),
-                          'email': (user['email'] ?? '').toString(),
-                          'phone': (user['phone'] ?? '').toString(),
-                          'plan': (user['membership_plan'] ?? '').toString(),
-                          'status': user['status'].toString(),
-                          'role': user['role'].toString(),
-                          'deactivated_by':
-                              (user['deactivated_by'] ?? '').toString(),
-                          'trainer_id': (user['trainer_id'] ?? '').toString(),
-                          'trainer_name':
-                              (user['trainer_name'] ?? '').toString(),
-                          'reactivation_until':
-                              user['reactivation_until']?.toString() ?? '',
-                        }).toString());
-                        if (changed == true && mounted) setState(_reload);
-                      },
-                    ),
-                    if ((user['role'] == 'client' ||
-                            user['role'] == 'trainer') &&
-                        user['status'] != 'deactivated')
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8, bottom: 10),
-                        child: Align(
-                          alignment: Alignment.centerRight,
-                          child: OutlinedButton.icon(
-                            onPressed: () => _deactivateUser(user),
-                            icon: const Icon(Icons.person_off_outlined),
-                            label: const Text('Dar de baja'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.red,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
+                  for (final user in rows) _userRecord(user),
                 ]);
           },
         ),
@@ -3231,24 +3284,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     setState(() => _savingPhoto = true);
     try {
       final saved = await authController.updateOwnProfilePhoto(
-          photoData: base64Encode(selected.bytes), photoMime: selected.mimeType);
+          photoData: base64Encode(selected.bytes),
+          photoMime: selected.mimeType);
       if (mounted) setState(() => _ownProfile = saved);
       _showLocalMessage('Foto de perfil actualizada.');
     } catch (e) {
       _showLocalMessage('No se pudo guardar la foto: $e');
-    } finally {
-      if (mounted) setState(() => _savingPhoto = false);
-    }
-  }
-
-  Future<void> _removeAdminPhoto() async {
-    setState(() => _savingPhoto = true);
-    try {
-      final saved = await authController.updateOwnProfilePhoto(removePhoto: true);
-      if (mounted) setState(() => _ownProfile = saved);
-      _showLocalMessage('Foto de perfil quitada.');
-    } catch (e) {
-      _showLocalMessage('No se pudo quitar la foto: $e');
     } finally {
       if (mounted) setState(() => _savingPhoto = false);
     }
@@ -3377,7 +3418,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               ListTile(
                 title: Text(plan['name'].toString()),
                 subtitle: Text(
-                    '\$${plan['price_mxn']} MXN · ${plan['duration_days']} días · ${plan['active'] == true ? 'Activo' : 'Inactivo'}'),
+                    '\$${plan['price_mxn']} MXN · ${plan['duration_days']} días · ${plan['min_group_size'] ?? 1}–${plan['max_group_size'] ?? 1} personas · ${plan['active'] == true ? 'Activo' : 'Inactivo'}'),
                 trailing: IconButton(
                     icon: const Icon(Icons.edit_outlined),
                     onPressed: () async {
@@ -3401,25 +3442,89 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   }
 
   Future<void> _editPlan(Map<String, dynamic>? plan) async {
-    final values = await _editFields(
-        context, plan == null ? 'NUEVO PLAN' : 'EDITAR PLAN', [
-      'Nombre',
-      'Precio en MXN',
-      'Duración en días'
-    ], [
-      plan?['name']?.toString() ?? '',
-      plan?['price_mxn']?.toString() ?? '',
-      plan?['duration_days']?.toString() ?? '30'
-    ]);
+    final controllers = [
+      TextEditingController(text: plan?['name']?.toString() ?? ''),
+      TextEditingController(text: plan?['price_mxn']?.toString() ?? ''),
+      TextEditingController(text: plan?['duration_days']?.toString() ?? '30'),
+      TextEditingController(
+          text: plan?['min_group_size']?.toString() ?? '1'),
+      TextEditingController(
+          text: plan?['max_group_size']?.toString() ?? '1'),
+    ];
+    var active = plan?['active'] != false;
+    List<String>? values;
+    try {
+      values = await showDialog<List<String>>(
+          context: context,
+          builder: (dialogContext) => StatefulBuilder(
+                builder: (context, setDialogState) => AlertDialog(
+                  title: Text(plan == null ? 'NUEVO PLAN' : 'EDITAR PLAN'),
+                  content: SingleChildScrollView(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      for (final (index, label) in [
+                        'Nombre',
+                        'Precio en MXN',
+                        'Duración en días',
+                        'Mínimo de personas',
+                        'Máximo de personas',
+                      ].indexed)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: TextField(
+                            controller: controllers[index],
+                            keyboardType: index == 0
+                                ? TextInputType.text
+                                : const TextInputType.numberWithOptions(
+                                    decimal: true),
+                            decoration: InputDecoration(
+                              labelText: label,
+                              border: const OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Plan disponible para clientes'),
+                        value: active,
+                        onChanged: (value) =>
+                            setDialogState(() => active = value),
+                      ),
+                    ]),
+                  ),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('Cancelar')),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, [
+                        ...controllers.map((controller) => controller.text.trim()),
+                        active.toString(),
+                      ]),
+                      child: const Text('Guardar'),
+                    ),
+                  ],
+                ),
+              ));
+    } finally {
+      for (final controller in controllers) {
+        controller.dispose();
+      }
+    }
     if (values == null) return;
     final price = double.tryParse(values[1]);
     final duration = int.tryParse(values[2]);
+    final minGroupSize = int.tryParse(values[3]);
+    final maxGroupSize = int.tryParse(values[4]);
     if (values[0].trim().isEmpty ||
         price == null ||
         price < 0 ||
         duration == null ||
-        duration < 1) {
-      _showLocalMessage('Revisa nombre, precio y duración del plan.');
+        duration < 1 ||
+        minGroupSize == null ||
+        maxGroupSize == null ||
+        minGroupSize < 1 ||
+        maxGroupSize < minGroupSize) {
+      _showLocalMessage('Revisa nombre, precio, duración y cantidad de personas.');
       return;
     }
     try {
@@ -3428,7 +3533,9 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
           name: values[0].trim(),
           priceMxn: price,
           durationDays: duration,
-          active: plan?['active'] != false);
+          minGroupSize: minGroupSize,
+          maxGroupSize: maxGroupSize,
+          active: values[5] == 'true');
       await _loadAdminOptions();
     } catch (e) {
       _showLocalMessage('No se pudo guardar el plan: $e');
@@ -3523,14 +3630,6 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               child: Text('Administrador',
                   style: TextStyle(fontWeight: FontWeight.bold))),
         ])),
-        _setting('Cambiar foto de perfil', 'JPG o PNG · máximo 2 MB',
-            Icons.add_a_photo_outlined,
-            onTap: _savingPhoto ? null : _changeAdminPhoto),
-        if (_ownProfile['profile_photo_url'] != null &&
-            _ownProfile['profile_photo_url'].toString().isNotEmpty)
-          _setting('Quitar foto de perfil', 'Usar imagen predeterminada',
-              Icons.delete_outline,
-              onTap: _savingPhoto ? null : _removeAdminPhoto),
         _SwitchSetting(
             label: 'Notificaciones de nuevas solicitudes',
             value: _newRequestNotifications,

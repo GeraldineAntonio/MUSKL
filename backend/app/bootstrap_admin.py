@@ -17,7 +17,7 @@ def main() -> None:
     # when run outside the API container so the database URL is all it needs.
     os.environ.setdefault('JWT_SECRET', secrets.token_hex(32))
 
-    from .main import GYM_ID, _create_user, pool
+    from .main import GYM_ID, _create_user, _validate_strong_password, pool
 
     first_name = input('Nombre del administrador: ').strip()
     last_name = input('Apellido: ').strip()
@@ -26,8 +26,12 @@ def main() -> None:
     confirmation = getpass.getpass('Confirmar contraseña: ')
     if not first_name or not last_name or '@' not in email:
         raise SystemExit('Nombre, apellido y correo válidos son obligatorios.')
-    if len(password) < 8 or password != confirmation:
-        raise SystemExit('La contraseña debe tener 8 caracteres y coincidir.')
+    if password != confirmation:
+        raise SystemExit('Las contraseñas no coinciden.')
+    try:
+        _validate_strong_password(password)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     pool.open(wait=True)
     try:

@@ -33,9 +33,9 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
   }
 
   Future<void> _save() async {
-    if (passwordScore(_pass.text) < 3 || _pass.text.length < 8) {
+    if (!isStrongPassword(_pass.text)) {
       setState(() => _error =
-          'Usa mínimo 8 caracteres y combina mayúscula, número o símbolo.');
+          'Usa al menos 8 caracteres, con mayúscula, minúscula, número y carácter especial.');
       return;
     }
     if (_pass.text != _confirm.text) {

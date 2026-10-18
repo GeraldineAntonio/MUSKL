@@ -9,6 +9,7 @@ import '../core/theme/app_colors.dart';
 import '../core/widgets/muskl_button.dart';
 import '../core/widgets/muskl_card.dart';
 import '../core/widgets/muskl_text_field.dart';
+import '../core/widgets/password_strength.dart';
 import '../core/widgets/profile_photo_avatar.dart';
 import '../main.dart';
 import 'auth/auth_models.dart';
@@ -148,7 +149,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _error = null;
       });
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString().replaceFirst('FormatException: ', ''));
+      if (mounted)
+        setState(
+            () => _error = e.toString().replaceFirst('FormatException: ', ''));
     }
   }
 
@@ -157,9 +160,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (_name.text.trim().isEmpty ||
         _lastName.text.trim().isEmpty ||
         !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email) ||
-        _password.text.length < 8) {
+        !isStrongPassword(_password.text)) {
       setState(() => _error =
-          'Completa nombre y apellido, escribe un correo válido y usa una contraseña de al menos 8 caracteres.');
+          'Completa tus datos y usa una contraseña de 8 caracteres con mayúscula, minúscula, número y carácter especial.');
       return;
     }
     if (_password.text != _confirmPassword.text) {
@@ -295,10 +298,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
               onEdit: _loading ? () {} : _pickProfilePhoto,
               radius: 42,
               name: '${_name.text} ${_lastName.text}'),
-          const SizedBox(height: 8),
-          Text(_profilePhotoBytes == null
-              ? 'Añadir foto de perfil (opcional)'
-              : 'Toca el lápiz para cambiar la foto'),
         ])),
         const SizedBox(height: 14),
         if (_role == 'Entrenador') ...[
@@ -321,10 +320,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const SizedBox(height: 14),
         ],
         MusklTextField(
-            label: 'Contraseña (mínimo 8 caracteres)',
+            label: 'Contraseña segura',
             controller: _password,
             icon: Icons.lock_outline,
-            obscure: true),
+            obscure: true,
+            onChanged: (_) => setState(() {})),
+        const SizedBox(height: 8),
+        PasswordStrength(password: _password.text),
         const SizedBox(height: 14),
         MusklTextField(
             label: 'Confirmar contraseña',
@@ -446,6 +448,7 @@ class AdminMemberDetailScreen extends StatefulWidget {
       this.phone = '',
       this.plan = '',
       this.role = 'client',
+      this.status = 'active',
       this.deactivatedBy = '',
       this.trainerId = '',
       this.trainerName = '',
@@ -458,6 +461,7 @@ class AdminMemberDetailScreen extends StatefulWidget {
       phone,
       plan,
       role,
+      status,
       deactivatedBy,
       trainerId,
       trainerName,
@@ -473,7 +477,11 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
 
   Future<void> _assignTrainer() async {
     final clientId = widget.userId;
-    if (clientId == null || clientId.isEmpty || _assigningTrainer) return;
+    if (clientId == null || clientId.isEmpty || _assigningTrainer) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('No se encontró el identificador del socio.')));
+      return;
+    }
     setState(() => _assigningTrainer = true);
     try {
       final trainers =
@@ -526,7 +534,9 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
 
   @override
   Widget build(BuildContext context) => PrototypePage(
-      title: 'Detalle de socio',
+      title: widget.role == 'trainer'
+          ? 'Detalle de entrenador'
+          : 'Detalle de socio',
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         MusklCard(
             child:
@@ -535,7 +545,7 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
               style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
-              '${widget.memberNumber}${widget.plan.isEmpty ? '' : ' · Plan ${widget.plan}'} · ${widget.deactivated ? 'BAJA' : 'ACTIVO'}'),
+              '${widget.memberNumber}${widget.plan.isEmpty ? '' : ' · Plan ${widget.plan}'} · ${widget.deactivated ? 'BAJA' : widget.status == 'pending' ? 'EN REVISIÓN' : widget.status == 'rejected' ? 'RECHAZADO' : 'ACTIVO'}'),
           Text(
               '${widget.email}${widget.phone.isEmpty ? '' : ' · ${widget.phone}'}'),
           if (widget.role == 'client')
@@ -552,7 +562,9 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
         const SizedBox(height: 16),
         if (!widget.deactivated &&
             (widget.role == 'client' || widget.role == 'trainer')) ...[
-          if (widget.role == 'client')
+          if (widget.role == 'client' &&
+              (widget.status == 'active' ||
+                  widget.status == 'active_no_onboarding'))
             MusklButton(
                 label: widget.trainerName.isEmpty
                     ? 'Asignar entrenador'
@@ -560,21 +572,23 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
                 icon: Icons.fitness_center,
                 loading: _assigningTrainer,
                 onPressed: _assigningTrainer ? null : _assignTrainer),
-          if (widget.role == 'client') const SizedBox(height: 10),
+          if (widget.role == 'client' &&
+              (widget.status == 'active' ||
+                  widget.status == 'active_no_onboarding'))
+            const SizedBox(height: 10),
           MusklButton(
               label:
                   'Dar de baja al ${widget.role == 'trainer' ? 'entrenador' : 'socio'}',
               icon: Icons.person_off_outlined,
               style: MusklButtonStyle.primary,
               onPressed: () async {
-                final changed = await context.push<bool>(Uri(
-                    path: '/admin/deactivate',
-                    queryParameters: {
-                      'member': widget.memberNumber,
-                      'id': widget.userId ?? '',
-                      'name': widget.name,
-                      'role': widget.role,
-                    }).toString());
+                final changed = await context.push<bool>(
+                    Uri(path: '/admin/deactivate', queryParameters: {
+                  'member': widget.memberNumber,
+                  'id': widget.userId ?? '',
+                  'name': widget.name,
+                  'role': widget.role,
+                }).toString());
                 if (changed == true && context.mounted) {
                   Navigator.of(context).pop(true);
                 }
@@ -633,8 +647,7 @@ class _DeactivateMemberScreenState extends State<DeactivateMemberScreen> {
     super.dispose();
   }
 
-  String get _roleLabel =>
-      widget.role == 'trainer' ? 'entrenador' : 'socio';
+  String get _roleLabel => widget.role == 'trainer' ? 'entrenador' : 'socio';
 
   @override
   Widget build(BuildContext context) => PrototypePage(
@@ -1091,6 +1104,8 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
   String? _level;
   int? _days;
   int _selectedGroupSize = 1;
+  final _weightKg = TextEditingController();
+  final _heightCm = TextEditingController();
   final List<_GroupMemberFields> _groupMembers = [];
   bool _editingGroupMembers = false;
   bool _groupRegistered = false;
@@ -1131,6 +1146,8 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
   @override
   void dispose() {
     _limitations.dispose();
+    _weightKg.dispose();
+    _heightCm.dispose();
     for (final member in _groupMembers) {
       member.dispose();
     }
@@ -1148,6 +1165,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         _trainers = (data['trainers'] as List)
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
+        _trainerId = data['assigned_trainer_id']?.toString();
         final groupPlanId = data['group_plan_id']?.toString();
         if (groupPlanId != null) {
           _planId = groupPlanId;
@@ -1194,15 +1212,27 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
       }).toList();
 
   Future<void> _continue() async {
+    final weightKg = double.tryParse(_weightKg.text.replaceAll(',', '.'));
+    final heightCm = _heightCm.text.trim().isEmpty
+        ? null
+        : double.tryParse(_heightCm.text.replaceAll(',', '.'));
     final valid = switch (_step) {
       0 => _planId != null,
       1 => true,
       2 => _goal != null,
-      3 => _level != null && _days != null,
+      3 => _level != null &&
+          _days != null &&
+          weightKg != null &&
+          weightKg >= 20 &&
+          weightKg <= 350 &&
+          (_heightCm.text.trim().isEmpty ||
+              (heightCm != null && heightCm >= 100 && heightCm <= 250)),
       _ => _routines.isEmpty || _routineId != null,
     };
     if (!valid) {
-      setState(() => _error = 'Selecciona una opción para continuar.');
+      setState(() => _error = _step == 3
+          ? 'Indica tu peso (20–350 kg) y, si agregas estatura, usa 100–250 cm.'
+          : 'Selecciona una opción para continuar.');
       return;
     }
     if (_step == 0 && !_groupRegistered) {
@@ -1220,10 +1250,10 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
             member.firstName.text.trim().isNotEmpty &&
             member.lastName.text.trim().isNotEmpty &&
             member.email.text.contains('@') &&
-            member.password.text.length >= 8);
+            isStrongPassword(member.password.text));
         if (!validMembers) {
           setState(() => _error =
-              'Cada integrante necesita nombre, apellido, correo válido y contraseña de al menos 8 caracteres.');
+              'Cada integrante necesita sus datos y una contraseña con mayúscula, minúscula, número y carácter especial (8 caracteres mínimo).');
           return;
         }
         setState(() {
@@ -1305,6 +1335,8 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         goal: _goal!,
         experienceLevel: _level!,
         daysPerWeek: _days!,
+        weightKg: weightKg!,
+        heightCm: heightCm,
         limitations:
             _limitations.text.trim().isEmpty ? null : _limitations.text.trim(),
       );
@@ -1559,6 +1591,26 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                   .toList(),
             ),
             const SizedBox(height: 20),
+            const Text('Datos físicos'),
+            const SizedBox(height: 8),
+            MusklTextField(
+                label: 'Peso en kilogramos',
+                hint: 'Ej. 68.5',
+                controller: _weightKg,
+                icon: Icons.monitor_weight_outlined,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) => setState(() => _error = null)),
+            const SizedBox(height: 12),
+            MusklTextField(
+                label: 'Estatura en centímetros (opcional)',
+                hint: 'Ej. 165',
+                controller: _heightCm,
+                icon: Icons.height,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) => setState(() => _error = null)),
+            const SizedBox(height: 20),
             MusklTextField(
                 label: 'Lesiones o limitaciones (opcional)',
                 controller: _limitations,
@@ -1613,10 +1665,13 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
             icon: Icons.phone_outlined),
         const SizedBox(height: 8),
         MusklTextField(
-            label: 'Contraseña individual',
+            label: 'Contraseña individual segura',
             controller: member.password,
             icon: Icons.lock_outline,
-            obscure: true),
+            obscure: true,
+            onChanged: (_) => setState(() {})),
+        const SizedBox(height: 8),
+        PasswordStrength(password: member.password.text),
       ]),
     );
   }

@@ -25,7 +25,7 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import AfterValidator, BaseModel, EmailStr, Field, field_validator
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from psycopg.types.json import Jsonb
@@ -175,12 +175,33 @@ async def _routine_phase_maintenance_loop() -> None:
         await asyncio.sleep(30 * 60)
 
 
+def _validate_strong_password(value: str) -> str:
+    requirements = (
+        (r'[A-Z]', 'una letra mayúscula'),
+        (r'[a-z]', 'una letra minúscula'),
+        (r'\d', 'un número'),
+        (r'[^A-Za-z0-9\s]', 'un carácter especial'),
+    )
+    missing = [label for pattern, label in requirements
+               if not re.search(pattern, value)]
+    if missing:
+        raise ValueError('La contraseña debe contener ' + ', '.join(missing) + '.')
+    return value
+
+
+StrongPassword = Annotated[
+    str,
+    Field(min_length=8, max_length=128),
+    AfterValidator(_validate_strong_password),
+]
+
+
 class ClientRegistration(BaseModel):
     first_name: str = Field(min_length=1, max_length=80)
     last_name: str = Field(min_length=1, max_length=100)
     email: EmailStr
     phone: str | None = Field(default=None, max_length=30)
-    password: str = Field(min_length=8, max_length=128)
+    password: StrongPassword
     photo_data: str | None = Field(default=None, max_length=2_800_000)
     photo_mime: Literal['image/jpeg', 'image/png'] | None = None
 
@@ -190,7 +211,7 @@ class GroupMemberRegistration(BaseModel):
     last_name: str = Field(min_length=1, max_length=100)
     email: EmailStr
     phone: str | None = Field(default=None, max_length=30)
-    password: str = Field(min_length=8, max_length=128)
+    password: StrongPassword
 
 
 class ClientGroupRegistration(BaseModel):
@@ -203,7 +224,7 @@ class AdminRegistration(BaseModel):
     last_name: str = Field(min_length=1, max_length=100)
     email: EmailStr
     phone: str | None = Field(default=None, max_length=30)
-    password: str = Field(min_length=8, max_length=128)
+    password: StrongPassword
     invite_token: str = Field(min_length=8, max_length=100)
     photo_data: str | None = Field(default=None, max_length=2_800_000)
     photo_mime: Literal['image/jpeg', 'image/png'] | None = None
@@ -211,6 +232,15 @@ class AdminRegistration(BaseModel):
 
 class PasswordCodeRequest(BaseModel):
     email: EmailStr
+
+
+class PasswordChangeCodeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+
+
+class PasswordChangeCodeVerifyRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    code: str = Field(min_length=6, max_length=6, pattern=r'^\d{6}$')
 
 
 class RegistrationEmailCodeRequest(BaseModel):
@@ -237,7 +267,7 @@ class VerifyCodeRequest(BaseModel):
 
 
 class ResetPasswordRequest(VerifyCodeRequest):
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: StrongPassword
 
 
 class DeactivationRequest(BaseModel):
@@ -267,6 +297,8 @@ class ClientOnboardingRequest(BaseModel):
     goal: Literal['Bajar de peso', 'Masa muscular', 'Resistencia', 'Fuerza']
     experience_level: Literal['principiante', 'intermedio', 'avanzado']
     days_per_week: int = Field(ge=3, le=6)
+    weight_kg: float = Field(ge=20, le=350)
+    height_cm: float | None = Field(default=None, ge=100, le=250)
     limitations: str | None = Field(default=None, max_length=2000)
     routine_id: uuid.UUID | None = None
 
@@ -347,7 +379,7 @@ class AdminPreferencesUpdate(BaseModel):
 
 class PasswordChangeRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: StrongPassword
     code: str = Field(min_length=6, max_length=6, pattern=r'^\d{6}$')
 
 
@@ -557,9 +589,39 @@ def _find_login_candidates(cur, identifier: str) -> list[dict]:
         (GYM_ID, identifier.strip(), identifier.strip(), identifier.strip())).fetchall()
 
 
+def _normalize_person_name(value: str, label: str) -> str:
+    normalized = ' '.join(value.split()).title()
+    if not normalized or not any(character.isalpha() for character in normalized):
+        raise _problem(422, 'INVALID_PERSON_NAME', f'Escribe un {label} válido.')
+    return normalized
+
+
+def _ensure_unique_person_name(cur, gym_id: uuid.UUID, first_name: str,
+                               last_name: str,
+                               exclude_user_id: uuid.UUID | None = None) -> None:
+    normalized_name = f'{first_name} {last_name}'.casefold()
+    cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))',
+                (f'muskl-person-name:{gym_id}:{normalized_name}',))
+    existing = cur.execute("""SELECT id FROM users
+        WHERE gym_id = %s AND status <> 'deactivated'
+          AND lower(trim(regexp_replace(first_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+          AND lower(trim(regexp_replace(last_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+          AND (%s::uuid IS NULL OR id <> %s)
+        LIMIT 1""",
+        (gym_id, first_name, last_name, exclude_user_id,
+         exclude_user_id)).fetchone()
+    if existing:
+        raise _problem(409, 'PERSON_NAME_IN_USE',
+                       'Ya existe una cuenta con ese nombre y apellido en este gimnasio.')
+
+
 def _create_user(cur, *, role: str, status: str, first_name: str, last_name: str,
                  email: str, phone: str | None, password: str, member_number: str | None = None,
                  email_verified: bool = True) -> dict:
+    _validate_strong_password(password)
+    first_name = _normalize_person_name(first_name, 'nombre')
+    last_name = _normalize_person_name(last_name, 'apellido')
+    _ensure_unique_person_name(cur, GYM_ID, first_name, last_name)
     user_id = uuid.uuid4()
     return cur.execute(
         """INSERT INTO users
@@ -567,7 +629,7 @@ def _create_user(cur, *, role: str, status: str, first_name: str, last_name: str
             email_verified)
            VALUES (%s, %s, %s::muskl_role, %s::account_status, %s, %s, %s, %s, %s, %s, %s)
            RETURNING *""",
-        (user_id, GYM_ID, role, status, first_name.strip(), last_name.strip(), email.lower(),
+        (user_id, GYM_ID, role, status, first_name, last_name, email.lower(),
          phone.strip() if phone else None, member_number, password_hasher.hash(password),
          email_verified)).fetchone()
 
@@ -835,6 +897,10 @@ def register_trainer(
     photo_mime: Annotated[Literal['image/jpeg', 'image/png'] | None, Form()] = None,
     certification: UploadFile = File(...),
 ) -> dict:
+    try:
+        _validate_strong_password(password)
+    except ValueError as exc:
+        raise _problem(422, 'WEAK_PASSWORD', str(exc))
     photo = _decode_profile_photo(photo_data, photo_mime)
     ext = Path(certification.filename or '').suffix.lower()
     allowed = {'.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
@@ -1348,12 +1414,16 @@ def update_trainer_profile(payload: TrainerProfileUpdate,
     allowed_preferences = {'client_activity', 'routine_expiry', 'daily_reminder'}
     preferences = {key: payload.notification_preferences.get(key, False)
                    for key in allowed_preferences}
+    first_name = _normalize_person_name(payload.first_name, 'nombre')
+    last_name = _normalize_person_name(payload.last_name, 'apellido')
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
+                _ensure_unique_person_name(cur, trainer['gym_id'], first_name,
+                                           last_name, trainer['id'])
                 cur.execute("""UPDATE users SET first_name = %s, last_name = %s,
                     email = %s, phone = %s, updated_at = now() WHERE id = %s""",
-                    (payload.first_name.strip(), payload.last_name.strip(),
+                    (first_name, last_name,
                      str(payload.email).lower(), payload.phone.strip() if payload.phone else None,
                      trainer['id']))
                 cur.execute("""UPDATE trainer_profiles SET specialty = %s, bio = %s,
@@ -1488,7 +1558,12 @@ def change_password(payload: PasswordChangeRequest,
 
 
 @app.post('/api/v1/auth/password/change-code', status_code=202)
-def send_password_change_code(user: dict = Depends(current_user)) -> dict:
+def send_password_change_code(payload: PasswordChangeCodeRequest,
+                             user: dict = Depends(current_user)) -> dict:
+    try:
+        password_hasher.verify(user['password_hash'], payload.current_password)
+    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        raise _problem(400, 'CURRENT_PASSWORD_INVALID', 'La contraseña actual no es correcta.')
     code = f'{secrets.randbelow(1_000_000):06d}'
     try:
         with pool.connection() as conn:
@@ -1523,6 +1598,21 @@ def send_password_change_code(user: dict = Depends(current_user)) -> dict:
             'channel': channel}
 
 
+@app.post('/api/v1/auth/password/change-verify')
+def verify_password_change_code(payload: PasswordChangeCodeVerifyRequest,
+                                user: dict = Depends(current_user)) -> dict:
+    try:
+        password_hasher.verify(user['password_hash'], payload.current_password)
+    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        raise _problem(400, 'CURRENT_PASSWORD_INVALID', 'La contraseña actual no es correcta.')
+    with pool.connection() as conn:
+        valid = _valid_reset_code(conn.cursor(), user['email'], payload.code,
+                                  purpose='change', consume=False)
+    if not valid:
+        raise _problem(400, 'INVALID_CODE', 'El código es incorrecto o ya venció.')
+    return {'valid': True}
+
+
 @app.get('/api/v1/client/onboarding/options')
 def client_onboarding_options(client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
@@ -1537,11 +1627,15 @@ def client_onboarding_options(client: dict = Depends(active_client)) -> dict:
             FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id
             WHERE u.gym_id = %s AND u.role = 'trainer' AND u.status = 'active'
             ORDER BY u.first_name, u.last_name""", (client['gym_id'],)).fetchall()
+        assigned_trainer = conn.execute("""SELECT trainer_id FROM trainer_client_assignments
+            WHERE client_id = %s AND ends_at IS NULL""", (client['id'],)).fetchone()
     result = {'plans': [{**p, 'id': str(p['id']), 'price_mxn': str(p['price_mxn']) if p['price_mxn'] is not None else None} for p in plans],
               'trainers': [{**t, 'id': str(t['id'])} for t in trainers]}
     result.update({'group_plan_id': str(group['plan_id']) if group and group['plan_id'] else None,
                    'group_member_number': group['member_number'] if group else None,
-                   'group_member_count': group['member_count'] if group else 1})
+                   'group_member_count': group['member_count'] if group else 1,
+                   'assigned_trainer_id': str(assigned_trainer['trainer_id'])
+                   if assigned_trainer else None})
     return result
 
 
@@ -1829,13 +1923,23 @@ def complete_client_onboarding(payload: ClientOnboardingRequest,
                                client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            locked = cur.execute("SELECT id, role, status FROM users WHERE id = %s AND gym_id = %s FOR UPDATE",
-                                 (client['id'], client['gym_id'])).fetchone()
+            locked = cur.execute("""SELECT u.id, u.role, u.status,
+                cp.onboarding_completed_at FROM users u
+                LEFT JOIN client_profiles cp ON cp.user_id = u.id
+                WHERE u.id = %s AND u.gym_id = %s FOR UPDATE OF u""",
+                (client['id'], client['gym_id'])).fetchone()
+            if (locked is not None and locked['role'] == 'client'
+                    and locked['status'] == 'active'
+                    and locked['onboarding_completed_at'] is not None):
+                return {'user': _public_user(client)}
             if locked is None or locked['role'] != 'client' or locked['status'] != 'active_no_onboarding':
                 raise _problem(409, 'ONBOARDING_ALREADY_COMPLETED', 'El onboarding ya se completó o la cuenta no está disponible.')
             group = cur.execute("""SELECT g.id, g.plan_id FROM client_groups g
                 JOIN client_group_members m ON m.group_id = g.id
                 WHERE m.user_id = %s FOR UPDATE OF g""", (client['id'],)).fetchone()
+            current_assignment = cur.execute("""SELECT trainer_id FROM trainer_client_assignments
+                WHERE client_id = %s AND ends_at IS NULL FOR UPDATE""",
+                (client['id'],)).fetchone()
             chosen_plan_id = group['plan_id'] if group and group['plan_id'] else payload.plan_id
             if group and group['plan_id'] and payload.plan_id != group['plan_id']:
                 raise _problem(409, 'GROUP_PLAN_LOCKED', 'Todos los integrantes deben conservar el plan del grupo.')
@@ -1845,7 +1949,8 @@ def complete_client_onboarding(payload: ClientOnboardingRequest,
                 raise _problem(404, 'PLAN_NOT_FOUND', 'Elige un plan de membresía disponible.')
             if plan['duration_days'] is None:
                 raise _problem(409, 'PLAN_NOT_CONFIGURED', 'Este plan todavía no tiene una duración configurada.')
-            selected_trainer_id = payload.trainer_id
+            selected_trainer_id = payload.trainer_id or (
+                current_assignment['trainer_id'] if current_assignment else None)
             selected_routine = None
             if payload.routine_id is not None:
                 selected_routine = cur.execute("""SELECT r.id, r.trainer_id, rp.id AS phase_id
@@ -1871,15 +1976,24 @@ def complete_client_onboarding(payload: ClientOnboardingRequest,
                 cur.execute('UPDATE client_groups SET plan_id = %s WHERE id = %s',
                             (plan['id'], group['id']))
             if selected_trainer_id is not None:
-                cur.execute("INSERT INTO trainer_client_assignments (trainer_id, client_id, assigned_by) VALUES (%s, %s, %s)",
-                            (selected_trainer_id, client['id'], client['id']))
+                if (current_assignment is not None
+                        and current_assignment['trainer_id'] != selected_trainer_id):
+                    cur.execute("UPDATE trainer_client_assignments SET ends_at = now() WHERE client_id = %s AND ends_at IS NULL",
+                                (client['id'],))
+                    current_assignment = None
+                if current_assignment is None:
+                    cur.execute("INSERT INTO trainer_client_assignments (trainer_id, client_id, assigned_by) VALUES (%s, %s, %s)",
+                                (selected_trainer_id, client['id'], client['id']))
             if selected_routine is not None:
                 cur.execute("""INSERT INTO client_routine_assignments
                     (client_id, routine_id, current_phase_id, assigned_by)
                     VALUES (%s, %s, %s, %s)""",
                     (client['id'], selected_routine['id'], selected_routine['phase_id'], client['id']))
-            cur.execute("UPDATE client_profiles SET goal = %s, experience_level = %s, days_per_week = %s, limitations = %s, onboarding_completed_at = now(), updated_at = now() WHERE user_id = %s",
-                        (payload.goal, payload.experience_level, payload.days_per_week, payload.limitations, client['id']))
+            cur.execute("""UPDATE client_profiles SET goal = %s, experience_level = %s,
+                days_per_week = %s, weight_kg = %s, height_cm = %s, limitations = %s,
+                onboarding_completed_at = now(), updated_at = now() WHERE user_id = %s""",
+                (payload.goal, payload.experience_level, payload.days_per_week,
+                 payload.weight_kg, payload.height_cm, payload.limitations, client['id']))
             updated = cur.execute("UPDATE users SET status = 'active' WHERE id = %s RETURNING *", (client['id'],)).fetchone()
             cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, subject_id, event_type, details) VALUES (%s, %s, %s, %s, %s)",
                         (client['gym_id'], client['id'], client['id'], 'client_onboarding_completed', Jsonb({'plan_id': str(plan['id']), 'trainer_id': str(selected_trainer_id) if selected_trainer_id else None, 'routine_id': str(selected_routine['id']) if selected_routine else None})))
@@ -1993,10 +2107,13 @@ def _deliver_trainer_daily_reminders() -> int:
 def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
     with pool.connection() as conn:
         _advance_due_client_phase(conn, client['id'])
-        row = conn.execute("""SELECT u.first_name, u.last_name, u.member_number, u.email, u.phone, cp.goal,
+        row = conn.execute("""SELECT u.first_name, u.last_name, u.member_number, u.email, u.phone,
+                cp.goal, cp.weight_kg, cp.height_cm,
                 u.profile_photo_storage_key, u.profile_photo_mime,
                 cp.profile_photo, cp.profile_photo_mime AS legacy_profile_photo_mime,
-                g.timezone, p.name AS plan_name, m.ends_on AS membership_ends_on,
+                g.timezone, g.name AS gym_name, g.address AS gym_address,
+                g.phone AS gym_phone, g.opening_hours AS gym_opening_hours,
+                p.name AS plan_name, m.ends_on AS membership_ends_on,
                 concat_ws(' ', t.first_name, t.last_name) AS trainer_name,
                 r.name AS routine_name, cra.current_phase_id, rp.phase_number,
                 cra.phase_started_at, (now() AT TIME ZONE g.timezone)::date AS today,
@@ -2071,9 +2188,9 @@ def update_client_profile(payload: ClientProfileUpdate,
     elif payload.photo_mime is not None:
         raise _problem(415, 'INVALID_PROFILE_PHOTO', 'Faltan los datos de la foto seleccionada.')
 
-    first_name = (payload.first_name.strip() if payload.first_name is not None
+    first_name = (_normalize_person_name(payload.first_name, 'nombre') if payload.first_name is not None
                   else client['first_name'])
-    last_name = (payload.last_name.strip() if payload.last_name is not None
+    last_name = (_normalize_person_name(payload.last_name, 'apellido') if payload.last_name is not None
                  else client['last_name'])
     email = str(payload.email).lower() if payload.email is not None else client['email']
     if email != client['email']:
@@ -2098,6 +2215,9 @@ def update_client_profile(payload: ClientProfileUpdate,
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
+                if fields & {'first_name', 'last_name'}:
+                    _ensure_unique_person_name(cur, client['gym_id'], first_name,
+                                               last_name, client['id'])
                 cur.execute('INSERT INTO client_profiles (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING',
                             (client['id'],))
                 old_profile = cur.execute(
@@ -2658,7 +2778,7 @@ def admin_routine_detail(routine_id: uuid.UUID,
 @app.get('/api/v1/admin/membership-plans')
 def get_plans(admin: dict = Depends(active_admin)) -> list[dict]:
     with pool.connection() as conn:
-        return conn.execute('SELECT id, name, price_mxn, duration_days, active FROM membership_plans WHERE gym_id = %s ORDER BY name',
+        return conn.execute('SELECT id, name, price_mxn, duration_days, min_group_size, max_group_size, active FROM membership_plans WHERE gym_id = %s ORDER BY name',
                             (admin['gym_id'],)).fetchall()
 
 
@@ -2666,16 +2786,29 @@ class PlanUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     price_mxn: float | None = Field(default=None, ge=0)
     duration_days: int | None = Field(default=None, gt=0, le=3650)
+    min_group_size: int = Field(default=1, ge=1, le=50)
+    max_group_size: int = Field(default=1, ge=1, le=50)
     active: bool = True
+
+    @field_validator('max_group_size')
+    @classmethod
+    def validate_group_size(cls, value: int, info) -> int:
+        if value < info.data.get('min_group_size', 1):
+            raise ValueError('El máximo de personas no puede ser menor que el mínimo.')
+        return value
 
 
 @app.post('/api/v1/admin/membership-plans', status_code=201)
 def create_plan(payload: PlanUpdate, admin: dict = Depends(active_admin)) -> dict:
     with pool.connection() as conn:
         try:
-            row = conn.execute("""INSERT INTO membership_plans (gym_id, name, price_mxn, duration_days, active)
-                VALUES (%s, %s, %s, %s, %s) RETURNING id, name, price_mxn, duration_days, active""",
-                (admin['gym_id'], payload.name.strip(), payload.price_mxn, payload.duration_days, payload.active)).fetchone()
+            row = conn.execute("""INSERT INTO membership_plans
+                (gym_id, name, price_mxn, duration_days, min_group_size, max_group_size, active)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id, name, price_mxn, duration_days, min_group_size, max_group_size, active""",
+                (admin['gym_id'], payload.name.strip(), payload.price_mxn,
+                 payload.duration_days, payload.min_group_size, payload.max_group_size,
+                 payload.active)).fetchone()
         except Exception as exc:
             db_message = f'{exc} {getattr(getattr(exc, "diag", None), "constraint_name", "")}'
             if 'membership_plans_gym_id_name_key' in db_message:
@@ -2689,8 +2822,19 @@ def create_plan(payload: PlanUpdate, admin: dict = Depends(active_admin)) -> dic
 @app.put('/api/v1/admin/membership-plans/{plan_id}')
 def update_plan(plan_id: uuid.UUID, payload: PlanUpdate, admin: dict = Depends(active_admin)) -> dict:
     with pool.connection() as conn:
-        row = conn.execute('UPDATE membership_plans SET name = %s, price_mxn = %s, duration_days = %s, active = %s WHERE id = %s AND gym_id = %s RETURNING id, name, price_mxn, duration_days, active',
-                           (payload.name, payload.price_mxn, payload.duration_days, payload.active, plan_id, admin['gym_id'])).fetchone()
+        try:
+            row = conn.execute("""UPDATE membership_plans SET name = %s, price_mxn = %s,
+                duration_days = %s, min_group_size = %s, max_group_size = %s, active = %s
+                WHERE id = %s AND gym_id = %s
+                RETURNING id, name, price_mxn, duration_days, min_group_size, max_group_size, active""",
+                (payload.name.strip(), payload.price_mxn, payload.duration_days,
+                 payload.min_group_size, payload.max_group_size, payload.active,
+                 plan_id, admin['gym_id'])).fetchone()
+        except Exception as exc:
+            constraint = getattr(getattr(exc, 'diag', None), 'constraint_name', '')
+            if constraint == 'membership_plans_gym_id_name_key':
+                raise _problem(409, 'PLAN_NAME_IN_USE', 'Ya existe un plan con ese nombre.')
+            raise
     if row is None:
         raise _problem(404, 'PLAN_NOT_FOUND', 'No encontramos ese plan.')
     return row
@@ -2924,7 +3068,7 @@ def reassign_client(payload: ReassignTrainerRequest, admin: dict = Depends(activ
         with conn.cursor() as cur:
             trainer = cur.execute("SELECT id FROM users WHERE id = %s AND gym_id = %s AND role = 'trainer' AND status = 'active' FOR UPDATE",
                                   (payload.new_trainer_id, admin['gym_id'])).fetchone()
-            client = cur.execute("SELECT id FROM users WHERE id = %s AND gym_id = %s AND role = 'client' AND status = 'active' FOR UPDATE",
+            client = cur.execute("SELECT id FROM users WHERE id = %s AND gym_id = %s AND role = 'client' AND status IN ('active', 'active_no_onboarding') FOR UPDATE",
                                  (payload.client_id, admin['gym_id'])).fetchone()
             if trainer is None or client is None:
                 raise _problem(404, 'ASSIGNMENT_TARGET_NOT_FOUND', 'El entrenador o socio no está activo.')

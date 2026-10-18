@@ -48,7 +48,8 @@ class AuthController extends ChangeNotifier {
 
   Future<void> verifyRegistrationEmail(
       {required String email, required String code}) async {
-    _session = await repository.verifyRegistrationEmail(email: email, code: code);
+    _session =
+        await repository.verifyRegistrationEmail(email: email, code: code);
     notifyListeners();
   }
 
@@ -119,12 +120,16 @@ class AuthController extends ChangeNotifier {
           required String name,
           required double priceMxn,
           required int durationDays,
+          int minGroupSize = 1,
+          int maxGroupSize = 1,
           required bool active}) =>
       repository.saveAdminPlan(
           id: id,
           name: name,
           priceMxn: priceMxn,
           durationDays: durationDays,
+          minGroupSize: minGroupSize,
+          maxGroupSize: maxGroupSize,
           active: active);
 
   Future<List<Map<String, dynamic>>> adminInvites() =>
@@ -142,13 +147,9 @@ class AuthController extends ChangeNotifier {
   Future<Map<String, dynamic>> ownProfile() => repository.getOwnProfile();
 
   Future<Map<String, dynamic>> updateOwnProfilePhoto(
-          {String? photoData,
-          String? photoMime,
-          bool removePhoto = false}) =>
+          {String? photoData, String? photoMime, bool removePhoto = false}) =>
       repository.updateOwnProfilePhoto(
-          photoData: photoData,
-          photoMime: photoMime,
-          removePhoto: removePhoto);
+          photoData: photoData, photoMime: photoMime, removePhoto: removePhoto);
 
   Future<Map<String, dynamic>> updateTrainerProfile(
           {required String firstName,
@@ -176,8 +177,13 @@ class AuthController extends ChangeNotifier {
           newPassword: newPassword,
           code: code);
 
-  Future<String?> sendPasswordChangeCode() =>
-      repository.sendPasswordChangeCode();
+  Future<String?> sendPasswordChangeCode({required String currentPassword}) =>
+      repository.sendPasswordChangeCode(currentPassword: currentPassword);
+
+  Future<void> verifyPasswordChangeCode(
+          {required String currentPassword, required String code}) =>
+      repository.verifyPasswordChangeCode(
+          currentPassword: currentPassword, code: code);
 
   Future<void> requestEmailChangeCode({required String newEmail}) =>
       repository.requestEmailChangeCode(newEmail: newEmail);
@@ -328,6 +334,8 @@ class AuthController extends ChangeNotifier {
       required String goal,
       required String experienceLevel,
       required int daysPerWeek,
+      required double weightKg,
+      double? heightCm,
       String? limitations}) async {
     _session = await repository.completeClientOnboarding(
         planId: planId,
@@ -336,6 +344,8 @@ class AuthController extends ChangeNotifier {
         goal: goal,
         experienceLevel: experienceLevel,
         daysPerWeek: daysPerWeek,
+        weightKg: weightKg,
+        heightCm: heightCm,
         limitations: limitations);
     notifyListeners();
   }
@@ -347,8 +357,11 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
-    await repository.signOut();
-    _session = null;
-    notifyListeners();
+    try {
+      await repository.signOut();
+    } finally {
+      _session = null;
+      notifyListeners();
+    }
   }
 }

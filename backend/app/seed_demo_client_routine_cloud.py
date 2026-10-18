@@ -64,7 +64,7 @@ def main() -> None:
     database_url = getpass.getpass('Neon DATABASE_URL (no se mostrará): ').strip()
     if not database_url.startswith(('postgres://', 'postgresql://')):
         raise SystemExit('La URL debe ser una conexión PostgreSQL válida.')
-    demo_password = f'MUSKL-{secrets.token_urlsafe(15)}'
+    demo_password = f'MUSKL-a1!{secrets.token_urlsafe(15)}'
     demo_admin_password = None
 
     with psycopg.connect(database_url, connect_timeout=15, row_factory=dict_row) as conn:
@@ -101,7 +101,7 @@ def main() -> None:
                     raise SystemExit(
                         f'Ya existe {DEMO_ADMIN_EMAIL}, pero no está activo; no lo modifiqué.'
                     )
-                demo_admin_password = f'MUSKL-{secrets.token_urlsafe(15)}'
+                demo_admin_password = f'MUSKL-a1!{secrets.token_urlsafe(15)}'
                 trainer = conn.execute(
                     """INSERT INTO users
                        (gym_id, role, status, first_name, last_name, email, password_hash)

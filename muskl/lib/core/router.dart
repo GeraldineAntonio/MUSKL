@@ -195,6 +195,7 @@ GoRouter buildRouter(AuthController auth) {
               phone: state.uri.queryParameters['phone'] ?? '',
               plan: state.uri.queryParameters['plan'] ?? '',
               role: state.uri.queryParameters['role'] ?? 'client',
+              status: state.uri.queryParameters['status'] ?? 'active',
               deactivatedBy: state.uri.queryParameters['deactivated_by'] ?? '',
               trainerId: state.uri.queryParameters['trainer_id'] ?? '',
               trainerName: state.uri.queryParameters['trainer_name'] ?? '',

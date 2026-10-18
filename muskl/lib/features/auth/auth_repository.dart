@@ -70,6 +70,9 @@ abstract class AuthRepository {
   Future<Map<String, dynamic>> createAdminInvite();
   Future<void> revokeAdminInvite({required String inviteId});
   Future<Map<String, dynamic>> getTrainerProfile();
+  Future<Map<String, dynamic>> getOwnProfile();
+  Future<Map<String, dynamic>> updateOwnProfilePhoto(
+      {String? photoData, String? photoMime, bool removePhoto = false});
   Future<Map<String, dynamic>> updateTrainerProfile(
       {required String firstName,
       required String lastName,
@@ -575,6 +578,28 @@ class FakeAuthRepository implements AuthRepository {
   @override
   Future<Map<String, dynamic>> getTrainerProfile() async =>
       Map<String, dynamic>.from(_demoTrainerProfile);
+
+  @override
+  Future<Map<String, dynamic>> getOwnProfile() async => {
+        'first_name': 'Eimy',
+        'last_name': 'Demo',
+        'email': 'demo@muskl.app',
+        'phone': '',
+        'role': 'admin',
+        'profile_photo_url': null,
+      };
+
+  @override
+  Future<Map<String, dynamic>> updateOwnProfilePhoto(
+      {String? photoData, String? photoMime, bool removePhoto = false}) async =>
+      {
+        'first_name': 'Eimy',
+        'last_name': 'Demo',
+        'email': 'demo@muskl.app',
+        'phone': '',
+        'role': 'admin',
+        'profile_photo_url': null,
+      };
 
   @override
   Future<Map<String, dynamic>> updateTrainerProfile(

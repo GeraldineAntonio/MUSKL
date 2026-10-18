@@ -421,6 +421,26 @@ class ApiAuthRepository implements AuthRepository {
               as Map);
 
   @override
+  Future<Map<String, dynamic>> getOwnProfile() async =>
+      Map<String, dynamic>.from(
+          await _request('GET', '/api/v1/profile', authenticated: true) as Map);
+
+  @override
+  Future<Map<String, dynamic>> updateOwnProfilePhoto(
+      {String? photoData,
+      String? photoMime,
+      bool removePhoto = false}) async {
+    final body = <String, dynamic>{
+      if (photoData != null) 'photo_data': photoData,
+      if (photoMime != null) 'photo_mime': photoMime,
+      if (removePhoto) 'remove_photo': true,
+    };
+    return Map<String, dynamic>.from(await _request(
+            'PATCH', '/api/v1/profile/photo', authenticated: true, body: body)
+        as Map);
+  }
+
+  @override
   Future<Map<String, dynamic>> updateTrainerProfile(
           {required String firstName,
           required String lastName,

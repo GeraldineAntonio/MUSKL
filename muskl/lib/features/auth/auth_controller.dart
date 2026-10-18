@@ -127,6 +127,17 @@ class AuthController extends ChangeNotifier {
   Future<Map<String, dynamic>> trainerProfile() =>
       repository.getTrainerProfile();
 
+  Future<Map<String, dynamic>> ownProfile() => repository.getOwnProfile();
+
+  Future<Map<String, dynamic>> updateOwnProfilePhoto(
+          {String? photoData,
+          String? photoMime,
+          bool removePhoto = false}) =>
+      repository.updateOwnProfilePhoto(
+          photoData: photoData,
+          photoMime: photoMime,
+          removePhoto: removePhoto);
+
   Future<Map<String, dynamic>> updateTrainerProfile(
           {required String firstName,
           required String lastName,

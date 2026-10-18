@@ -1505,6 +1505,7 @@ class _ClientProfileWorkspaceScreenState
           final photo = data['profile_photo_data'];
           final photoBytes =
               photo is String && photo.isNotEmpty ? base64Decode(photo) : null;
+          final photoUrl = data['profile_photo_url']?.toString();
           return Column(children: [
             if (_savingProfile) const LinearProgressIndicator(),
             MusklCard(
@@ -1512,18 +1513,27 @@ class _ClientProfileWorkspaceScreenState
               CircleAvatar(
                   radius: 38,
                   backgroundColor: AppColors.surfaceHigh,
-                  child: photoBytes == null
+                  child: (photoUrl == null || photoUrl.isEmpty) && photoBytes == null
                       ? const Icon(Icons.person,
                           size: 42, color: AppColors.accent)
                       : ClipOval(
-                          child: Image.memory(photoBytes,
-                              width: 76,
-                              height: 76,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => const Icon(
-                                  Icons.person,
-                                  size: 42,
-                                  color: AppColors.accent)))),
+                          child: photoUrl != null && photoUrl.isNotEmpty
+                              ? Image.network(photoUrl,
+                                  width: 76,
+                                  height: 76,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.person,
+                                      size: 42,
+                                      color: AppColors.accent))
+                              : Image.memory(photoBytes!,
+                                  width: 76,
+                                  height: 76,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.person,
+                                      size: 42,
+                                      color: AppColors.accent)))),
               const SizedBox(height: 10),
               Text('${data['first_name']} ${data['last_name']}'.toUpperCase(),
                   style: const TextStyle(
@@ -1542,7 +1552,7 @@ class _ClientProfileWorkspaceScreenState
                 'Elige una imagen JPG o PNG (máximo 2 MB)',
                 Icons.add_a_photo_outlined,
                 onTap: _savingProfile ? null : _pickProfilePhoto),
-            if (photoBytes != null)
+            if (photoBytes != null || (photoUrl != null && photoUrl.isNotEmpty))
               _setting('Quitar foto de perfil',
                   'Volver a la imagen predeterminada', Icons.delete_outline,
                   onTap: _savingProfile ? null : _removeProfilePhoto),
@@ -2323,6 +2333,51 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
     }
   }
 
+  Future<void> _changeProfilePhoto() async {
+    final picked = await FilePicker.platform
+        .pickFiles(type: FileType.image, allowMultiple: false, withData: true);
+    if (!mounted || picked == null) return;
+    final file = picked.files.single;
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty || bytes.length > 2 * 1024 * 1024) {
+      _message('La foto debe poder leerse y pesar máximo 2 MB.');
+      return;
+    }
+    final mime = switch (file.extension?.toLowerCase()) {
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      _ => null,
+    };
+    if (mime == null) {
+      _message('Elige una imagen JPG o PNG.');
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final saved = await authController.updateOwnProfilePhoto(
+          photoData: base64Encode(bytes), photoMime: mime);
+      if (mounted) setState(() => _profile['profile_photo_url'] = saved['profile_photo_url']);
+      _message('Foto de perfil actualizada.');
+    } catch (e) {
+      _message('No se pudo guardar la foto: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _removeProfilePhoto() async {
+    setState(() => _saving = true);
+    try {
+      await authController.updateOwnProfilePhoto(removePhoto: true);
+      if (mounted) setState(() => _profile['profile_photo_url'] = null);
+      _message('Foto de perfil quitada.');
+    } catch (e) {
+      _message('No se pudo quitar la foto: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Future<void> _editPersonal() async {
     final result = await _editFields(context, 'DATOS PERSONALES', [
       'Nombre',
@@ -2487,10 +2542,23 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
               if (_saving) const LinearProgressIndicator(),
               MusklCard(
                   child: ListTile(
-                      leading: const CircleAvatar(child: Icon(Icons.person)),
+                      leading: CircleAvatar(
+                          backgroundImage: _value('profile_photo_url').isEmpty
+                              ? null
+                              : NetworkImage(_value('profile_photo_url')),
+                          child: _value('profile_photo_url').isEmpty
+                              ? const Icon(Icons.person)
+                              : null),
                       title: Text(
                           '${_value('first_name')} ${_value('last_name')}'),
                       subtitle: Text('Entrenador · ${_value('specialty')}'))),
+              _setting('Cambiar foto de perfil',
+                  'JPG o PNG · máximo 2 MB', Icons.add_a_photo_outlined,
+                  onTap: _saving ? null : _changeProfilePhoto),
+              if (_value('profile_photo_url').isNotEmpty)
+                _setting('Quitar foto de perfil', 'Usar imagen predeterminada',
+                    Icons.delete_outline,
+                    onTap: _saving ? null : _removeProfilePhoto),
               _setting(
                   'Datos personales',
                   '${_value('email')} · ${_value('phone')}',
@@ -3159,6 +3227,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   List<Map<String, dynamic>> _admins = [];
   bool _newRequestNotifications = true;
   bool _savingPreferences = false;
+  Map<String, dynamic> _ownProfile = {};
+  bool _savingPhoto = false;
 
   @override
   void initState() {
@@ -3166,6 +3236,61 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     _loadGym();
     _loadAdminOptions();
     _loadAdminPreferences();
+    _loadOwnProfile();
+  }
+
+  Future<void> _loadOwnProfile() async {
+    try {
+      final profile = await authController.ownProfile();
+      if (mounted) setState(() => _ownProfile = profile);
+    } catch (e) {
+      if (mounted) _showLocalMessage('No se pudo cargar el perfil: $e');
+    }
+  }
+
+  Future<void> _changeAdminPhoto() async {
+    final picked = await FilePicker.platform
+        .pickFiles(type: FileType.image, allowMultiple: false, withData: true);
+    if (!mounted || picked == null) return;
+    final file = picked.files.single;
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty || bytes.length > 2 * 1024 * 1024) {
+      _showLocalMessage('La foto debe poder leerse y pesar máximo 2 MB.');
+      return;
+    }
+    final mime = switch (file.extension?.toLowerCase()) {
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      _ => null,
+    };
+    if (mime == null) {
+      _showLocalMessage('Elige una imagen JPG o PNG.');
+      return;
+    }
+    setState(() => _savingPhoto = true);
+    try {
+      final saved = await authController.updateOwnProfilePhoto(
+          photoData: base64Encode(bytes), photoMime: mime);
+      if (mounted) setState(() => _ownProfile = saved);
+      _showLocalMessage('Foto de perfil actualizada.');
+    } catch (e) {
+      _showLocalMessage('No se pudo guardar la foto: $e');
+    } finally {
+      if (mounted) setState(() => _savingPhoto = false);
+    }
+  }
+
+  Future<void> _removeAdminPhoto() async {
+    setState(() => _savingPhoto = true);
+    try {
+      final saved = await authController.updateOwnProfilePhoto(removePhoto: true);
+      if (mounted) setState(() => _ownProfile = saved);
+      _showLocalMessage('Foto de perfil quitada.');
+    } catch (e) {
+      _showLocalMessage('No se pudo quitar la foto: $e');
+    } finally {
+      if (mounted) setState(() => _savingPhoto = false);
+    }
   }
 
   Future<void> _loadAdminPreferences() async {
@@ -3421,6 +3546,30 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       items: _adminNav,
       selected: 3,
       child: Column(children: [
+        if (_savingPhoto) const LinearProgressIndicator(),
+        MusklCard(
+            child: ListTile(
+          leading: CircleAvatar(
+              backgroundImage: (_ownProfile['profile_photo_url'] == null ||
+                      _ownProfile['profile_photo_url'].toString().isEmpty)
+                  ? null
+                  : NetworkImage(_ownProfile['profile_photo_url'].toString()),
+              child: (_ownProfile['profile_photo_url'] == null ||
+                      _ownProfile['profile_photo_url'].toString().isEmpty)
+                  ? const Icon(Icons.person)
+                  : null),
+          title: Text(
+              '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}'),
+          subtitle: const Text('Administrador'),
+        )),
+        _setting('Cambiar foto de perfil', 'JPG o PNG · máximo 2 MB',
+            Icons.add_a_photo_outlined,
+            onTap: _savingPhoto ? null : _changeAdminPhoto),
+        if (_ownProfile['profile_photo_url'] != null &&
+            _ownProfile['profile_photo_url'].toString().isNotEmpty)
+          _setting('Quitar foto de perfil', 'Usar imagen predeterminada',
+              Icons.delete_outline,
+              onTap: _savingPhoto ? null : _removeAdminPhoto),
         _SwitchSetting(
             label: 'Notificaciones de nuevas solicitudes',
             value: _newRequestNotifications,

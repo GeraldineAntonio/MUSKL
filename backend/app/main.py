@@ -37,8 +37,11 @@ from .object_storage import (
     StorageReadError,
     StorageWriteError,
     delete_certificate,
+    delete_profile_photo,
     presigned_certificate_url,
+    presigned_profile_photo_url,
     put_certificate,
+    put_profile_photo,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -86,9 +89,11 @@ app.add_middleware(CORSMiddleware, allow_origins=origins or ['*'],
 
 def _purge_expired_account_deletions() -> int:
     """Permanently remove client records after the approved 90-day window."""
+    photo_keys: list[str] = []
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            targets = cur.execute("""SELECT u.id, u.gym_id FROM users u
+            targets = cur.execute("""SELECT u.id, u.gym_id, u.profile_photo_storage_key
+                FROM users u
                 WHERE u.role = 'client' AND u.status = 'deactivated'
                   AND u.reactivation_until <= now()
                   AND EXISTS (SELECT 1 FROM account_deletion_requests dr
@@ -98,6 +103,8 @@ def _purge_expired_account_deletions() -> int:
                 FOR UPDATE OF u SKIP LOCKED""").fetchall()
             if not targets:
                 return 0
+            photo_keys = [row['profile_photo_storage_key'] for row in targets
+                          if row['profile_photo_storage_key']]
             user_ids = [row['id'] for row in targets]
             user_id_text = [str(user_id) for user_id in user_ids]
 
@@ -123,8 +130,14 @@ def _purge_expired_account_deletions() -> int:
                     (gym_id, event_type, details)
                     VALUES (%s, 'account_data_purged', %s)""",
                     (gym_id, Jsonb({'accounts': count})))
-            log.info('Purged %s expired client account(s)', len(deleted))
-            return len(deleted)
+            deleted_count = len(deleted)
+    for photo_key in photo_keys:
+        try:
+            delete_profile_photo(photo_key)
+        except Exception:
+            log.exception('Could not delete profile photo after account purge')
+    log.info('Purged %s expired client account(s)', deleted_count)
+    return deleted_count
 
 
 async def _expired_account_cleanup_loop() -> None:
@@ -234,6 +247,12 @@ class ClientProfileUpdate(BaseModel):
     last_name: str | None = Field(default=None, min_length=1, max_length=100)
     email: EmailStr | None = None
     phone: str | None = Field(default=None, max_length=30)
+    photo_data: str | None = Field(default=None, max_length=2_800_000)
+    photo_mime: Literal['image/jpeg', 'image/png'] | None = None
+    remove_photo: bool = False
+
+
+class ProfilePhotoUpdate(BaseModel):
     photo_data: str | None = Field(default=None, max_length=2_800_000)
     photo_mime: Literal['image/jpeg', 'image/png'] | None = None
     remove_photo: bool = False
@@ -846,6 +865,105 @@ def me(user: dict = Depends(current_user)) -> dict:
     return {'user': _public_user(user)}
 
 
+def _signed_profile_photo(storage_key: str | None) -> str | None:
+    if not storage_key:
+        return None
+    try:
+        return presigned_profile_photo_url(storage_key, expires_in=600)
+    except (StorageNotConfigured, StorageReadError):
+        log.exception('Could not create temporary profile photo URL')
+        return None
+
+
+@app.get('/api/v1/profile')
+def own_profile(user: dict = Depends(current_user)) -> dict:
+    return {
+        'first_name': user['first_name'],
+        'last_name': user['last_name'],
+        'email': user['email'],
+        'phone': user['phone'],
+        'role': user['role'],
+        'profile_photo_url': _signed_profile_photo(user.get('profile_photo_storage_key')),
+        'profile_photo_mime': user.get('profile_photo_mime'),
+    }
+
+
+@app.patch('/api/v1/profile/photo')
+def update_own_profile_photo(payload: ProfilePhotoUpdate,
+                             user: dict = Depends(current_user)) -> dict:
+    if user['status'] not in ('active', 'active_no_onboarding'):
+        raise _problem(403, 'ACTIVE_ACCOUNT_REQUIRED', 'La cuenta debe estar activa.')
+    if payload.photo_data is None and payload.photo_mime is None and not payload.remove_photo:
+        raise _problem(422, 'EMPTY_PROFILE_UPDATE', 'Incluye una foto o indica que quieres quitarla.')
+    if payload.photo_data is not None and payload.remove_photo:
+        raise _problem(422, 'INVALID_PROFILE_PHOTO', 'Elige una foto nueva o quita la foto actual.')
+
+    photo_bytes = None
+    if payload.photo_data is not None:
+        if payload.photo_mime is None:
+            raise _problem(415, 'INVALID_PROFILE_PHOTO', 'El formato de la foto no es válido.')
+        try:
+            photo_bytes = base64.b64decode(payload.photo_data, validate=True)
+        except (ValueError, binascii.Error):
+            raise _problem(415, 'INVALID_PROFILE_PHOTO', 'No se pudo leer la imagen seleccionada.')
+        if not photo_bytes or len(photo_bytes) > 2 * 1024 * 1024:
+            raise _problem(413, 'PROFILE_PHOTO_SIZE', 'La foto debe pesar máximo 2 MB.')
+        valid_signature = (
+            payload.photo_mime == 'image/jpeg' and photo_bytes.startswith(b'\xff\xd8\xff')
+        ) or (
+            payload.photo_mime == 'image/png' and photo_bytes.startswith(b'\x89PNG\r\n\x1a\n')
+        )
+        if not valid_signature:
+            raise _problem(415, 'INVALID_PROFILE_PHOTO', 'Usa una imagen JPG o PNG válida.')
+    elif payload.photo_mime is not None:
+        raise _problem(415, 'INVALID_PROFILE_PHOTO', 'Faltan los datos de la foto seleccionada.')
+
+    new_storage_key = None
+    if photo_bytes is not None:
+        extension = 'jpg' if payload.photo_mime == 'image/jpeg' else 'png'
+        try:
+            new_storage_key = put_profile_photo(
+                f"profile-photos/{user['id']}/{uuid.uuid4()}.{extension}",
+                photo_bytes, payload.photo_mime)
+        except StorageNotConfigured as exc:
+            raise _problem(503, 'PROFILE_PHOTO_STORAGE_NOT_CONFIGURED', str(exc))
+        except StorageWriteError as exc:
+            raise _problem(503, 'PROFILE_PHOTO_STORAGE_UNAVAILABLE', str(exc))
+
+    old_storage_key = user.get('profile_photo_storage_key')
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                if payload.remove_photo:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = NULL,
+                        profile_photo_mime = NULL, updated_at = now() WHERE id = %s""",
+                        (user['id'],))
+                elif new_storage_key:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
+                        profile_photo_mime = %s, updated_at = now() WHERE id = %s""",
+                        (new_storage_key, payload.photo_mime, user['id']))
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, subject_id, event_type, details)
+                    VALUES (%s, %s, %s, 'profile_photo_updated', %s)""",
+                    (user['gym_id'], user['id'], user['id'],
+                     Jsonb({'removed': payload.remove_photo})))
+    except Exception:
+        if new_storage_key:
+            try:
+                delete_profile_photo(new_storage_key)
+            except Exception:
+                log.exception('Could not clean up profile photo after database update failed')
+        raise
+    if old_storage_key and (payload.remove_photo or new_storage_key):
+        try:
+            delete_profile_photo(old_storage_key)
+        except Exception:
+            log.exception('Could not remove replaced profile photo from R2')
+    return own_profile({**user,
+                        'profile_photo_storage_key': None if payload.remove_photo else new_storage_key,
+                        'profile_photo_mime': None if payload.remove_photo else payload.photo_mime})
+
+
 @app.post('/api/v1/auth/refresh')
 def refresh_session(payload: RefreshRequest) -> dict:
     now = datetime.now(UTC)
@@ -907,13 +1025,16 @@ def deactivated_session_status(payload: RefreshRequest) -> dict:
 def trainer_profile(trainer: dict = Depends(active_trainer)) -> dict:
     with pool.connection() as conn:
         profile = conn.execute("""SELECT u.first_name, u.last_name, u.email, u.phone,
+                u.profile_photo_storage_key, u.profile_photo_mime,
                 tp.specialty, tp.bio, tp.notification_preferences,
                 coalesce((SELECT jsonb_agg(jsonb_build_object('id', tc.id, 'title', tc.title,
                     'verified_at', tc.verified_at) ORDER BY tc.created_at)
                     FROM trainer_certifications tc WHERE tc.trainer_id = u.id), '[]'::jsonb) AS certifications
             FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id WHERE u.id = %s""",
             (trainer['id'],)).fetchone()
-    return profile
+    result = dict(profile)
+    result['profile_photo_url'] = _signed_profile_photo(result.pop('profile_photo_storage_key'))
+    return result
 
 
 @app.get('/api/v1/trainer/certifications/{certification_id}/download')
@@ -1667,7 +1788,8 @@ def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
     with pool.connection() as conn:
         _advance_due_client_phase(conn, client['id'])
         row = conn.execute("""SELECT u.first_name, u.last_name, u.member_number, u.email, u.phone, cp.goal,
-                cp.profile_photo, cp.profile_photo_mime,
+                u.profile_photo_storage_key, u.profile_photo_mime,
+                cp.profile_photo, cp.profile_photo_mime AS legacy_profile_photo_mime,
                 g.timezone, p.name AS plan_name, m.ends_on AS membership_ends_on,
                 concat_ws(' ', t.first_name, t.last_name) AS trainer_name,
                 r.name AS routine_name, cra.current_phase_id, rp.phase_number,
@@ -1694,10 +1816,17 @@ def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
             WHERE user_id = %s AND kind = 'new_phase_available' AND read_at IS NULL
             ORDER BY created_at DESC LIMIT 1""", (client['id'],)).fetchone()
     attendance_days = {d['local_date'].isoformat() for d in attendance}
-    return {**row, 'today': row['today'].isoformat(),
+    profile_photo_url = _signed_profile_photo(row['profile_photo_storage_key'])
+    dashboard = dict(row)
+    dashboard.pop('profile_photo', None)
+    dashboard.pop('profile_photo_storage_key', None)
+    dashboard.pop('legacy_profile_photo_mime', None)
+    return {**dashboard, 'today': row['today'].isoformat(),
+            # Legacy photos remain readable until migrate_profile_photos_to_r2 runs.
             'profile_photo_data': (base64.b64encode(bytes(row['profile_photo'])).decode('ascii')
                                    if row['profile_photo'] else None),
-            'profile_photo_mime': row['profile_photo_mime'],
+            'profile_photo_url': profile_photo_url,
+            'profile_photo_mime': row['profile_photo_mime'] or row['legacy_profile_photo_mime'],
             'membership_ends_on': row['membership_ends_on'].isoformat() if row['membership_ends_on'] else None,
             'phase_started_at': row['phase_started_at'].isoformat() if row['phase_started_at'] else None,
             'deletion_requested_at': row['deletion_requested_at'].isoformat() if row['deletion_requested_at'] else None,
@@ -1748,30 +1877,64 @@ def update_client_profile(payload: ClientProfileUpdate,
     if 'phone' in fields:
         phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
 
+    new_storage_key = None
+    if photo_bytes is not None:
+        extension = 'jpg' if payload.photo_mime == 'image/jpeg' else 'png'
+        object_key = f"profile-photos/{client['id']}/{uuid.uuid4()}.{extension}"
+        try:
+            new_storage_key = put_profile_photo(object_key, photo_bytes, payload.photo_mime)
+        except StorageNotConfigured as exc:
+            raise _problem(503, 'PROFILE_PHOTO_STORAGE_NOT_CONFIGURED', str(exc))
+        except StorageWriteError as exc:
+            raise _problem(503, 'PROFILE_PHOTO_STORAGE_UNAVAILABLE', str(exc))
+
+    old_storage_key = None
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
+                cur.execute('INSERT INTO client_profiles (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING',
+                            (client['id'],))
+                old_profile = cur.execute(
+                    'SELECT profile_photo_storage_key FROM users WHERE id = %s FOR UPDATE',
+                    (client['id'],)).fetchone()
+                old_storage_key = old_profile['profile_photo_storage_key'] if old_profile else None
                 cur.execute("""UPDATE users SET first_name = %s, last_name = %s,
                     email = %s, phone = %s, updated_at = now() WHERE id = %s""",
                     (first_name, last_name, email, phone, client['id']))
                 if payload.remove_photo:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = NULL,
+                        profile_photo_mime = NULL, updated_at = now() WHERE id = %s""",
+                        (client['id'],))
                     cur.execute("""UPDATE client_profiles SET profile_photo = NULL,
                         profile_photo_mime = NULL, updated_at = now() WHERE user_id = %s""",
                         (client['id'],))
                 elif photo_bytes is not None:
-                    cur.execute("""UPDATE client_profiles SET profile_photo = %s,
-                        profile_photo_mime = %s, updated_at = now() WHERE user_id = %s""",
-                        (photo_bytes, payload.photo_mime, client['id']))
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
+                        profile_photo_mime = %s, updated_at = now() WHERE id = %s""",
+                        (new_storage_key, payload.photo_mime, client['id']))
+                    cur.execute("""UPDATE client_profiles SET profile_photo = NULL,
+                        profile_photo_mime = NULL, updated_at = now() WHERE user_id = %s""",
+                        (client['id'],))
                 cur.execute("""INSERT INTO account_audit_events
                     (gym_id, actor_id, subject_id, event_type, details)
                     VALUES (%s, %s, %s, 'client_profile_updated', %s)""",
                     (client['gym_id'], client['id'], client['id'],
                      Jsonb({'email': email, 'photo_changed': photo_bytes is not None or payload.remove_photo})))
     except Exception as exc:
+        if new_storage_key:
+            try:
+                delete_profile_photo(new_storage_key)
+            except Exception:
+                log.exception('Could not clean up profile photo after database update failed')
         constraint = getattr(getattr(exc, 'diag', None), 'constraint_name', '')
         if constraint == 'users_email_per_gym_uq':
             raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado en el gimnasio.')
         raise
+    if old_storage_key and (payload.remove_photo or new_storage_key):
+        try:
+            delete_profile_photo(old_storage_key)
+        except Exception:
+            log.exception('Could not remove replaced profile photo from R2')
     return client_dashboard(client)
 
 

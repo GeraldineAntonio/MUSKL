@@ -128,6 +128,9 @@ abstract class AuthRepository {
   Future<Map<String, dynamic>> completeClientWorkout({int? durationSeconds});
   Future<void> requestAccountDeletion();
   Future<List<Map<String, dynamic>>> getStaffRequests();
+  Future<String> getOwnTrainerCertificationDownloadUrl({
+    required String certificationId,
+  });
   Future<String> getTrainerCertificationDownloadUrl({
     required String trainerId,
     required String certificationId,
@@ -877,6 +880,12 @@ class FakeAuthRepository implements AuthRepository {
   @override
   Future<String> getTrainerCertificationDownloadUrl({
     required String trainerId,
+    required String certificationId,
+  }) async =>
+      'https://example.invalid/certification.pdf';
+
+  @override
+  Future<String> getOwnTrainerCertificationDownloadUrl({
     required String certificationId,
   }) async =>
       'https://example.invalid/certification.pdf';

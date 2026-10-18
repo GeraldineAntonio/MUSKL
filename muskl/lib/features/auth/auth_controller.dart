@@ -254,6 +254,12 @@ class AuthController extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> staffRequests() =>
       repository.getStaffRequests();
 
+  Future<String> ownTrainerCertificationDownloadUrl({
+    required String certificationId,
+  }) =>
+      repository.getOwnTrainerCertificationDownloadUrl(
+          certificationId: certificationId);
+
   Future<String> trainerCertificationDownloadUrl({
     required String trainerId,
     required String certificationId,

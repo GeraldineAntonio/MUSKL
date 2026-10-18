@@ -2206,6 +2206,48 @@ class _PrototypeSettings {
   static String hours = '';
 }
 
+Future<void> _showCertificationPreview(
+  BuildContext context, {
+  required String title,
+  required String url,
+}) async {
+  final extension = title.split('.').last.toLowerCase();
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => Dialog.fullscreen(
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          leading: IconButton(
+            tooltip: 'Cerrar',
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            icon: const Icon(Icons.close),
+          ),
+        ),
+        body: extension == 'pdf'
+            ? PdfViewer.uri(Uri.parse(url))
+            : InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 5,
+                child: Center(
+                  child: Image.network(
+                    url,
+                    fit: BoxFit.contain,
+                    loadingBuilder: (context, child, progress) =>
+                        progress == null
+                            ? child
+                            : const Center(child: CircularProgressIndicator()),
+                    errorBuilder: (context, error, stackTrace) => const Center(
+                      child: Text('No se pudo cargar la imagen.'),
+                    ),
+                  ),
+                ),
+              ),
+      ),
+    ),
+  );
+}
+
 class TrainerSettingsScreen extends StatefulWidget {
   const TrainerSettingsScreen({super.key});
   @override
@@ -2308,6 +2350,22 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
     await _save(specialty: result[0], bio: result[1]);
   }
 
+  Future<void> _viewOwnCertification(Map certificate) async {
+    try {
+      final url = await authController.ownTrainerCertificationDownloadUrl(
+        certificationId: certificate['id'].toString(),
+      );
+      if (!mounted) return;
+      await _showCertificationPreview(
+        context,
+        title: certificate['title']?.toString() ?? 'Certificado',
+        url: url,
+      );
+    } catch (e) {
+      _message('No se pudo abrir tu certificado: $e');
+    }
+  }
+
   Future<void> _changePassword() async {
     try {
       final channel = await authController.sendPasswordChangeCode();
@@ -2393,12 +2451,13 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                   onTap: _editCredentials),
               for (final certificate
                   in (_profile['certifications'] as List? ?? []))
-                _record(
+                _setting(
                     (certificate as Map)['title'].toString(),
                     certificate['verified_at'] == null
                         ? 'Documento registrado · pendiente de verificación'
                         : 'Certificación verificada',
-                    icon: Icons.verified_outlined),
+                    Icons.workspace_premium_outlined,
+                    onTap: () => _viewOwnCertification(certificate)),
               _setting('Cambiar contraseña',
                   'Actualiza tus credenciales de acceso', Icons.lock_outline,
                   onTap: _changePassword),
@@ -3338,43 +3397,10 @@ class _AdminRequestsScreenState extends State<AdminRequestsScreen> {
         certificationId: certificate['id'].toString(),
       );
       if (!mounted) return;
-      final title = certificate['title']?.toString() ?? 'Certificado';
-      final extension = title.split('.').last.toLowerCase();
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => Dialog.fullscreen(
-          child: Scaffold(
-            appBar: AppBar(
-              title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-              leading: IconButton(
-                tooltip: 'Cerrar',
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                icon: const Icon(Icons.close),
-              ),
-            ),
-            body: extension == 'pdf'
-                ? PdfViewer.uri(Uri.parse(url))
-                : InteractiveViewer(
-                    minScale: 0.5,
-                    maxScale: 5,
-                    child: Center(
-                      child: Image.network(
-                        url,
-                        fit: BoxFit.contain,
-                        loadingBuilder: (context, child, progress) =>
-                            progress == null
-                                ? child
-                                : const Center(
-                                    child: CircularProgressIndicator()),
-                        errorBuilder: (context, error, stackTrace) =>
-                            const Center(
-                          child: Text('No se pudo cargar la imagen.'),
-                        ),
-                      ),
-                    ),
-                  ),
-          ),
-        ),
+      await _showCertificationPreview(
+        context,
+        title: certificate['title']?.toString() ?? 'Certificado',
+        url: url,
       );
     } catch (e) {
       if (mounted) {

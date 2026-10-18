@@ -860,6 +860,30 @@ def trainer_profile(trainer: dict = Depends(active_trainer)) -> dict:
     return profile
 
 
+@app.get('/api/v1/trainer/certifications/{certification_id}/download')
+def trainer_certification_download(
+    certification_id: uuid.UUID,
+    trainer: dict = Depends(active_trainer),
+) -> dict:
+    with pool.connection() as conn:
+        certificate = conn.execute(
+            'SELECT storage_key FROM trainer_certifications WHERE id = %s AND trainer_id = %s',
+            (certification_id, trainer['id'])).fetchone()
+    if certificate is None:
+        raise _problem(404, 'CERTIFICATION_NOT_FOUND', 'No encontramos ese certificado.')
+    if not certificate['storage_key'].startswith('r2://'):
+        raise _problem(410, 'CERTIFICATION_NEEDS_MIGRATION',
+                       'Este certificado aún no está en el almacenamiento privado.')
+    try:
+        url = presigned_certificate_url(certificate['storage_key'], expires_in=600)
+    except StorageNotConfigured:
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', 'El almacenamiento privado no está disponible.')
+    except StorageReadError:
+        log.exception('Could not create trainer certificate link')
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', 'No se pudo generar el enlace temporal.')
+    return {'url': url, 'expires_in': 600}
+
+
 @app.patch('/api/v1/trainer/profile')
 def update_trainer_profile(payload: TrainerProfileUpdate,
                            trainer: dict = Depends(active_trainer)) -> dict:

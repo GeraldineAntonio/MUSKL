@@ -589,6 +589,16 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<String> getOwnTrainerCertificationDownloadUrl({
+    required String certificationId,
+  }) async {
+    final result = await _request('GET',
+        '/api/v1/trainer/certifications/${Uri.encodeComponent(certificationId)}/download',
+        authenticated: true) as Map;
+    return result['url'].toString();
+  }
+
+  @override
   Future<String> getTrainerCertificationDownloadUrl({
     required String trainerId,
     required String certificationId,

@@ -156,6 +156,14 @@ class AuthController extends ChangeNotifier {
   Future<String?> sendPasswordChangeCode() =>
       repository.sendPasswordChangeCode();
 
+  Future<void> requestEmailChangeCode({required String newEmail}) =>
+      repository.requestEmailChangeCode(newEmail: newEmail);
+
+  Future<void> confirmEmailChange(
+          {required String currentPassword, required String code}) =>
+      repository.confirmEmailChange(
+          currentPassword: currentPassword, code: code);
+
   Future<List<Map<String, dynamic>>> trainerClients({String search = ''}) =>
       repository.getTrainerClients(search: search);
 

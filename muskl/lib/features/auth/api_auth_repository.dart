@@ -464,6 +464,20 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> requestEmailChangeCode({required String newEmail}) async {
+    await _request('POST', '/api/v1/auth/email-change/code',
+        authenticated: true, body: {'new_email': newEmail});
+  }
+
+  @override
+  Future<void> confirmEmailChange(
+      {required String currentPassword, required String code}) async {
+    await _request('POST', '/api/v1/auth/email-change/confirm',
+        authenticated: true,
+        body: {'current_password': currentPassword, 'code': code});
+  }
+
+  @override
   Future<List<Map<String, dynamic>>> getTrainerClients(
       {String search = ''}) async {
     final path = Uri(

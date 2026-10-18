@@ -1379,6 +1379,10 @@ class _ClientProfileWorkspaceScreenState
       (data['phone'] ?? '').toString(),
     ]);
     if (!mounted || result == null) return;
+    if (result[2].toLowerCase() !=
+        (data['email'] ?? '').toString().toLowerCase()) {
+      if (!await _verifyEmailChange(context, result[2])) return;
+    }
     await _saveClientProfile(
         firstName: result[0],
         lastName: result[1],
@@ -2332,6 +2336,9 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
       _value('phone')
     ]);
     if (result == null) return;
+    if (result[2].toLowerCase() != _value('email').toLowerCase()) {
+      if (!await _verifyEmailChange(context, result[2])) return;
+    }
     await _save(
         firstName: result[0],
         lastName: result[1],
@@ -2525,6 +2532,66 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                   style: MusklButtonStyle.secondary,
                   onPressed: authController.signOut),
             ]));
+}
+
+Future<bool> _verifyEmailChange(BuildContext context, String newEmail) async {
+  final codeController = TextEditingController();
+  final passwordController = TextEditingController();
+  try {
+    await authController.requestEmailChangeCode(newEmail: newEmail.trim());
+    if (!context.mounted) return false;
+    final credentials = await showDialog<List<String>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Verifica tu nuevo correo'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Escribimos un código de 6 dígitos a $newEmail.'),
+          const SizedBox(height: 14),
+          TextField(
+            controller: codeController,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            decoration: const InputDecoration(labelText: 'Código'),
+          ),
+          TextField(
+            controller: passwordController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Contraseña actual'),
+          ),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, [
+                    codeController.text.trim(),
+                    passwordController.text,
+                  ]),
+              child: const Text('Verificar y cambiar')),
+        ],
+      ),
+    );
+    if (credentials == null || !context.mounted) return false;
+    await authController.confirmEmailChange(
+      currentPassword: credentials[1],
+      code: credentials[0],
+    );
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Correo verificado y actualizado.')));
+    }
+    return true;
+  } catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo cambiar el correo: $error')));
+    }
+    return false;
+  } finally {
+    codeController.dispose();
+    passwordController.dispose();
+  }
 }
 
 Future<List<String>?> _editFields(BuildContext context, String title,

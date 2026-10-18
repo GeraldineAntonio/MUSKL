@@ -4,6 +4,7 @@ import asyncio
 import base64
 import binascii
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -54,6 +55,9 @@ RESET_CODE_MINUTES = 10
 UPLOAD_DIR = Path(os.getenv('MUSKL_UPLOAD_DIR', '/app/uploads'))
 GYM_ID = '00000000-0000-4000-8000-000000000001'
 password_hasher = PasswordHasher()
+# Perform a password-hash verification for unknown identifiers too, reducing
+# timing differences that could reveal whether an account exists.
+DUMMY_PASSWORD_HASH = password_hasher.hash(secrets.token_urlsafe(32))
 pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=10, open=False,
                      kwargs={'row_factory': dict_row})
 bearer = HTTPBearer(auto_error=False)
@@ -174,6 +178,15 @@ class AdminRegistration(BaseModel):
 
 class PasswordCodeRequest(BaseModel):
     email: EmailStr
+
+
+class EmailChangeRequest(BaseModel):
+    new_email: EmailStr
+
+
+class EmailChangeConfirmRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    code: str = Field(min_length=6, max_length=6, pattern=r'^\d{6}$')
 
 
 class VerifyCodeRequest(BaseModel):
@@ -307,6 +320,11 @@ def _email_hash_code(code: str) -> str:
     return hashlib.sha256(f'{JWT_SECRET}:{code}'.encode()).hexdigest()
 
 
+def _login_identifier_hash(identifier: str) -> str:
+    normalized = identifier.strip().casefold()
+    return hmac.new(JWT_SECRET.encode(), f'login:{normalized}'.encode(), hashlib.sha256).hexdigest()
+
+
 def _refresh_hash(token: str) -> str:
     return hashlib.sha256(f'{JWT_SECRET}:refresh:{token}'.encode()).hexdigest()
 
@@ -398,14 +416,16 @@ def _notify_admins_of_staff_request(cur, gym_id: uuid.UUID, request_user: dict) 
 
 
 def _deliver_auth_code(email: str, code: str,
-                       purpose: Literal['reset', 'change']) -> str:
+                       purpose: Literal['reset', 'change', 'email_change']) -> str:
     if purpose == 'reset':
         subject = 'Código para restablecer tu contraseña de MUSKL'
-        action = 'restablecer'
-    else:
+        body = f'Tu código para restablecer la contraseña es {code}. Vence en 10 minutos.'
+    elif purpose == 'change':
         subject = 'Código para cambiar tu contraseña de MUSKL'
-        action = 'cambiar'
-    body = f'Tu código para {action} la contraseña es {code}. Vence en 10 minutos.'
+        body = f'Tu código para cambiar la contraseña es {code}. Vence en 10 minutos.'
+    else:
+        subject = 'Verifica tu nuevo correo de MUSKL'
+        body = f'Tu código para confirmar el cambio de correo es {code}. Vence en 10 minutos.'
     email_provider_configured = (
         bool(os.getenv('MUSKL_SMTP_HOST'))
         or bool(os.getenv('BREVO_API_KEY') and os.getenv('BREVO_FROM_EMAIL'))
@@ -550,23 +570,59 @@ def health() -> dict:
 def login(payload: LoginRequest) -> dict:
     identifier = payload.identifier.strip()
     password = payload.password
+    identifier_hash = _login_identifier_hash(identifier)
+    response = None
+    blocked = False
+    invalid_credentials = False
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            candidates = _find_login_candidates(cur, identifier)
-            if not candidates:
-                raise _problem(404, 'NOT_FOUND', 'No encontramos una cuenta con esos datos.')
-            user = None
-            for candidate in candidates:
-                try:
-                    if password_hasher.verify(candidate['password_hash'], password):
-                        user = candidate
-                        break
-                except (VerifyMismatchError, VerificationError, InvalidHashError):
-                    continue
-            if user is None:
-                raise _problem(401, 'INVALID_CREDENTIALS', 'Correo o contraseña incorrectos.')
-            response = ({'user': _public_user(user)} if user['status'] == 'deactivated'
-                        else _session_response(cur, user))
+            cur.execute("DELETE FROM auth_login_limits WHERE window_started_at < now() - interval '1 day'")
+            attempt = cur.execute("""INSERT INTO auth_login_limits
+                    (identifier_hash, attempt_count, window_started_at)
+                VALUES (%s, 1, now())
+                ON CONFLICT (identifier_hash) DO UPDATE SET
+                    attempt_count = CASE
+                      WHEN auth_login_limits.window_started_at < now() - interval '15 minutes' THEN 1
+                      WHEN auth_login_limits.blocked_until > now() THEN auth_login_limits.attempt_count
+                      ELSE auth_login_limits.attempt_count + 1 END,
+                    window_started_at = CASE
+                      WHEN auth_login_limits.window_started_at < now() - interval '15 minutes' THEN now()
+                      ELSE auth_login_limits.window_started_at END,
+                    blocked_until = CASE
+                      WHEN auth_login_limits.window_started_at < now() - interval '15 minutes' THEN NULL
+                      WHEN auth_login_limits.blocked_until > now() THEN auth_login_limits.blocked_until
+                      WHEN auth_login_limits.attempt_count + 1 >= 8 THEN now() + interval '15 minutes'
+                      ELSE NULL END
+                RETURNING attempt_count, blocked_until""", (identifier_hash,)).fetchone()
+            blocked = attempt['blocked_until'] is not None and attempt['blocked_until'] > datetime.now(UTC)
+            if not blocked:
+                candidates = _find_login_candidates(cur, identifier)
+                user = None
+                for candidate in candidates:
+                    try:
+                        if password_hasher.verify(candidate['password_hash'], password):
+                            user = candidate
+                            break
+                    except (VerifyMismatchError, VerificationError, InvalidHashError):
+                        continue
+                if user is None:
+                    if not candidates:
+                        try:
+                            password_hasher.verify(DUMMY_PASSWORD_HASH, password)
+                        except (VerifyMismatchError, VerificationError, InvalidHashError):
+                            pass
+                    # Keep unknown accounts and incorrect passwords indistinguishable.
+                    invalid_credentials = True
+                else:
+                    cur.execute('DELETE FROM auth_login_limits WHERE identifier_hash = %s',
+                                (identifier_hash,))
+                    response = ({'user': _public_user(user)} if user['status'] == 'deactivated'
+                                else _session_response(cur, user))
+    if blocked:
+        raise _problem(429, 'LOGIN_RATE_LIMIT',
+                       'Demasiados intentos. Espera 15 minutos antes de volver a intentarlo.')
+    if invalid_credentials:
+        raise _problem(401, 'INVALID_CREDENTIALS', 'Correo o contraseña incorrectos.')
     return response
 
 
@@ -959,6 +1015,9 @@ def replace_trainer_certification(
 @app.patch('/api/v1/trainer/profile')
 def update_trainer_profile(payload: TrainerProfileUpdate,
                            trainer: dict = Depends(active_trainer)) -> dict:
+    if str(payload.email).lower() != trainer['email']:
+        raise _problem(409, 'EMAIL_CHANGE_VERIFICATION_REQUIRED',
+                       'Verifica el nuevo correo antes de guardar el cambio.')
     allowed_preferences = {'client_activity', 'routine_expiry', 'daily_reminder'}
     preferences = {key: payload.notification_preferences.get(key, False)
                    for key in allowed_preferences}
@@ -982,6 +1041,96 @@ def update_trainer_profile(payload: TrainerProfileUpdate,
             raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado en el gimnasio.')
         raise
     return trainer_profile(trainer)
+
+
+@app.post('/api/v1/auth/email-change/code', status_code=202)
+def send_email_change_code(payload: EmailChangeRequest,
+                           user: dict = Depends(current_user)) -> dict:
+    new_email = str(payload.new_email).lower()
+    if new_email == user['email']:
+        raise _problem(409, 'EMAIL_UNCHANGED', 'Ese correo ya está asociado a tu cuenta.')
+    code = f'{secrets.randbelow(1_000_000):06d}'
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM users WHERE id = %s FOR UPDATE', (user['id'],))
+            cur.execute("DELETE FROM email_change_codes WHERE created_at < now() - interval '2 days'")
+            if cur.execute('SELECT 1 FROM users WHERE gym_id = %s AND email = %s',
+                           (user['gym_id'], new_email)).fetchone():
+                raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado en el gimnasio.')
+            recent = cur.execute("""SELECT count(*) AS n FROM email_change_codes
+                WHERE user_id = %s AND created_at > now() - interval '1 hour'""",
+                (user['id'],)).fetchone()['n']
+            if recent >= 3:
+                raise _problem(429, 'CODE_RATE_LIMIT',
+                               'Ya solicitaste varios códigos. Intenta de nuevo más tarde.')
+            cur.execute("""UPDATE email_change_codes SET consumed_at = now()
+                WHERE user_id = %s AND consumed_at IS NULL""", (user['id'],))
+            cur.execute("""INSERT INTO email_change_codes
+                (user_id, new_email, code_hash, expires_at)
+                VALUES (%s, %s, %s, now() + interval '10 minutes')""",
+                (user['id'], new_email, _email_hash_code(code)))
+    try:
+        channel = _deliver_auth_code(new_email, code, 'email_change')
+    except Exception:
+        with pool.connection() as conn:
+            conn.execute("""UPDATE email_change_codes SET consumed_at = now()
+                WHERE user_id = %s AND consumed_at IS NULL""", (user['id'],))
+        log.exception('Could not deliver email change code for user %s', user['id'])
+        raise _problem(503, 'CODE_DELIVERY_UNAVAILABLE',
+                       'No se pudo enviar el código. Intenta de nuevo más tarde.')
+    return {'message': 'Enviamos un código al nuevo correo.', 'channel': channel}
+
+
+@app.post('/api/v1/auth/email-change/confirm')
+def confirm_email_change(payload: EmailChangeConfirmRequest,
+                         user: dict = Depends(current_user)) -> dict:
+    try:
+        password_hasher.verify(user['password_hash'], payload.current_password)
+    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        raise _problem(400, 'CURRENT_PASSWORD_INVALID', 'La contraseña actual no es correcta.')
+
+    invalid_code = False
+    email_in_use = False
+    changed_email = None
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            pending = cur.execute("""SELECT id, new_email, code_hash, attempts
+                FROM email_change_codes WHERE user_id = %s AND consumed_at IS NULL
+                  AND expires_at > now() AND attempts < 5
+                ORDER BY created_at DESC LIMIT 1 FOR UPDATE""", (user['id'],)).fetchone()
+            if pending is None or not secrets.compare_digest(
+                    pending['code_hash'], _email_hash_code(payload.code)):
+                if pending is not None:
+                    cur.execute('UPDATE email_change_codes SET attempts = attempts + 1 WHERE id = %s',
+                                (pending['id'],))
+                invalid_code = True
+            elif cur.execute('SELECT 1 FROM users WHERE gym_id = %s AND email = %s AND id <> %s',
+                             (user['gym_id'], pending['new_email'], user['id'])).fetchone():
+                cur.execute('UPDATE email_change_codes SET consumed_at = now() WHERE id = %s',
+                            (pending['id'],))
+                email_in_use = True
+            else:
+                changed_email = pending['new_email']
+                cur.execute('UPDATE users SET email = %s, updated_at = now() WHERE id = %s',
+                            (changed_email, user['id']))
+                cur.execute('UPDATE email_change_codes SET consumed_at = now() WHERE id = %s',
+                            (pending['id'],))
+                cur.execute("""UPDATE auth_sessions SET revoked_at = now()
+                    WHERE user_id = %s AND id <> %s AND revoked_at IS NULL""",
+                    (user['id'], user['session_id']))
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, subject_id, event_type, details)
+                    VALUES (%s, %s, %s, 'email_changed', %s)""",
+                    (user['gym_id'], user['id'], user['id'], Jsonb({'email_changed': True})))
+    if invalid_code:
+        raise _problem(400, 'INVALID_CODE', 'El código es incorrecto o ya venció.')
+    if email_in_use:
+        raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado en el gimnasio.')
+    _deliver_notice_email(user['email'], 'Cambio de correo en MUSKL',
+                          f'El correo de tu cuenta cambió a {changed_email}. Si no hiciste este cambio, contacta al gimnasio.')
+    _deliver_notice_email(changed_email, 'Correo actualizado en MUSKL',
+                          'Este correo quedó vinculado a tu cuenta MUSKL.')
+    return {'status': 'updated', 'email': changed_email}
 
 
 @app.patch('/api/v1/auth/password')
@@ -1592,6 +1741,9 @@ def update_client_profile(payload: ClientProfileUpdate,
     last_name = (payload.last_name.strip() if payload.last_name is not None
                  else client['last_name'])
     email = str(payload.email).lower() if payload.email is not None else client['email']
+    if email != client['email']:
+        raise _problem(409, 'EMAIL_CHANGE_VERIFICATION_REQUIRED',
+                       'Verifica el nuevo correo antes de guardar el cambio.')
     phone = client['phone']
     if 'phone' in fields:
         phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None

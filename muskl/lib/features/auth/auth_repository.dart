@@ -83,6 +83,9 @@ abstract class AuthRepository {
       required String newPassword,
       required String code});
   Future<String?> sendPasswordChangeCode();
+  Future<void> requestEmailChangeCode({required String newEmail});
+  Future<void> confirmEmailChange(
+      {required String currentPassword, required String code});
   Future<List<Map<String, dynamic>>> getTrainerClients({String search = ''});
   Future<Map<String, dynamic>> getTrainerClient({required String clientId});
   Future<List<Map<String, dynamic>>> getTrainerRoutines();
@@ -602,6 +605,13 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<String?> sendPasswordChangeCode() async => 'development';
+
+  @override
+  Future<void> requestEmailChangeCode({required String newEmail}) async {}
+
+  @override
+  Future<void> confirmEmailChange(
+      {required String currentPassword, required String code}) async {}
 
   @override
   Future<List<Map<String, dynamic>>> getTrainerClients(

@@ -133,7 +133,7 @@ class ApiAuthRepository implements AuthRepository {
       };
 
   @override
-  Future<Session> registerClient(
+  Future<void> registerClient(
       {required String firstName,
       required String lastName,
       required String email,
@@ -141,8 +141,7 @@ class ApiAuthRepository implements AuthRepository {
       required String password,
       Uint8List? profilePhotoBytes,
       String? profilePhotoMime}) async {
-    final result =
-        await _request('POST', '/api/v1/auth/register/client', body: {
+    await _request('POST', '/api/v1/auth/register/client', body: {
       'first_name': firstName,
       'last_name': lastName,
       'email': email,
@@ -152,7 +151,6 @@ class ApiAuthRepository implements AuthRepository {
         'photo_data': base64Encode(profilePhotoBytes),
       if (profilePhotoMime != null) 'photo_mime': profilePhotoMime,
     });
-    return _sessionFromResponse(Map<String, dynamic>.from(result as Map));
   }
 
   @override
@@ -803,6 +801,7 @@ class ApiAuthRepository implements AuthRepository {
           'INVALID_CREDENTIALS' => AuthErrorType.invalidCredentials,
           'NOT_FOUND' => AuthErrorType.notFound,
           'INVALID_CODE' => AuthErrorType.invalidCode,
+          'EMAIL_NOT_VERIFIED' => AuthErrorType.emailNotVerified,
           _ => AuthErrorType.server,
         };
         throw AuthException(errorType, message);
@@ -922,6 +921,21 @@ class ApiAuthRepository implements AuthRepository {
   Future<void> sendResetCode(String email) async {
     await _request('POST', '/api/v1/auth/password/reset-code',
         body: {'email': email});
+  }
+
+  @override
+  Future<void> resendRegistrationEmailCode(String email) async {
+    await _request('POST', '/api/v1/auth/register/resend-code',
+        body: {'email': email});
+  }
+
+  @override
+  Future<Session> verifyRegistrationEmail(
+      {required String email, required String code}) async {
+    final result = await _request(
+        'POST', '/api/v1/auth/register/verify-email',
+        body: {'email': email, 'code': code});
+    return _sessionFromResponse(Map<String, dynamic>.from(result as Map));
   }
 
   @override

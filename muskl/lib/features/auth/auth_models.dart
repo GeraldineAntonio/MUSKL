@@ -36,6 +36,7 @@ enum AuthErrorType {
   notFound,
   offline,
   invalidCode,
+  emailNotVerified,
   server
 }
 
@@ -52,6 +53,7 @@ class AuthException implements Exception {
         AuthErrorType.offline =>
           'Sin conexión. Revisa tu internet e intenta de nuevo.',
         AuthErrorType.invalidCode => 'El código es incorrecto o ya venció.',
+        AuthErrorType.emailNotVerified => 'Verifica tu correo antes de iniciar sesión.',
         AuthErrorType.server => 'Ocurrió un error. Intenta de nuevo.',
       };
 }

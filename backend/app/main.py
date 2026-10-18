@@ -24,7 +24,7 @@ from typing import Annotated, Literal
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -194,6 +194,15 @@ class AdminRegistration(BaseModel):
 
 
 class PasswordCodeRequest(BaseModel):
+    email: EmailStr
+
+
+class RegistrationEmailCodeRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6, pattern=r'^\d{6}$')
+
+
+class RegistrationEmailResendRequest(BaseModel):
     email: EmailStr
 
 
@@ -389,6 +398,87 @@ def _login_identifier_hash(identifier: str) -> str:
     return hmac.new(JWT_SECRET.encode(), f'login:{normalized}'.encode(), hashlib.sha256).hexdigest()
 
 
+def _new_registration_email_code(cur, user_id: uuid.UUID) -> str:
+    # Serialize sends for an account so concurrent requests cannot bypass the
+    # hourly delivery limit.
+    cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))', (str(user_id),))
+    cur.execute("DELETE FROM registration_email_codes WHERE created_at < now() - interval '2 days'")
+    recent = cur.execute("""SELECT count(*) AS n FROM registration_email_codes
+        WHERE user_id = %s AND created_at > now() - interval '1 hour'""",
+        (user_id,)).fetchone()['n']
+    if recent >= 3:
+        raise _problem(429, 'EMAIL_CODE_RATE_LIMIT',
+                       'Ya solicitaste varios códigos. Intenta de nuevo más tarde.')
+    cur.execute("""UPDATE registration_email_codes SET consumed_at = now()
+        WHERE user_id = %s AND consumed_at IS NULL""", (user_id,))
+    code = f'{secrets.randbelow(1_000_000):06d}'
+    cur.execute("""INSERT INTO registration_email_codes
+        (user_id, code_hash, expires_at) VALUES (%s, %s, now() + interval '10 minutes')""",
+        (user_id, _email_hash_code(code)))
+    return code
+
+
+def _deliver_registration_email_code(email: str, code: str) -> bool:
+    try:
+        _deliver_auth_code(email, code, 'registration')
+        return True
+    except RuntimeError:
+        log.warning('Registration email verification is waiting for email provider configuration')
+        return False
+
+
+@app.post('/api/v1/auth/register/verify-email')
+def verify_registration_email(payload: RegistrationEmailCodeRequest) -> dict:
+    invalid = False
+    response = None
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            user = cur.execute("""SELECT * FROM users WHERE gym_id = %s AND email = %s
+                FOR UPDATE""", (GYM_ID, str(payload.email).lower())).fetchone()
+            if user is None or user['email_verified']:
+                invalid = True
+            else:
+                code_row = cur.execute("""SELECT id, code_hash, attempts
+                    FROM registration_email_codes WHERE user_id = %s
+                      AND consumed_at IS NULL AND expires_at > now()
+                    ORDER BY created_at DESC LIMIT 1 FOR UPDATE""", (user['id'],)).fetchone()
+                if code_row is None or code_row['attempts'] >= 5:
+                    invalid = True
+                elif not secrets.compare_digest(code_row['code_hash'], _email_hash_code(payload.code)):
+                    cur.execute("""UPDATE registration_email_codes
+                        SET attempts = attempts + 1,
+                            consumed_at = CASE WHEN attempts + 1 >= 5 THEN now() ELSE consumed_at END
+                        WHERE id = %s""", (code_row['id'],))
+                    invalid = True
+                else:
+                    cur.execute('UPDATE registration_email_codes SET consumed_at = now() WHERE id = %s',
+                                (code_row['id'],))
+                    user = cur.execute("""UPDATE users SET email_verified = true, updated_at = now()
+                        WHERE id = %s RETURNING *""", (user['id'],)).fetchone()
+                    response = _session_response(cur, user)
+    if invalid:
+        raise _problem(400, 'INVALID_EMAIL_CODE', 'El código es incorrecto o ya venció.')
+    return response
+
+
+@app.post('/api/v1/auth/register/resend-code', status_code=202)
+def resend_registration_email_code(payload: RegistrationEmailResendRequest) -> dict:
+    email = str(payload.email).lower()
+    code = None
+    user_id = None
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            user = cur.execute("""SELECT id FROM users WHERE gym_id = %s AND email = %s
+                AND email_verified = false FOR UPDATE""", (GYM_ID, email)).fetchone()
+            if user:
+                user_id = user['id']
+                code = _new_registration_email_code(cur, user_id)
+    if code and user_id:
+        _deliver_registration_email_code(email, code)
+    return {'status': 'accepted',
+            'message': 'Si la cuenta requiere verificación, enviaremos un código al correo.'}
+
+
 def _refresh_hash(token: str) -> str:
     return hashlib.sha256(f'{JWT_SECRET}:refresh:{token}'.encode()).hexdigest()
 
@@ -452,15 +542,18 @@ def _find_login_candidates(cur, identifier: str) -> list[dict]:
 
 
 def _create_user(cur, *, role: str, status: str, first_name: str, last_name: str,
-                 email: str, phone: str | None, password: str, member_number: str | None = None) -> dict:
+                 email: str, phone: str | None, password: str, member_number: str | None = None,
+                 email_verified: bool = True) -> dict:
     user_id = uuid.uuid4()
     return cur.execute(
         """INSERT INTO users
-           (id, gym_id, role, status, first_name, last_name, email, phone, member_number, password_hash)
-           VALUES (%s, %s, %s::muskl_role, %s::account_status, %s, %s, %s, %s, %s, %s)
+           (id, gym_id, role, status, first_name, last_name, email, phone, member_number, password_hash,
+            email_verified)
+           VALUES (%s, %s, %s::muskl_role, %s::account_status, %s, %s, %s, %s, %s, %s, %s)
            RETURNING *""",
         (user_id, GYM_ID, role, status, first_name.strip(), last_name.strip(), email.lower(),
-         phone.strip() if phone else None, member_number, password_hasher.hash(password))).fetchone()
+         phone.strip() if phone else None, member_number, password_hasher.hash(password),
+         email_verified)).fetchone()
 
 
 def _notify_admins_of_staff_request(cur, gym_id: uuid.UUID, request_user: dict) -> None:
@@ -480,16 +573,19 @@ def _notify_admins_of_staff_request(cur, gym_id: uuid.UUID, request_user: dict) 
 
 
 def _deliver_auth_code(email: str, code: str,
-                       purpose: Literal['reset', 'change', 'email_change']) -> str:
+                       purpose: Literal['reset', 'change', 'email_change', 'registration']) -> str:
     if purpose == 'reset':
         subject = 'Código para restablecer tu contraseña de MUSKL'
         body = f'Tu código para restablecer la contraseña es {code}. Vence en 10 minutos.'
     elif purpose == 'change':
         subject = 'Código para cambiar tu contraseña de MUSKL'
         body = f'Tu código para cambiar la contraseña es {code}. Vence en 10 minutos.'
-    else:
+    elif purpose == 'email_change':
         subject = 'Verifica tu nuevo correo de MUSKL'
         body = f'Tu código para confirmar el cambio de correo es {code}. Vence en 10 minutos.'
+    else:
+        subject = 'Verifica tu correo de MUSKL'
+        body = f'Tu código para verificar tu cuenta es {code}. Vence en 10 minutos.'
     email_provider_configured = (
         bool(os.getenv('MUSKL_SMTP_HOST'))
         or bool(os.getenv('BREVO_API_KEY') and os.getenv('BREVO_FROM_EMAIL'))
@@ -638,6 +734,7 @@ def login(payload: LoginRequest) -> dict:
     response = None
     blocked = False
     invalid_credentials = False
+    unverified_email = False
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM auth_login_limits WHERE window_started_at < now() - interval '1 day'")
@@ -678,15 +775,21 @@ def login(payload: LoginRequest) -> dict:
                     # Keep unknown accounts and incorrect passwords indistinguishable.
                     invalid_credentials = True
                 else:
-                    cur.execute('DELETE FROM auth_login_limits WHERE identifier_hash = %s',
-                                (identifier_hash,))
-                    response = ({'user': _public_user(user)} if user['status'] == 'deactivated'
-                                else _session_response(cur, user))
+                    if not user.get('email_verified', True):
+                        unverified_email = True
+                    else:
+                        cur.execute('DELETE FROM auth_login_limits WHERE identifier_hash = %s',
+                                    (identifier_hash,))
+                        response = ({'user': _public_user(user)} if user['status'] == 'deactivated'
+                                    else _session_response(cur, user))
     if blocked:
         raise _problem(429, 'LOGIN_RATE_LIMIT',
                        'Demasiados intentos. Espera 15 minutos antes de volver a intentarlo.')
     if invalid_credentials:
         raise _problem(401, 'INVALID_CREDENTIALS', 'Correo o contraseña incorrectos.')
+    if unverified_email:
+        raise _problem(403, 'EMAIL_NOT_VERIFIED',
+                       'Verifica tu correo antes de iniciar sesión. Puedes solicitar otro código desde el registro.')
     return response
 
 
@@ -694,6 +797,8 @@ def login(payload: LoginRequest) -> dict:
 def register_client(payload: ClientRegistration) -> dict:
     photo = _decode_profile_photo(payload.photo_data, payload.photo_mime)
     storage_key = None
+    verification_code = None
+    user_id = None
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
@@ -706,7 +811,9 @@ def register_client(payload: ClientRegistration) -> dict:
                 user = _create_user(cur, role='client', status='active_no_onboarding',
                                     first_name=payload.first_name, last_name=payload.last_name,
                                     email=str(payload.email), phone=payload.phone,
-                                    password=payload.password, member_number=member_number)
+                                    password=payload.password, member_number=member_number,
+                                    email_verified=False)
+                user_id = user['id']
                 storage_key = _store_registration_photo(user['id'], photo)
                 if storage_key:
                     cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
@@ -718,7 +825,7 @@ def register_client(payload: ClientRegistration) -> dict:
                 group = cur.fetchone()
                 cur.execute('INSERT INTO client_group_members (group_id, user_id, is_primary) VALUES (%s, %s, true)',
                             (group['id'], user['id']))
-                return _session_response(cur, user)
+                verification_code = _new_registration_email_code(cur, user['id'])
     except HTTPException:
         _cleanup_profile_photo(storage_key)
         raise
@@ -731,6 +838,9 @@ def register_client(payload: ClientRegistration) -> dict:
     except Exception:
         _cleanup_profile_photo(storage_key)
         raise
+    email_sent = _deliver_registration_email_code(str(payload.email).lower(), verification_code)
+    return {'status': 'verification_required', 'email_sent': email_sent,
+            'message': 'Te enviamos un código para verificar tu correo.'}
 
 
 @app.post('/api/v1/auth/register/trainer', status_code=202)
@@ -763,6 +873,7 @@ def register_trainer(
         raise _problem(415, 'INVALID_CERTIFICATION', 'El contenido del archivo no coincide con su formato.')
     storage_key = None
     profile_photo_key = None
+    verification_code = None
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
@@ -771,7 +882,8 @@ def register_trainer(
                     raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado.')
                 user = _create_user(cur, role='trainer', status='pending', first_name=first_name,
                                     last_name=last_name, email=str(email), phone=phone,
-                                    password=password)
+                                    password=password, email_verified=False)
+                verification_code = _new_registration_email_code(cur, user['id'])
                 profile_photo_key = _store_registration_photo(user['id'], photo)
                 if profile_photo_key:
                     cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
@@ -818,13 +930,16 @@ def register_trainer(
                 log.exception('Could not clean up certificate object after registration failure')
         _cleanup_profile_photo(profile_photo_key)
         raise
-    return {'status': 'pending', 'message': 'Solicitud enviada para revisión del gimnasio.'}
+    email_sent = _deliver_registration_email_code(str(email).lower(), verification_code)
+    return {'status': 'verification_required', 'email_sent': email_sent,
+            'message': 'Te enviamos un código para verificar tu correo. Después, tu solicitud quedará en revisión.'}
 
 
 @app.post('/api/v1/auth/register/admin', status_code=202)
 def register_admin(payload: AdminRegistration) -> dict:
     photo = _decode_profile_photo(payload.photo_data, payload.photo_mime)
     profile_photo_key = None
+    verification_code = None
     token_hash = hashlib.sha256(payload.invite_token.strip().encode()).hexdigest()
     try:
         with pool.connection() as conn:
@@ -841,7 +956,8 @@ def register_admin(payload: AdminRegistration) -> dict:
                     raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado.')
                 user = _create_user(cur, role='admin', status='pending', first_name=payload.first_name,
                                     last_name=payload.last_name, email=str(payload.email), phone=payload.phone,
-                                    password=payload.password)
+                                    password=payload.password, email_verified=False)
+                verification_code = _new_registration_email_code(cur, user['id'])
                 profile_photo_key = _store_registration_photo(user['id'], photo)
                 if profile_photo_key:
                     cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
@@ -863,7 +979,9 @@ def register_admin(payload: AdminRegistration) -> dict:
     except Exception:
         _cleanup_profile_photo(profile_photo_key)
         raise
-    return {'status': 'pending', 'message': 'Solicitud enviada para revisión del gimnasio.'}
+    email_sent = _deliver_registration_email_code(str(payload.email).lower(), verification_code)
+    return {'status': 'verification_required', 'email_sent': email_sent,
+            'message': 'Te enviamos un código para verificar tu correo. Después, tu solicitud quedará en revisión.'}
 
 
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> dict:
@@ -903,7 +1021,9 @@ def active_client(user: dict = Depends(current_user)) -> dict:
 
 @app.post('/api/v1/client/group-members', status_code=201)
 def register_client_group_members(payload: ClientGroupRegistration,
+                                  background_tasks: BackgroundTasks,
                                   client: dict = Depends(active_client)) -> dict:
+    pending_codes: list[tuple[str, str]] = []
     emails = [str(member.email).lower() for member in payload.members]
     if len(set(emails)) != len(emails):
         raise _problem(422, 'DUPLICATE_GROUP_EMAIL', 'Cada integrante debe usar un correo diferente.')
@@ -939,7 +1059,9 @@ def register_client_group_members(payload: ClientGroupRegistration,
                     raise _problem(409, 'EMAIL_IN_USE', f'El correo {email} ya está registrado.')
                 user = _create_user(cur, role='client', status='active_no_onboarding',
                     first_name=member.first_name, last_name=member.last_name, email=email,
-                    phone=member.phone, password=member.password, member_number=group['member_number'])
+                    phone=member.phone, password=member.password,
+                    member_number=group['member_number'], email_verified=False)
+                pending_codes.append((email, _new_registration_email_code(cur, user['id'])))
                 cur.execute('INSERT INTO client_profiles (user_id) VALUES (%s)', (user['id'],))
                 cur.execute('INSERT INTO client_group_members (group_id, user_id) VALUES (%s, %s)',
                             (group['id'], user['id']))
@@ -947,6 +1069,8 @@ def register_client_group_members(payload: ClientGroupRegistration,
                         (payload.plan_id, group['id']))
             cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, 'client_group_registered', %s)",
                         (client['gym_id'], client['id'], Jsonb({'plan_id': str(plan['id']), 'member_count': target_size})))
+    for email, code in pending_codes:
+        background_tasks.add_task(_deliver_registration_email_code, email, code)
     return {'member_number': group['member_number'], 'member_count': target_size, 'created': True}
 
 

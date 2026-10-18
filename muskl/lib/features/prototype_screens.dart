@@ -195,7 +195,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             password: _password.text,
             profilePhotoBytes: _profilePhotoBytes,
             profilePhotoMime: _profilePhotoMime);
-        if (mounted) context.go('/onboarding');
       } else if (_role == 'Entrenador') {
         await authController.repository.registerTrainer(
             firstName: first,
@@ -208,7 +207,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             certificationBytes: _certBytes!,
             profilePhotoBytes: _profilePhotoBytes,
             profilePhotoMime: _profilePhotoMime);
-        if (mounted) context.go('/pending');
       } else {
         await authController.repository.registerAdmin(
             firstName: first,
@@ -219,7 +217,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
             inviteToken: _invite.text.trim(),
             profilePhotoBytes: _profilePhotoBytes,
             profilePhotoMime: _profilePhotoMime);
-        if (mounted) context.go('/pending');
+      }
+      if (mounted) {
+        context.go(Uri(path: '/verify-email', queryParameters: {
+          'email': normalizedEmail,
+        }).toString());
       }
     } on AuthException catch (e) {
       if (mounted) setState(() => _error = e.message);

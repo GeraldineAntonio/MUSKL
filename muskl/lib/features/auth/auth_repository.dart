@@ -5,7 +5,7 @@ import 'dart:typed_data';
 /// [FakeAuthRepository] queda para vistas previas locales.
 abstract class AuthRepository {
   Future<Session?> restoreSession();
-  Future<Session> registerClient(
+  Future<void> registerClient(
       {required String firstName,
       required String lastName,
       required String email,
@@ -160,6 +160,11 @@ abstract class AuthRepository {
   Future<Session> signIn(
       {required String identifier, required String password});
   Future<void> sendResetCode(String email);
+  Future<void> resendRegistrationEmailCode(String email);
+  Future<Session> verifyRegistrationEmail({
+    required String email,
+    required String code,
+  });
   Future<void> verifyResetCode({required String email, required String code});
   Future<void> resetPassword({
     required String email,
@@ -225,18 +230,14 @@ class FakeAuthRepository implements AuthRepository {
   Future<Session?> restoreSession() async => null;
 
   @override
-  Future<Session> registerClient(
+  Future<void> registerClient(
           {required String firstName,
           required String lastName,
           required String email,
           String? phone,
           required String password,
           Uint8List? profilePhotoBytes,
-          String? profilePhotoMime}) async =>
-      const Session(
-          role: UserRole.client,
-          status: AccountStatus.activeNoOnboarding,
-          memberNumber: 'MSK-DEMO');
+          String? profilePhotoMime}) async {}
 
   @override
   Future<Map<String, dynamic>> registerClientGroupMembers(
@@ -1032,6 +1033,17 @@ class FakeAuthRepository implements AuthRepository {
     await Future<void>.delayed(const Duration(milliseconds: 600));
     // Por seguridad el backend real responde igual exista o no el correo.
   }
+
+  @override
+  Future<void> resendRegistrationEmailCode(String email) async {}
+
+  @override
+  Future<Session> verifyRegistrationEmail(
+          {required String email, required String code}) async =>
+      const Session(
+          role: UserRole.client,
+          status: AccountStatus.activeNoOnboarding,
+          memberNumber: 'MSK-DEMO');
 
   @override
   Future<void> verifyResetCode({

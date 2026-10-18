@@ -7,6 +7,7 @@ import '../features/auth/login_screen.dart';
 import '../features/auth/new_password_screen.dart';
 import '../features/auth/reset_success_screen.dart';
 import '../features/auth/verify_code_screen.dart';
+import '../features/auth/verify_registration_email_screen.dart';
 import '../features/prototype_screens.dart';
 import '../features/status/status_screens.dart';
 import '../features/workspace_screens.dart';
@@ -20,6 +21,7 @@ const _publicPaths = {
   '/forgot/code',
   '/forgot/new',
   '/forgot/success',
+  '/verify-email',
   '/pending',
 };
 
@@ -65,6 +67,11 @@ GoRouter buildRouter(AuthController auth) {
       GoRoute(
         path: '/register',
         builder: (_, __) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: '/verify-email',
+        builder: (_, state) => VerifyRegistrationEmailScreen(
+            email: state.uri.queryParameters['email'] ?? ''),
       ),
       GoRoute(
         path: '/forgot',

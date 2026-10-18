@@ -40,6 +40,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _errorType = null;
     });
     try {
       // El router redirige solo según el estado de la cuenta.
@@ -57,6 +58,23 @@ class _LoginScreenState extends State<LoginScreen> {
             'No se pudo iniciar sesión. Revisa la conexión e intenta de nuevo.';
         _errorType = AuthErrorType.offline;
       });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _resendVerification() async {
+    final email = _id.text.trim().toLowerCase();
+    if (!email.contains('@')) return;
+    setState(() => _loading = true);
+    try {
+      await authController.resendRegistrationEmailCode(email);
+      if (mounted) {
+        context.go(Uri(path: '/verify-email', queryParameters: {'email': email})
+            .toString());
+      }
+    } on AuthException catch (error) {
+      if (mounted) setState(() => _error = error.message);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -84,6 +102,16 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(height: 16),
         ],
+        if (_errorType == AuthErrorType.emailNotVerified &&
+            _id.text.trim().contains('@'))
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _loading ? null : _resendVerification,
+              icon: const Icon(Icons.mark_email_unread_outlined),
+              label: const Text('Reenviar código de verificación'),
+            ),
+          ),
         MusklTextField(
           label: 'Correo o número de socio',
           controller: _id,

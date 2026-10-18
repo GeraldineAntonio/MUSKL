@@ -33,7 +33,7 @@ class AuthController extends ChangeNotifier {
       required String password,
       Uint8List? profilePhotoBytes,
       String? profilePhotoMime}) async {
-    _session = await repository.registerClient(
+    await repository.registerClient(
         firstName: firstName,
         lastName: lastName,
         email: email,
@@ -41,6 +41,14 @@ class AuthController extends ChangeNotifier {
         password: password,
         profilePhotoBytes: profilePhotoBytes,
         profilePhotoMime: profilePhotoMime);
+  }
+
+  Future<void> resendRegistrationEmailCode(String email) =>
+      repository.resendRegistrationEmailCode(email);
+
+  Future<void> verifyRegistrationEmail(
+      {required String email, required String code}) async {
+    _session = await repository.verifyRegistrationEmail(email: email, code: code);
     notifyListeners();
   }
 

@@ -509,17 +509,20 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
                 style: const TextStyle(color: AppColors.accent))
         ])),
         const SizedBox(height: 16),
-        if (!widget.deactivated && widget.role == 'client') ...[
+        if (!widget.deactivated &&
+            (widget.role == 'client' || widget.role == 'trainer')) ...[
+          if (widget.role == 'client')
+            MusklButton(
+                label: widget.trainerName.isEmpty
+                    ? 'Asignar entrenador'
+                    : 'Cambiar entrenador',
+                icon: Icons.fitness_center,
+                loading: _assigningTrainer,
+                onPressed: _assigningTrainer ? null : _assignTrainer),
+          if (widget.role == 'client') const SizedBox(height: 10),
           MusklButton(
-              label: widget.trainerName.isEmpty
-                  ? 'Asignar entrenador'
-                  : 'Cambiar entrenador',
-              icon: Icons.fitness_center,
-              loading: _assigningTrainer,
-              onPressed: _assigningTrainer ? null : _assignTrainer),
-          const SizedBox(height: 10),
-          MusklButton(
-              label: 'Dar de baja al socio',
+              label:
+                  'Dar de baja al ${widget.role == 'trainer' ? 'entrenador' : 'socio'}',
               icon: Icons.person_off_outlined,
               style: MusklButtonStyle.primary,
               onPressed: () async {
@@ -528,7 +531,8 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
                     queryParameters: {
                       'member': widget.memberNumber,
                       'id': widget.userId ?? '',
-                      'name': widget.name
+                      'name': widget.name,
+                      'role': widget.role,
                     }).toString());
                 if (changed == true && context.mounted) {
                   Navigator.of(context).pop(true);
@@ -537,7 +541,8 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
         ],
         if (widget.deactivated)
           MusklButton(
-              label: 'Reactivar socio',
+              label:
+                  'Reactivar ${widget.role == 'trainer' ? 'entrenador' : 'socio'}',
               icon: Icons.person_add_alt,
               style: MusklButtonStyle.secondary,
               onPressed: () async {
@@ -562,8 +567,10 @@ class DeactivateMemberScreen extends StatefulWidget {
       {super.key,
       this.memberNumber = '',
       this.userId,
-      this.name = 'Diego Martínez'});
+      this.name = 'Diego Martínez',
+      this.role = 'client'});
   final String memberNumber, name;
+  final String role;
   final String? userId;
   @override
   State<DeactivateMemberScreen> createState() => _DeactivateMemberScreenState();
@@ -585,9 +592,12 @@ class _DeactivateMemberScreenState extends State<DeactivateMemberScreen> {
     super.dispose();
   }
 
+  String get _roleLabel =>
+      widget.role == 'trainer' ? 'entrenador' : 'socio';
+
   @override
   Widget build(BuildContext context) => PrototypePage(
-      title: 'Dar de baja al socio',
+      title: 'Dar de baja al $_roleLabel',
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         MusklCard(
             child: Text('${widget.name.toUpperCase()} · ${widget.memberNumber}',
@@ -603,9 +613,11 @@ class _DeactivateMemberScreenState extends State<DeactivateMemberScreen> {
         MusklTextField(
             label: 'Nota (opcional)', controller: note, icon: Icons.notes),
         const SizedBox(height: 14),
-        const MusklCard(
+        MusklCard(
             child: Text(
-                'El socio perderá acceso a su rutina, asistencia y progreso hasta que se reactive la cuenta.',
+                widget.role == 'trainer'
+                    ? 'El entrenador perderá acceso a MUSKL. Antes de continuar, reasigna sus clientes desde el perfil de cada socio.'
+                    : 'El socio perderá acceso a su rutina, asistencia y progreso hasta que se reactive la cuenta.',
                 style: TextStyle(color: AppColors.red))),
         MusklButton(
             label: _saving ? 'Procesando…' : 'Confirmar baja',
@@ -620,6 +632,7 @@ class _DeactivateMemberScreenState extends State<DeactivateMemberScreen> {
                         title: const Text('¿Confirmas la baja?'),
                         content: Text(
                           'Se desactivará el acceso de ${widget.name} a MUSKL. '
+                          '${widget.role == 'trainer' ? 'Primero debes reasignar sus clientes activos. ' : ''}'
                           'Intentaremos avisarle al correo registrado y, si falla, '
                           'por SMS si está configurado.',
                         ),

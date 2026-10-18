@@ -200,7 +200,8 @@ GoRouter buildRouter(AuthController auth) {
               userId: state.uri.queryParameters['id']?.isEmpty == true
                   ? null
                   : state.uri.queryParameters['id'],
-              name: state.uri.queryParameters['name'] ?? 'Socio')),
+              name: state.uri.queryParameters['name'] ?? 'Socio',
+              role: state.uri.queryParameters['role'] ?? 'client')),
       GoRoute(path: '/pending', builder: (_, __) => const PendingScreen()),
       GoRoute(path: '/rejected', builder: (_, __) => const RejectedScreen()),
       GoRoute(

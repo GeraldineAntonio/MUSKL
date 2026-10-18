@@ -2366,6 +2366,51 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
     }
   }
 
+  Future<void> _replaceOwnCertification(Map certificate) async {
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg'],
+        allowMultiple: false,
+        withData: true,
+      );
+      if (!mounted || picked == null) return;
+      final file = picked.files.single;
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        _message('No se pudo leer el archivo seleccionado.');
+        return;
+      }
+      if (bytes.length > 10 * 1024 * 1024) {
+        _message('El certificado debe pesar máximo 10 MB.');
+        return;
+      }
+      await authController.replaceOwnTrainerCertification(
+        certificationId: certificate['id'].toString(),
+        filename: file.name,
+        bytes: bytes,
+      );
+      if (!mounted) return;
+      final certifications = List<Map<String, dynamic>>.from(
+        (_profile['certifications'] as List? ?? [])
+            .map((item) => Map<String, dynamic>.from(item as Map)),
+      );
+      final index = certifications.indexWhere(
+          (item) => item['id'].toString() == certificate['id'].toString());
+      if (index >= 0) {
+        certifications[index] = {
+          ...certifications[index],
+          'title': file.name,
+          'verified_at': null,
+        };
+      }
+      setState(() => _profile['certifications'] = certifications);
+      _message('Certificado actualizado y enviado para verificación.');
+    } catch (e) {
+      _message('No se pudo actualizar el certificado: $e');
+    }
+  }
+
   Future<void> _changePassword() async {
     try {
       final channel = await authController.sendPasswordChangeCode();
@@ -2451,13 +2496,22 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                   onTap: _editCredentials),
               for (final certificate
                   in (_profile['certifications'] as List? ?? []))
-                _setting(
-                    (certificate as Map)['title'].toString(),
-                    certificate['verified_at'] == null
-                        ? 'Documento registrado · pendiente de verificación'
-                        : 'Certificación verificada',
-                    Icons.workspace_premium_outlined,
-                    onTap: () => _viewOwnCertification(certificate)),
+                MusklCard(
+                    child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.workspace_premium_outlined,
+                      color: AppColors.accent),
+                  title: Text((certificate as Map)['title'].toString()),
+                  subtitle: Text(certificate['verified_at'] == null
+                      ? 'Documento registrado · pendiente de verificación'
+                      : 'Certificación verificada'),
+                  onTap: () => _viewOwnCertification(certificate),
+                  trailing: IconButton(
+                    tooltip: 'Reemplazar certificado',
+                    onPressed: () => _replaceOwnCertification(certificate),
+                    icon: const Icon(Icons.upload_file),
+                  ),
+                )),
               _setting('Cambiar contraseña',
                   'Actualiza tus credenciales de acceso', Icons.lock_outline,
                   onTap: _changePassword),
@@ -2761,6 +2815,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           'id': user['id'].toString(),
           'member': (user['member_number'] ?? '').toString(),
           'name': name,
+          'role': user['role'].toString(),
         },
       ).toString(),
     );
@@ -2821,6 +2876,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                           'id': user['id'].toString(),
                           'member': (user['member_number'] ?? '').toString(),
                           'name': '${user['first_name']} ${user['last_name']}',
+                          'role': user['role'].toString(),
                           'email': (user['email'] ?? '').toString(),
                           'phone': (user['phone'] ?? '').toString(),
                           'plan': (user['membership_plan'] ?? '').toString(),
@@ -2837,7 +2893,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                         if (changed == true && mounted) setState(_reload);
                       },
                     ),
-                    if (user['role'] == 'client' &&
+                    if ((user['role'] == 'client' ||
+                            user['role'] == 'trainer') &&
                         user['status'] != 'deactivated')
                       Padding(
                         padding: const EdgeInsets.only(left: 8, bottom: 10),

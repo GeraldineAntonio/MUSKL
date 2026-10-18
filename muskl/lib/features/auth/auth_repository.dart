@@ -131,6 +131,11 @@ abstract class AuthRepository {
   Future<String> getOwnTrainerCertificationDownloadUrl({
     required String certificationId,
   });
+  Future<void> replaceOwnTrainerCertification({
+    required String certificationId,
+    required String filename,
+    required Uint8List bytes,
+  });
   Future<String> getTrainerCertificationDownloadUrl({
     required String trainerId,
     required String certificationId,
@@ -889,6 +894,13 @@ class FakeAuthRepository implements AuthRepository {
     required String certificationId,
   }) async =>
       'https://example.invalid/certification.pdf';
+
+  @override
+  Future<void> replaceOwnTrainerCertification({
+    required String certificationId,
+    required String filename,
+    required Uint8List bytes,
+  }) async {}
 
   @override
   Future<void> reviewStaffRequest(

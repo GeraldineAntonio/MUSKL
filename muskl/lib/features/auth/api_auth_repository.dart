@@ -599,6 +599,89 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> replaceOwnTrainerCertification({
+    required String certificationId,
+    required String filename,
+    required Uint8List bytes,
+  }) =>
+      _uploadOwnTrainerCertification(
+          certificationId: certificationId,
+          filename: filename,
+          bytes: bytes,
+          retriedAfterRefresh: false);
+
+  Future<void> _uploadOwnTrainerCertification({
+    required String certificationId,
+    required String filename,
+    required Uint8List bytes,
+    required bool retriedAfterRefresh,
+  }) async {
+    final path =
+        '/api/v1/trainer/certifications/${Uri.encodeComponent(certificationId)}';
+    final boundary = 'muskl-${DateTime.now().microsecondsSinceEpoch}';
+    try {
+      final request = await _client.putUrl(Uri.parse('$_baseUrl$path'));
+      request.headers.set(HttpHeaders.contentTypeHeader,
+          'multipart/form-data; boundary=$boundary');
+      if (_accessToken != null) {
+        request.headers
+            .set(HttpHeaders.authorizationHeader, 'Bearer $_accessToken');
+      }
+      final safeName = filename
+          .split(RegExp(r'[/\\]'))
+          .last
+          .replaceAll('"', '')
+          .replaceAll('\r', '')
+          .replaceAll('\n', '');
+      final extension = safeName.split('.').last.toLowerCase();
+      final mime = switch (extension) {
+        'pdf' => 'application/pdf',
+        'png' => 'image/png',
+        'jpg' || 'jpeg' => 'image/jpeg',
+        _ => 'application/octet-stream',
+      };
+      request.write(
+          '--$boundary\r\nContent-Disposition: form-data; name="certification"; filename="$safeName"\r\nContent-Type: $mime\r\n\r\n');
+      request.add(bytes);
+      request.write('\r\n--$boundary--\r\n');
+      final response =
+          await request.close().timeout(const Duration(seconds: 90));
+      final responseText = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 400) {
+        final decoded = responseText.isEmpty ? null : jsonDecode(responseText);
+        final detail = decoded is Map ? decoded['detail'] : null;
+        final code = detail is Map ? detail['code']?.toString() : null;
+        if (response.statusCode == 401 &&
+            !retriedAfterRefresh &&
+            _refreshToken != null) {
+          if (await _refreshAccessToken()) {
+            return _uploadOwnTrainerCertification(
+                certificationId: certificationId,
+                filename: filename,
+                bytes: bytes,
+                retriedAfterRefresh: true);
+          }
+        }
+        final message =
+            detail is Map ? detail['message']?.toString() : detail?.toString();
+        final type = switch (code) {
+          'INVALID_CREDENTIALS' => AuthErrorType.invalidCredentials,
+          'NOT_FOUND' => AuthErrorType.notFound,
+          _ => AuthErrorType.server,
+        };
+        throw AuthException(type, message);
+      }
+    } on SocketException catch (error) {
+      throw AuthException(AuthErrorType.offline, error.message);
+    } on TimeoutException {
+      throw const AuthException(AuthErrorType.offline);
+    } on FormatException catch (error) {
+      throw AuthException(AuthErrorType.server,
+          'Respuesta inválida del servidor: ${error.message}');
+    }
+  }
+
+  @override
   Future<String> getTrainerCertificationDownloadUrl({
     required String trainerId,
     required String certificationId,

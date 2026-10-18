@@ -884,6 +884,78 @@ def trainer_certification_download(
     return {'url': url, 'expires_in': 600}
 
 
+@app.put('/api/v1/trainer/certifications/{certification_id}')
+def replace_trainer_certification(
+    certification_id: uuid.UUID,
+    certification: UploadFile = File(...),
+    trainer: dict = Depends(active_trainer),
+) -> dict:
+    ext = Path(certification.filename or '').suffix.lower()
+    allowed = {
+        '.pdf': ('application/pdf', b'%PDF-'),
+        '.png': ('image/png', b'\x89PNG\r\n\x1a\n'),
+        '.jpg': ('image/jpeg', b'\xff\xd8\xff'),
+        '.jpeg': ('image/jpeg', b'\xff\xd8\xff'),
+    }
+    file_type = allowed.get(ext)
+    if file_type is None or certification.content_type != file_type[0]:
+        raise _problem(415, 'INVALID_CERTIFICATION', 'Adjunta una certificación PDF, PNG o JPG.')
+    data = certification.file.read(10 * 1024 * 1024 + 1)
+    if not data or len(data) > 10 * 1024 * 1024:
+        raise _problem(413, 'CERTIFICATION_SIZE', 'El archivo debe pesar hasta 10 MB.')
+    if not data.startswith(file_type[1]):
+        raise _problem(415, 'INVALID_CERTIFICATION', 'El contenido del archivo no coincide con su formato.')
+
+    new_storage_key = None
+    old_storage_key = None
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                certificate = cur.execute(
+                    'SELECT storage_key FROM trainer_certifications WHERE id = %s AND trainer_id = %s FOR UPDATE',
+                    (certification_id, trainer['id'])).fetchone()
+                if certificate is None:
+                    raise _problem(404, 'CERTIFICATION_NOT_FOUND', 'No encontramos ese certificado.')
+                old_storage_key = certificate['storage_key']
+                object_key = f"certifications/{GYM_ID}/{trainer['id']}/{uuid.uuid4()}{ext}"
+                new_storage_key = put_certificate(object_key, data, file_type[0], UPLOAD_DIR)
+                cur.execute("""UPDATE trainer_certifications
+                    SET title = %s, storage_key = %s, verified_at = NULL, verified_by = NULL
+                    WHERE id = %s AND trainer_id = %s""",
+                    (Path(certification.filename or 'Certificación').name,
+                     new_storage_key, certification_id, trainer['id']))
+    except HTTPException:
+        if new_storage_key:
+            try:
+                delete_certificate(new_storage_key)
+                if new_storage_key.startswith('local://'):
+                    (UPLOAD_DIR / new_storage_key.removeprefix('local://')).unlink(missing_ok=True)
+            except Exception:
+                log.exception('Could not clean up replacement certificate after failure')
+        raise
+    except StorageNotConfigured as exc:
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', str(exc))
+    except StorageWriteError:
+        log.exception('Replacement certificate upload failed')
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', 'No se pudo guardar el certificado. Intenta más tarde.')
+    except Exception:
+        if new_storage_key:
+            try:
+                delete_certificate(new_storage_key)
+                if new_storage_key.startswith('local://'):
+                    (UPLOAD_DIR / new_storage_key.removeprefix('local://')).unlink(missing_ok=True)
+            except Exception:
+                log.exception('Could not clean up replacement certificate after failure')
+        raise
+
+    if old_storage_key and old_storage_key.startswith('r2://'):
+        try:
+            delete_certificate(old_storage_key)
+        except Exception:
+            log.exception('Could not remove replaced certificate object')
+    return {'message': 'Certificado actualizado. Está pendiente de verificación.'}
+
+
 @app.patch('/api/v1/trainer/profile')
 def update_trainer_profile(payload: TrainerProfileUpdate,
                            trainer: dict = Depends(active_trainer)) -> dict:
@@ -2275,6 +2347,9 @@ def deactivate_user(user_id: uuid.UUID, payload: DeactivationRequest,
                                    (user_id, admin['gym_id'])).fetchone()
                 if user is None:
                     raise _problem(404, 'USER_NOT_FOUND', 'No encontramos ese usuario.')
+                if user['role'] not in ('client', 'trainer'):
+                    raise _problem(403, 'ROLE_CANNOT_BE_DEACTIVATED',
+                                   'Desde esta acción solo se pueden dar de baja socios y entrenadores.')
                 if user['status'] == 'deactivated':
                     raise _problem(409, 'ALREADY_DEACTIVATED', 'La cuenta ya está dada de baja.')
                 cur.execute("""UPDATE users SET status = 'deactivated', status_reason = %s,

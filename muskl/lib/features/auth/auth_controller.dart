@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 
 import 'auth_models.dart';
@@ -259,6 +261,14 @@ class AuthController extends ChangeNotifier {
   }) =>
       repository.getOwnTrainerCertificationDownloadUrl(
           certificationId: certificationId);
+
+  Future<void> replaceOwnTrainerCertification({
+    required String certificationId,
+    required String filename,
+    required Uint8List bytes,
+  }) =>
+      repository.replaceOwnTrainerCertification(
+          certificationId: certificationId, filename: filename, bytes: bytes);
 
   Future<String> trainerCertificationDownloadUrl({
     required String trainerId,

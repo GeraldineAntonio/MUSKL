@@ -1085,7 +1085,7 @@ class FakeAuthRepository implements AuthRepository {
       deactivatedAt: when,
       deactivatedBy: by,
       reactivationUntil:
-          reactivationUntil ?? when.add(const Duration(days: 90)),
+          reactivationUntil ?? when.add(const Duration(days: 30)),
     );
     await Future<void>.delayed(const Duration(milliseconds: 300));
     return null;

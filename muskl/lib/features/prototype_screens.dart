@@ -657,8 +657,8 @@ class _DeactivateMemberScreenState extends State<DeactivateMemberScreen> {
         MusklCard(
             child: Text(
                 widget.role == 'trainer'
-                    ? 'El entrenador perderá acceso a MUSKL. Antes de continuar, reasigna sus clientes desde el perfil de cada socio.'
-                    : 'El socio perderá acceso a su rutina, asistencia y progreso hasta que se reactive la cuenta.',
+                    ? 'El entrenador perderá acceso de inmediato. Reasigna sus clientes; sus datos y archivos se eliminarán después de 30 días si no se reactiva.'
+                    : 'El socio perderá acceso de inmediato. La cuenta y sus datos se eliminarán después de 30 días si no se reactiva.',
                 style: TextStyle(color: AppColors.red))),
         MusklButton(
             label: _saving ? 'Procesando…' : 'Confirmar baja',
@@ -674,8 +674,8 @@ class _DeactivateMemberScreenState extends State<DeactivateMemberScreen> {
                         content: Text(
                           'Se desactivará el acceso de ${widget.name} a MUSKL. '
                           '${widget.role == 'trainer' ? 'Primero debes reasignar sus clientes activos. ' : ''}'
-                          'Intentaremos avisarle al correo registrado y, si falla, '
-                          'por SMS si está configurado.',
+                          'Podrás reactivar la cuenta durante 30 días; después se eliminarán sus datos. '
+                          'Se intentará avisar al correo registrado.',
                         ),
                         actions: [
                           TextButton(
@@ -706,9 +706,7 @@ class _DeactivateMemberScreenState extends State<DeactivateMemberScreen> {
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                           content: Text(channel == 'email'
                               ? 'Baja registrada. Aviso enviado al correo.'
-                              : channel == 'sms'
-                                  ? 'Baja registrada. Aviso enviado por SMS.'
-                                  : 'Baja registrada, pero no se pudo enviar el aviso. Configura SMTP o Twilio.'),
+                              : 'Baja registrada, pero no se pudo enviar el correo. Revisa la configuración de Brevo.'),
                         ));
                         context.pop(true);
                       }

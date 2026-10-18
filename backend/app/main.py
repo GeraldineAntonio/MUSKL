@@ -11,8 +11,6 @@ import os
 import re
 import secrets
 import smtplib
-import urllib.error
-import urllib.parse
 import urllib.request
 import uuid
 from contextlib import asynccontextmanager, suppress
@@ -88,17 +86,16 @@ app.add_middleware(CORSMiddleware, allow_origins=origins or ['*'],
 
 
 def _purge_expired_account_deletions() -> int:
-    """Permanently remove client records after the approved 90-day window."""
+    """Permanently remove deactivated client/trainer records after 30 days."""
     photo_keys: list[str] = []
+    certificate_keys: list[str] = []
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            targets = cur.execute("""SELECT u.id, u.gym_id, u.profile_photo_storage_key
+            targets = cur.execute("""SELECT u.id, u.gym_id, u.role, u.member_number,
+                    u.profile_photo_storage_key
                 FROM users u
-                WHERE u.role = 'client' AND u.status = 'deactivated'
+                WHERE u.role IN ('client', 'trainer') AND u.status = 'deactivated'
                   AND u.reactivation_until <= now()
-                  AND EXISTS (SELECT 1 FROM account_deletion_requests dr
-                    WHERE dr.user_id = u.id AND dr.status = 'approved'
-                      AND dr.resolved_at >= u.deactivated_at)
                 ORDER BY u.reactivation_until LIMIT 100
                 FOR UPDATE OF u SKIP LOCKED""").fetchall()
             if not targets:
@@ -107,21 +104,33 @@ def _purge_expired_account_deletions() -> int:
                           if row['profile_photo_storage_key']]
             user_ids = [row['id'] for row in targets]
             user_id_text = [str(user_id) for user_id in user_ids]
+            member_numbers = [row['member_number'] for row in targets if row['member_number']]
+            certificate_keys = [row['storage_key'] for row in cur.execute(
+                'SELECT storage_key FROM trainer_certifications WHERE trainer_id = ANY(%s)',
+                (user_ids,)).fetchall()]
 
-            # Remove client identifiers retained in JSON-only audit/notification
-            # references. Relational audit and request references are SET NULL
-            # by migration 004; personal activity rows cascade with the user.
+            # Keep audit event type/timestamp, but remove details that may contain
+            # personal data. Relational references are SET NULL by migration 004.
             cur.execute("""UPDATE account_audit_events
-                SET details = details - 'client_id' - 'assignment_id' - 'note'
+                SET details = '{}'::jsonb
                 WHERE actor_id = ANY(%s) OR subject_id = ANY(%s)
-                   OR details->>'client_id' = ANY(%s)""",
-                (user_ids, user_ids, user_id_text))
+                   OR details->>'client_id' = ANY(%s)
+                   OR details->>'trainer_id' = ANY(%s)""",
+                (user_ids, user_ids, user_id_text, user_id_text))
             cur.execute("UPDATE account_deletion_requests SET note = NULL WHERE user_id = ANY(%s)",
                         (user_ids,))
-            cur.execute("DELETE FROM notifications WHERE payload->>'client_id' = ANY(%s)",
-                        (user_id_text,))
+            cur.execute("""DELETE FROM notifications
+                WHERE payload->>'client_id' = ANY(%s)
+                   OR payload->>'trainer_id' = ANY(%s)
+                   OR payload->>'user_id' = ANY(%s)""",
+                (user_id_text, user_id_text, user_id_text))
             deleted = cur.execute("DELETE FROM users WHERE id = ANY(%s) RETURNING gym_id",
                                   (user_ids,)).fetchall()
+            if member_numbers:
+                cur.execute("""DELETE FROM client_groups g
+                    WHERE g.member_number = ANY(%s)
+                      AND NOT EXISTS (SELECT 1 FROM client_group_members gm WHERE gm.group_id = g.id)""",
+                    (member_numbers,))
             by_gym: dict[uuid.UUID, int] = {}
             for row in deleted:
                 by_gym[row['gym_id']] = by_gym.get(row['gym_id'], 0) + 1
@@ -131,12 +140,19 @@ def _purge_expired_account_deletions() -> int:
                     VALUES (%s, 'account_data_purged', %s)""",
                     (gym_id, Jsonb({'accounts': count})))
             deleted_count = len(deleted)
-    for photo_key in photo_keys:
+    for storage_key in photo_keys:
         try:
-            delete_profile_photo(photo_key)
+            delete_profile_photo(storage_key)
         except Exception:
             log.exception('Could not delete profile photo after account purge')
-    log.info('Purged %s expired client account(s)', deleted_count)
+    for storage_key in certificate_keys:
+        try:
+            delete_certificate(storage_key)
+            if storage_key.startswith('local://'):
+                (UPLOAD_DIR / storage_key.removeprefix('local://')).unlink(missing_ok=True)
+        except Exception:
+            log.exception('Could not delete trainer certification after account purge')
+    log.info('Purged %s expired client/trainer account(s)', deleted_count)
     return deleted_count
 
 
@@ -675,47 +691,11 @@ def _deliver_notice_email(email: str, subject: str, body: str) -> bool:
         return False
 
 
-def _deliver_notice_sms(phone: str, body: str) -> bool:
-    """Send an optional SMS using Twilio's HTTPS API; no-op when unconfigured."""
-    account_sid = os.getenv('MUSKL_TWILIO_ACCOUNT_SID', '').strip()
-    auth_token = os.getenv('MUSKL_TWILIO_AUTH_TOKEN', '').strip()
-    from_number = os.getenv('MUSKL_TWILIO_FROM', '').strip()
-    if not all((account_sid, auth_token, from_number)):
-        return False
-    to_number = re.sub(r'[\s().-]', '', phone)
-    if not re.fullmatch(r'\+[1-9]\d{7,14}', to_number):
-        log.warning('SMS notice skipped because the phone number is not E.164 formatted')
-        return False
-    token = base64.b64encode(f'{account_sid}:{auth_token}'.encode()).decode()
-    request = urllib.request.Request(
-        f'https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json',
-        data=urllib.parse.urlencode({
-            'To': to_number,
-            'From': from_number,
-            'Body': body,
-        }).encode(),
-        headers={
-            'Authorization': f'Basic {token}',
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        method='POST',
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return 200 <= response.status < 300
-    except (urllib.error.URLError, TimeoutError):
-        log.exception('Could not send account notice SMS')
-        return False
-
-
-def _deliver_account_notice(email: str | None, phone: str | None,
-                            subject: str, body: str) -> str | None:
-    """Try email first, then SMS; return the channel used when delivery succeeds."""
+def _deliver_account_notice(email: str | None, subject: str, body: str) -> str | None:
+    """Send account notices by email; SMS is intentionally not configured."""
     if email and _deliver_notice_email(email, subject, body):
         return 'email'
-    if phone and _deliver_notice_sms(phone, body):
-        return 'sms'
-    log.warning('Account notice could not be delivered: no configured channel succeeded')
+    log.warning('Account notice could not be delivered by email')
     return None
 
 
@@ -1502,7 +1482,7 @@ def change_password(payload: PasswordChangeRequest,
     if not code_valid:
         raise _problem(400, 'INVALID_CODE', 'El código es incorrecto o ya venció.')
     _deliver_account_notice(
-        user.get('email'), user.get('phone'), 'Tu contraseña cambió · MUSKL',
+        user.get('email'), 'Tu contraseña cambió · MUSKL',
         'La contraseña de tu cuenta MUSKL fue actualizada. Si no hiciste este cambio, contacta al gimnasio de inmediato.')
     return {'status': 'updated'}
 
@@ -2494,10 +2474,10 @@ def reset_password(payload: ResetPasswordRequest) -> dict:
     if not valid:
         raise _problem(400, 'INVALID_CODE', 'El código es incorrecto o ya venció.')
     with pool.connection() as conn:
-        user = conn.execute('SELECT email, phone FROM users WHERE id = %s',
+        user = conn.execute('SELECT email FROM users WHERE id = %s',
                              (user['id'],)).fetchone()
     _deliver_account_notice(
-        user['email'], user['phone'], 'Tu contraseña cambió · MUSKL',
+        user['email'], 'Tu contraseña cambió · MUSKL',
         'La contraseña de tu cuenta MUSKL fue restablecida. Si no hiciste este cambio, contacta al gimnasio de inmediato.')
     return {'message': 'Contraseña actualizada. Inicia sesión con tu nueva contraseña.'}
 
@@ -2884,7 +2864,7 @@ def deactivate_user(user_id: uuid.UUID, payload: DeactivationRequest,
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
-                user = cur.execute("SELECT id, role, status, email, phone FROM users WHERE id = %s AND gym_id = %s FOR UPDATE",
+                user = cur.execute("SELECT id, role, status, email FROM users WHERE id = %s AND gym_id = %s FOR UPDATE",
                                    (user_id, admin['gym_id'])).fetchone()
                 if user is None:
                     raise _problem(404, 'USER_NOT_FOUND', 'No encontramos ese usuario.')
@@ -2904,7 +2884,7 @@ def deactivate_user(user_id: uuid.UUID, payload: DeactivationRequest,
                             (admin['gym_id'], admin['id'], user_id, 'account_deactivated', {'reason': payload.reason, 'note': payload.note}))
                 cur.execute('INSERT INTO notifications (user_id, kind, title, body, payload) VALUES (%s, %s, %s, %s, %s)',
                             (user_id, 'account_deactivated', 'Tu cuenta fue dada de baja', payload.note or payload.reason,
-                             Jsonb({'deactivated_at': now.isoformat(), 'reactivation_until': (now + timedelta(days=90)).isoformat()})))
+                             Jsonb({'deactivated_at': now.isoformat(), 'reactivation_until': (now + timedelta(days=30)).isoformat()})))
     except HTTPException:
         raise
     except Exception as exc:
@@ -2915,13 +2895,13 @@ def deactivate_user(user_id: uuid.UUID, payload: DeactivationRequest,
             raise _problem(409, 'TRAINER_HAS_CLIENTS', 'Reasigna los clientes antes de dar de baja al entrenador.')
         raise
     notification_channel = _deliver_account_notice(
-        user['email'], user['phone'], 'Tu cuenta fue dada de baja · MUSKL',
+        user['email'], 'Tu cuenta fue dada de baja · MUSKL',
         f"Tu cuenta fue dada de baja por el gimnasio. Motivo: {payload.reason}. "
         f"Puedes contactar al gimnasio para solicitar más información. "
-        f"La fecha límite para reactivarla es {(now + timedelta(days=90)).date().isoformat()}."
+        f"La fecha límite para reactivarla es {(now + timedelta(days=30)).date().isoformat()}."
     )
     return {'id': str(user_id), 'status': 'deactivated', 'deactivated_at': now.isoformat(),
-            'reactivation_until': (now + timedelta(days=90)).isoformat(),
+            'reactivation_until': (now + timedelta(days=30)).isoformat(),
             'notification_channel': notification_channel}
 
 

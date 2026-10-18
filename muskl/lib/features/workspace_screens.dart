@@ -3657,7 +3657,7 @@ class _AdminRequestsScreenState extends State<AdminRequestsScreen> {
       setState(_reload);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(approved
-              ? 'Baja aprobada. La cuenta quedó desactivada por 90 días.'
+              ? 'Baja aprobada. La cuenta se podrá reactivar durante 30 días; después se eliminarán sus datos.'
               : 'Solicitud de baja rechazada.')));
     } catch (e) {
       if (mounted) {

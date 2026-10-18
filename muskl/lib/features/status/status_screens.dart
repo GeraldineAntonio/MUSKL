@@ -151,7 +151,7 @@ class DeactivatedScreen extends StatelessWidget {
       iconColor: AppColors.red,
       title: 'Tu cuenta fue dada de baja',
       message:
-          'Ya no puedes acceder a tu rutina, asistencia ni progreso. Tus datos se conservan por 90 días.',
+          'Ya no puedes acceder a MUSKL. Puedes solicitar que el gimnasio reactive tu cuenta antes de la fecha límite indicada; después se eliminarán tus datos personales y actividad asociada.',
       details: [
         if (s?.memberNumber != null) ('Socio', s!.memberNumber!),
         ('Motivo', s?.reason ?? '—'),

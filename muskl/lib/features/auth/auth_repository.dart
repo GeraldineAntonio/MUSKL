@@ -10,7 +10,9 @@ abstract class AuthRepository {
       required String lastName,
       required String email,
       String? phone,
-      required String password});
+      required String password,
+      Uint8List? profilePhotoBytes,
+      String? profilePhotoMime});
   Future<Map<String, dynamic>> registerClientGroupMembers(
       {required String planId, required List<Map<String, String>> members});
   Future<void> registerTrainer(
@@ -21,14 +23,18 @@ abstract class AuthRepository {
       required String password,
       required String specialty,
       required String certificationName,
-      required Uint8List certificationBytes});
+      required Uint8List certificationBytes,
+      Uint8List? profilePhotoBytes,
+      String? profilePhotoMime});
   Future<void> registerAdmin(
       {required String firstName,
       required String lastName,
       required String email,
       String? phone,
       required String password,
-      required String inviteToken});
+      required String inviteToken,
+      Uint8List? profilePhotoBytes,
+      String? profilePhotoMime});
   Future<Map<String, dynamic>> getClientOnboardingOptions();
   Future<List<Map<String, dynamic>>> getClientOnboardingRoutines(
       {required String goal, required int daysPerWeek, String? trainerId});
@@ -224,7 +230,9 @@ class FakeAuthRepository implements AuthRepository {
           required String lastName,
           required String email,
           String? phone,
-          required String password}) async =>
+          required String password,
+          Uint8List? profilePhotoBytes,
+          String? profilePhotoMime}) async =>
       const Session(
           role: UserRole.client,
           status: AccountStatus.activeNoOnboarding,
@@ -245,7 +253,9 @@ class FakeAuthRepository implements AuthRepository {
       required String password,
       required String specialty,
       required String certificationName,
-      required Uint8List certificationBytes}) async {}
+      required Uint8List certificationBytes,
+      Uint8List? profilePhotoBytes,
+      String? profilePhotoMime}) async {}
 
   @override
   Future<void> registerAdmin(
@@ -254,7 +264,9 @@ class FakeAuthRepository implements AuthRepository {
       required String email,
       String? phone,
       required String password,
-      required String inviteToken}) async {}
+      required String inviteToken,
+      Uint8List? profilePhotoBytes,
+      String? profilePhotoMime}) async {}
 
   @override
   Future<Map<String, dynamic>> getClientOnboardingOptions() async => {

@@ -14,6 +14,7 @@ import '../core/widgets/muskl_bottom_nav.dart';
 import '../core/widgets/muskl_button.dart';
 import '../core/widgets/muskl_card.dart';
 import '../core/widgets/muskl_text_field.dart';
+import '../core/widgets/profile_photo_avatar.dart';
 import 'auth/auth_models.dart';
 import '../main.dart';
 
@@ -1391,30 +1392,14 @@ class _ClientProfileWorkspaceScreenState
   }
 
   Future<void> _pickProfilePhoto() async {
-    final picked = await FilePicker.platform
-        .pickFiles(type: FileType.image, allowMultiple: false, withData: true);
-    if (!mounted || picked == null) return;
-    final file = picked.files.single;
-    final bytes = file.bytes;
-    if (bytes == null || bytes.isEmpty) {
-      _showProfileMessage('No se pudo leer la foto seleccionada.');
-      return;
+    try {
+      final selected = await pickProfilePhoto(context);
+      if (!mounted || selected == null) return;
+      await _saveClientProfile(
+          photoData: base64Encode(selected.bytes), photoMime: selected.mimeType);
+    } catch (e) {
+      _showProfileMessage(e.toString().replaceFirst('FormatException: ', ''));
     }
-    if (bytes.length > 2 * 1024 * 1024) {
-      _showProfileMessage('La foto debe pesar máximo 2 MB.');
-      return;
-    }
-    final extension = file.extension?.toLowerCase();
-    final mime = switch (extension) {
-      'jpg' || 'jpeg' => 'image/jpeg',
-      'png' => 'image/png',
-      _ => null,
-    };
-    if (mime == null) {
-      _showProfileMessage('Elige una imagen JPG o PNG.');
-      return;
-    }
-    await _saveClientProfile(photoData: base64Encode(bytes), photoMime: mime);
   }
 
   Future<void> _removeProfilePhoto() async {
@@ -1510,30 +1495,15 @@ class _ClientProfileWorkspaceScreenState
             if (_savingProfile) const LinearProgressIndicator(),
             MusklCard(
                 child: Column(children: [
-              CircleAvatar(
+              ProfilePhotoAvatar(
                   radius: 38,
-                  backgroundColor: AppColors.surfaceHigh,
-                  child: (photoUrl == null || photoUrl.isEmpty) && photoBytes == null
-                      ? const Icon(Icons.person,
-                          size: 42, color: AppColors.accent)
-                      : ClipOval(
-                          child: photoUrl != null && photoUrl.isNotEmpty
-                              ? Image.network(photoUrl,
-                                  width: 76,
-                                  height: 76,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => const Icon(
-                                      Icons.person,
-                                      size: 42,
-                                      color: AppColors.accent))
-                              : Image.memory(photoBytes!,
-                                  width: 76,
-                                  height: 76,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => const Icon(
-                                      Icons.person,
-                                      size: 42,
-                                      color: AppColors.accent)))),
+                  image: photoUrl != null && photoUrl.isNotEmpty
+                      ? NetworkImage(photoUrl)
+                      : photoBytes == null
+                          ? null
+                          : MemoryImage(photoBytes),
+                  name: '${data['first_name']} ${data['last_name']}',
+                  onEdit: _savingProfile ? () {} : _pickProfilePhoto),
               const SizedBox(height: 10),
               Text('${data['first_name']} ${data['last_name']}'.toUpperCase(),
                   style: const TextStyle(
@@ -2334,29 +2304,15 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
   }
 
   Future<void> _changeProfilePhoto() async {
-    final picked = await FilePicker.platform
-        .pickFiles(type: FileType.image, allowMultiple: false, withData: true);
-    if (!mounted || picked == null) return;
-    final file = picked.files.single;
-    final bytes = file.bytes;
-    if (bytes == null || bytes.isEmpty || bytes.length > 2 * 1024 * 1024) {
-      _message('La foto debe poder leerse y pesar máximo 2 MB.');
-      return;
-    }
-    final mime = switch (file.extension?.toLowerCase()) {
-      'jpg' || 'jpeg' => 'image/jpeg',
-      'png' => 'image/png',
-      _ => null,
-    };
-    if (mime == null) {
-      _message('Elige una imagen JPG o PNG.');
-      return;
-    }
+    final selected = await _pickOwnProfilePhoto();
+    if (selected == null) return;
     setState(() => _saving = true);
     try {
       final saved = await authController.updateOwnProfilePhoto(
-          photoData: base64Encode(bytes), photoMime: mime);
-      if (mounted) setState(() => _profile['profile_photo_url'] = saved['profile_photo_url']);
+          photoData: base64Encode(selected.bytes), photoMime: selected.mimeType);
+      if (mounted) {
+        setState(() => _profile['profile_photo_url'] = saved['profile_photo_url']);
+      }
       _message('Foto de perfil actualizada.');
     } catch (e) {
       _message('No se pudo guardar la foto: $e');
@@ -2375,6 +2331,15 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
       _message('No se pudo quitar la foto: $e');
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<ProfilePhotoSelection?> _pickOwnProfilePhoto() async {
+    try {
+      return await pickProfilePhoto(context);
+    } catch (e) {
+      _message(e.toString().replaceFirst('FormatException: ', ''));
+      return null;
     }
   }
 
@@ -2541,17 +2506,23 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
           : Column(children: [
               if (_saving) const LinearProgressIndicator(),
               MusklCard(
-                  child: ListTile(
-                      leading: CircleAvatar(
-                          backgroundImage: _value('profile_photo_url').isEmpty
-                              ? null
-                              : NetworkImage(_value('profile_photo_url')),
-                          child: _value('profile_photo_url').isEmpty
-                              ? const Icon(Icons.person)
-                              : null),
-                      title: Text(
-                          '${_value('first_name')} ${_value('last_name')}'),
-                      subtitle: Text('Entrenador · ${_value('specialty')}'))),
+                  child: Row(children: [
+                ProfilePhotoAvatar(
+                    image: _value('profile_photo_url').isEmpty
+                        ? null
+                        : NetworkImage(_value('profile_photo_url')),
+                    name: '${_value('first_name')} ${_value('last_name')}',
+                    onEdit: _saving ? () {} : _changeProfilePhoto),
+                const SizedBox(width: 14),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text('${_value('first_name')} ${_value('last_name')}',
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Text('Entrenador · ${_value('specialty')}'),
+                    ])),
+              ])),
               _setting('Cambiar foto de perfil',
                   'JPG o PNG · máximo 2 MB', Icons.add_a_photo_outlined,
                   onTap: _saving ? null : _changeProfilePhoto),
@@ -3249,28 +3220,18 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   }
 
   Future<void> _changeAdminPhoto() async {
-    final picked = await FilePicker.platform
-        .pickFiles(type: FileType.image, allowMultiple: false, withData: true);
-    if (!mounted || picked == null) return;
-    final file = picked.files.single;
-    final bytes = file.bytes;
-    if (bytes == null || bytes.isEmpty || bytes.length > 2 * 1024 * 1024) {
-      _showLocalMessage('La foto debe poder leerse y pesar máximo 2 MB.');
+    ProfilePhotoSelection? selected;
+    try {
+      selected = await pickProfilePhoto(context);
+    } catch (e) {
+      _showLocalMessage(e.toString().replaceFirst('FormatException: ', ''));
       return;
     }
-    final mime = switch (file.extension?.toLowerCase()) {
-      'jpg' || 'jpeg' => 'image/jpeg',
-      'png' => 'image/png',
-      _ => null,
-    };
-    if (mime == null) {
-      _showLocalMessage('Elige una imagen JPG o PNG.');
-      return;
-    }
+    if (!mounted || selected == null) return;
     setState(() => _savingPhoto = true);
     try {
       final saved = await authController.updateOwnProfilePhoto(
-          photoData: base64Encode(bytes), photoMime: mime);
+          photoData: base64Encode(selected.bytes), photoMime: selected.mimeType);
       if (mounted) setState(() => _ownProfile = saved);
       _showLocalMessage('Foto de perfil actualizada.');
     } catch (e) {
@@ -3548,20 +3509,20 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       child: Column(children: [
         if (_savingPhoto) const LinearProgressIndicator(),
         MusklCard(
-            child: ListTile(
-          leading: CircleAvatar(
-              backgroundImage: (_ownProfile['profile_photo_url'] == null ||
+            child: Row(children: [
+          ProfilePhotoAvatar(
+              image: (_ownProfile['profile_photo_url'] == null ||
                       _ownProfile['profile_photo_url'].toString().isEmpty)
                   ? null
                   : NetworkImage(_ownProfile['profile_photo_url'].toString()),
-              child: (_ownProfile['profile_photo_url'] == null ||
-                      _ownProfile['profile_photo_url'].toString().isEmpty)
-                  ? const Icon(Icons.person)
-                  : null),
-          title: Text(
-              '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}'),
-          subtitle: const Text('Administrador'),
-        )),
+              name:
+                  '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}',
+              onEdit: _savingPhoto ? () {} : _changeAdminPhoto),
+          const SizedBox(width: 14),
+          const Expanded(
+              child: Text('Administrador',
+                  style: TextStyle(fontWeight: FontWeight.bold))),
+        ])),
         _setting('Cambiar foto de perfil', 'JPG o PNG · máximo 2 MB',
             Icons.add_a_photo_outlined,
             onTap: _savingPhoto ? null : _changeAdminPhoto),

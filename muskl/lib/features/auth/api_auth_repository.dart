@@ -138,7 +138,9 @@ class ApiAuthRepository implements AuthRepository {
       required String lastName,
       required String email,
       String? phone,
-      required String password}) async {
+      required String password,
+      Uint8List? profilePhotoBytes,
+      String? profilePhotoMime}) async {
     final result =
         await _request('POST', '/api/v1/auth/register/client', body: {
       'first_name': firstName,
@@ -146,6 +148,9 @@ class ApiAuthRepository implements AuthRepository {
       'email': email,
       'phone': phone,
       'password': password,
+      if (profilePhotoBytes != null && profilePhotoMime != null)
+        'photo_data': base64Encode(profilePhotoBytes),
+      if (profilePhotoMime != null) 'photo_mime': profilePhotoMime,
     });
     return _sessionFromResponse(Map<String, dynamic>.from(result as Map));
   }
@@ -166,7 +171,9 @@ class ApiAuthRepository implements AuthRepository {
       required String email,
       String? phone,
       required String password,
-      required String inviteToken}) async {
+      required String inviteToken,
+      Uint8List? profilePhotoBytes,
+      String? profilePhotoMime}) async {
     await _request('POST', '/api/v1/auth/register/admin', body: {
       'first_name': firstName,
       'last_name': lastName,
@@ -174,6 +181,9 @@ class ApiAuthRepository implements AuthRepository {
       'phone': phone,
       'password': password,
       'invite_token': inviteToken,
+      if (profilePhotoBytes != null && profilePhotoMime != null)
+        'photo_data': base64Encode(profilePhotoBytes),
+      if (profilePhotoMime != null) 'photo_mime': profilePhotoMime,
     });
   }
 
@@ -186,7 +196,9 @@ class ApiAuthRepository implements AuthRepository {
       required String password,
       required String specialty,
       required String certificationName,
-      required Uint8List certificationBytes}) async {
+      required Uint8List certificationBytes,
+      Uint8List? profilePhotoBytes,
+      String? profilePhotoMime}) async {
     final boundary = 'muskl-${DateTime.now().microsecondsSinceEpoch}';
     final request = await _client
         .postUrl(Uri.parse('$_baseUrl/api/v1/auth/register/trainer'));
@@ -203,6 +215,10 @@ class ApiAuthRepository implements AuthRepository {
     field('password', password);
     field('specialty', specialty);
     if (phone != null && phone.isNotEmpty) field('phone', phone);
+    if (profilePhotoBytes != null && profilePhotoMime != null) {
+      field('photo_data', base64Encode(profilePhotoBytes));
+      field('photo_mime', profilePhotoMime);
+    }
     final extension = certificationName.split('.').last.toLowerCase();
     final mime = switch (extension) {
       'pdf' => 'application/pdf',

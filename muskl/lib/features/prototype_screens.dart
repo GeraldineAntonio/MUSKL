@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import '../core/theme/app_colors.dart';
 import '../core/widgets/muskl_button.dart';
 import '../core/widgets/muskl_card.dart';
 import '../core/widgets/muskl_text_field.dart';
+import '../core/widgets/profile_photo_avatar.dart';
 import '../main.dart';
 import 'auth/auth_models.dart';
 
@@ -92,6 +94,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _invite = TextEditingController();
   String? _certName;
   Uint8List? _certBytes;
+  Uint8List? _profilePhotoBytes;
+  String? _profilePhotoMime;
   bool _loading = false;
   String? _error;
   late String _role;
@@ -134,6 +138,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
   }
 
+  Future<void> _pickProfilePhoto() async {
+    try {
+      final selected = await pickProfilePhoto(context);
+      if (!mounted || selected == null) return;
+      setState(() {
+        _profilePhotoBytes = selected.bytes;
+        _profilePhotoMime = selected.mimeType;
+        _error = null;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString().replaceFirst('FormatException: ', ''));
+    }
+  }
+
   Future<void> _submit() async {
     final email = _email.text.trim();
     if (_name.text.trim().isEmpty ||
@@ -174,7 +192,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             lastName: last,
             email: normalizedEmail,
             phone: phone,
-            password: _password.text);
+            password: _password.text,
+            profilePhotoBytes: _profilePhotoBytes,
+            profilePhotoMime: _profilePhotoMime);
         if (mounted) context.go('/onboarding');
       } else if (_role == 'Entrenador') {
         await authController.repository.registerTrainer(
@@ -185,7 +205,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             password: _password.text,
             specialty: _specialty.text.trim(),
             certificationName: _certName!,
-            certificationBytes: _certBytes!);
+            certificationBytes: _certBytes!,
+            profilePhotoBytes: _profilePhotoBytes,
+            profilePhotoMime: _profilePhotoMime);
         if (mounted) context.go('/pending');
       } else {
         await authController.repository.registerAdmin(
@@ -194,7 +216,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             email: normalizedEmail,
             phone: phone,
             password: _password.text,
-            inviteToken: _invite.text.trim());
+            inviteToken: _invite.text.trim(),
+            profilePhotoBytes: _profilePhotoBytes,
+            profilePhotoMime: _profilePhotoMime);
         if (mounted) context.go('/pending');
       }
     } on AuthException catch (e) {
@@ -259,6 +283,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
             icon: Icons.phone_outlined,
             hint: '+52 55 1234 5678',
             keyboardType: TextInputType.phone),
+        const SizedBox(height: 14),
+        MusklCard(
+            child: Column(children: [
+          ProfilePhotoAvatar(
+              image: _profilePhotoBytes == null
+                  ? null
+                  : MemoryImage(_profilePhotoBytes!),
+              onEdit: _loading ? () {} : _pickProfilePhoto,
+              radius: 42,
+              name: '${_name.text} ${_lastName.text}'),
+          const SizedBox(height: 8),
+          Text(_profilePhotoBytes == null
+              ? 'Añadir foto de perfil (opcional)'
+              : 'Toca el lápiz para cambiar la foto'),
+        ])),
         const SizedBox(height: 14),
         if (_role == 'Entrenador') ...[
           MusklTextField(

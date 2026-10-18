@@ -30,13 +30,17 @@ class AuthController extends ChangeNotifier {
       required String lastName,
       required String email,
       String? phone,
-      required String password}) async {
+      required String password,
+      Uint8List? profilePhotoBytes,
+      String? profilePhotoMime}) async {
     _session = await repository.registerClient(
         firstName: firstName,
         lastName: lastName,
         email: email,
         phone: phone,
-        password: password);
+        password: password,
+        profilePhotoBytes: profilePhotoBytes,
+        profilePhotoMime: profilePhotoMime);
     notifyListeners();
   }
 

@@ -165,6 +165,8 @@ class ClientRegistration(BaseModel):
     email: EmailStr
     phone: str | None = Field(default=None, max_length=30)
     password: str = Field(min_length=8, max_length=128)
+    photo_data: str | None = Field(default=None, max_length=2_800_000)
+    photo_mime: Literal['image/jpeg', 'image/png'] | None = None
 
 
 class GroupMemberRegistration(BaseModel):
@@ -187,6 +189,8 @@ class AdminRegistration(BaseModel):
     phone: str | None = Field(default=None, max_length=30)
     password: str = Field(min_length=8, max_length=128)
     invite_token: str = Field(min_length=8, max_length=100)
+    photo_data: str | None = Field(default=None, max_length=2_800_000)
+    photo_mime: Literal['image/jpeg', 'image/png'] | None = None
 
 
 class PasswordCodeRequest(BaseModel):
@@ -333,6 +337,47 @@ class RefreshRequest(BaseModel):
 
 def _problem(status: int, code: str, message: str) -> HTTPException:
     return HTTPException(status_code=status, detail={'code': code, 'message': message})
+
+
+def _decode_profile_photo(photo_data: str | None,
+                          photo_mime: str | None) -> tuple[bytes, str] | None:
+    if photo_data is None and photo_mime is None:
+        return None
+    if photo_data is None or photo_mime is None:
+        raise _problem(415, 'INVALID_PROFILE_PHOTO', 'Faltan los datos de la foto seleccionada.')
+    try:
+        data = base64.b64decode(photo_data, validate=True)
+    except (ValueError, binascii.Error):
+        raise _problem(415, 'INVALID_PROFILE_PHOTO', 'No se pudo leer la imagen seleccionada.')
+    if not data or len(data) > 2 * 1024 * 1024:
+        raise _problem(413, 'PROFILE_PHOTO_SIZE', 'La foto debe pesar máximo 2 MB.')
+    valid_signature = (
+        photo_mime == 'image/jpeg' and data.startswith(b'\xff\xd8\xff')
+    ) or (
+        photo_mime == 'image/png' and data.startswith(b'\x89PNG\r\n\x1a\n')
+    )
+    if not valid_signature:
+        raise _problem(415, 'INVALID_PROFILE_PHOTO', 'Usa una imagen JPG o PNG válida.')
+    return data, photo_mime
+
+
+def _store_registration_photo(user_id: uuid.UUID,
+                              photo: tuple[bytes, str] | None) -> str | None:
+    if photo is None:
+        return None
+    data, mime = photo
+    extension = 'jpg' if mime == 'image/jpeg' else 'png'
+    return put_profile_photo(
+        f'profile-photos/{user_id}/{uuid.uuid4()}.{extension}', data, mime)
+
+
+def _cleanup_profile_photo(storage_key: str | None) -> None:
+    if not storage_key:
+        return
+    try:
+        delete_profile_photo(storage_key)
+    except Exception:
+        log.exception('Could not clean up profile photo after registration failed')
 
 
 def _email_hash_code(code: str) -> str:
@@ -647,25 +692,45 @@ def login(payload: LoginRequest) -> dict:
 
 @app.post('/api/v1/auth/register/client', status_code=201)
 def register_client(payload: ClientRegistration) -> dict:
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            existing = cur.execute('SELECT 1 FROM users WHERE gym_id = %s AND email = %s',
-                                   (GYM_ID, str(payload.email).lower())).fetchone()
-            if existing:
-                raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado.')
-            seq = cur.execute("SELECT nextval('member_number_seq') AS value").fetchone()['value']
-            member_number = f'MSK-{seq:06d}'
-            user = _create_user(cur, role='client', status='active_no_onboarding',
-                                first_name=payload.first_name, last_name=payload.last_name,
-                                email=str(payload.email), phone=payload.phone,
-                                password=payload.password, member_number=member_number)
-            cur.execute('INSERT INTO client_profiles (user_id) VALUES (%s)', (user['id'],))
-            cur.execute('INSERT INTO client_groups (gym_id, member_number) VALUES (%s, %s) RETURNING id',
-                        (GYM_ID, member_number))
-            group = cur.fetchone()
-            cur.execute('INSERT INTO client_group_members (group_id, user_id, is_primary) VALUES (%s, %s, true)',
-                        (group['id'], user['id']))
-            return _session_response(cur, user)
+    photo = _decode_profile_photo(payload.photo_data, payload.photo_mime)
+    storage_key = None
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                existing = cur.execute('SELECT 1 FROM users WHERE gym_id = %s AND email = %s',
+                                       (GYM_ID, str(payload.email).lower())).fetchone()
+                if existing:
+                    raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado.')
+                seq = cur.execute("SELECT nextval('member_number_seq') AS value").fetchone()['value']
+                member_number = f'MSK-{seq:06d}'
+                user = _create_user(cur, role='client', status='active_no_onboarding',
+                                    first_name=payload.first_name, last_name=payload.last_name,
+                                    email=str(payload.email), phone=payload.phone,
+                                    password=payload.password, member_number=member_number)
+                storage_key = _store_registration_photo(user['id'], photo)
+                if storage_key:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
+                        profile_photo_mime = %s WHERE id = %s""",
+                        (storage_key, photo[1], user['id']))
+                cur.execute('INSERT INTO client_profiles (user_id) VALUES (%s)', (user['id'],))
+                cur.execute('INSERT INTO client_groups (gym_id, member_number) VALUES (%s, %s) RETURNING id',
+                            (GYM_ID, member_number))
+                group = cur.fetchone()
+                cur.execute('INSERT INTO client_group_members (group_id, user_id, is_primary) VALUES (%s, %s, true)',
+                            (group['id'], user['id']))
+                return _session_response(cur, user)
+    except HTTPException:
+        _cleanup_profile_photo(storage_key)
+        raise
+    except StorageNotConfigured as exc:
+        _cleanup_profile_photo(storage_key)
+        raise _problem(503, 'PROFILE_PHOTO_STORAGE_NOT_CONFIGURED', str(exc))
+    except StorageWriteError as exc:
+        _cleanup_profile_photo(storage_key)
+        raise _problem(503, 'PROFILE_PHOTO_STORAGE_UNAVAILABLE', str(exc))
+    except Exception:
+        _cleanup_profile_photo(storage_key)
+        raise
 
 
 @app.post('/api/v1/auth/register/trainer', status_code=202)
@@ -676,8 +741,11 @@ def register_trainer(
     password: Annotated[str, Form(min_length=8, max_length=128)],
     specialty: Annotated[str, Form(min_length=1, max_length=120)],
     phone: Annotated[str | None, Form(max_length=30)] = None,
+    photo_data: Annotated[str | None, Form(max_length=2_800_000)] = None,
+    photo_mime: Annotated[Literal['image/jpeg', 'image/png'] | None, Form()] = None,
     certification: UploadFile = File(...),
 ) -> dict:
+    photo = _decode_profile_photo(photo_data, photo_mime)
     ext = Path(certification.filename or '').suffix.lower()
     allowed = {'.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
     if ext not in allowed or certification.content_type != allowed[ext]:
@@ -694,6 +762,7 @@ def register_trainer(
     if not signatures[ext]:
         raise _problem(415, 'INVALID_CERTIFICATION', 'El contenido del archivo no coincide con su formato.')
     storage_key = None
+    profile_photo_key = None
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
@@ -703,6 +772,11 @@ def register_trainer(
                 user = _create_user(cur, role='trainer', status='pending', first_name=first_name,
                                     last_name=last_name, email=str(email), phone=phone,
                                     password=password)
+                profile_photo_key = _store_registration_photo(user['id'], photo)
+                if profile_photo_key:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
+                        profile_photo_mime = %s WHERE id = %s""",
+                        (profile_photo_key, photo[1], user['id']))
                 key = f'certifications/{GYM_ID}/{user["id"]}/{uuid.uuid4()}{ext}'
                 storage_key = put_certificate(
                     key, data, allowed[ext], UPLOAD_DIR)
@@ -721,11 +795,18 @@ def register_trainer(
                     (UPLOAD_DIR / storage_key.removeprefix('local://')).unlink(missing_ok=True)
             except Exception:
                 log.exception('Could not clean up certificate object after registration failure')
+        _cleanup_profile_photo(profile_photo_key)
         raise
     except StorageNotConfigured as exc:
+        if storage_key:
+            delete_certificate(storage_key)
+        _cleanup_profile_photo(profile_photo_key)
         raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', str(exc))
     except StorageWriteError:
         log.exception('Certificate upload failed')
+        if storage_key:
+            delete_certificate(storage_key)
+        _cleanup_profile_photo(profile_photo_key)
         raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', 'No se pudo guardar el certificado. Intenta más tarde.')
     except Exception:
         if storage_key:
@@ -735,32 +816,53 @@ def register_trainer(
                     (UPLOAD_DIR / storage_key.removeprefix('local://')).unlink(missing_ok=True)
             except Exception:
                 log.exception('Could not clean up certificate object after registration failure')
+        _cleanup_profile_photo(profile_photo_key)
         raise
     return {'status': 'pending', 'message': 'Solicitud enviada para revisión del gimnasio.'}
 
 
 @app.post('/api/v1/auth/register/admin', status_code=202)
 def register_admin(payload: AdminRegistration) -> dict:
+    photo = _decode_profile_photo(payload.photo_data, payload.photo_mime)
+    profile_photo_key = None
     token_hash = hashlib.sha256(payload.invite_token.strip().encode()).hexdigest()
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            invite = cur.execute(
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                invite = cur.execute(
                 """SELECT id FROM admin_invite_tokens
                    WHERE gym_id = %s AND token_hash = %s AND revoked_at IS NULL AND used_at IS NULL
                      AND (expires_at IS NULL OR expires_at > now()) FOR UPDATE""",
                 (GYM_ID, token_hash)).fetchone()
-            if invite is None:
-                raise _problem(400, 'INVALID_INVITE', 'El token no es válido o ya fue usado.')
-            if cur.execute('SELECT 1 FROM users WHERE gym_id = %s AND email = %s',
-                           (GYM_ID, str(payload.email).lower())).fetchone():
-                raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado.')
-            user = _create_user(cur, role='admin', status='pending', first_name=payload.first_name,
-                                last_name=payload.last_name, email=str(payload.email), phone=payload.phone,
-                                password=payload.password)
-            cur.execute('UPDATE admin_invite_tokens SET used_at = now() WHERE id = %s', (invite['id'],))
-            cur.execute('INSERT INTO account_audit_events (gym_id, subject_id, event_type) VALUES (%s, %s, %s)',
-                        (GYM_ID, user['id'], 'admin_registration_submitted'))
-            _notify_admins_of_staff_request(cur, GYM_ID, user)
+                if invite is None:
+                    raise _problem(400, 'INVALID_INVITE', 'El token no es válido o ya fue usado.')
+                if cur.execute('SELECT 1 FROM users WHERE gym_id = %s AND email = %s',
+                               (GYM_ID, str(payload.email).lower())).fetchone():
+                    raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado.')
+                user = _create_user(cur, role='admin', status='pending', first_name=payload.first_name,
+                                    last_name=payload.last_name, email=str(payload.email), phone=payload.phone,
+                                    password=payload.password)
+                profile_photo_key = _store_registration_photo(user['id'], photo)
+                if profile_photo_key:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
+                        profile_photo_mime = %s WHERE id = %s""",
+                        (profile_photo_key, photo[1], user['id']))
+                cur.execute('UPDATE admin_invite_tokens SET used_at = now() WHERE id = %s', (invite['id'],))
+                cur.execute('INSERT INTO account_audit_events (gym_id, subject_id, event_type) VALUES (%s, %s, %s)',
+                            (GYM_ID, user['id'], 'admin_registration_submitted'))
+                _notify_admins_of_staff_request(cur, GYM_ID, user)
+    except HTTPException:
+        _cleanup_profile_photo(profile_photo_key)
+        raise
+    except StorageNotConfigured as exc:
+        _cleanup_profile_photo(profile_photo_key)
+        raise _problem(503, 'PROFILE_PHOTO_STORAGE_NOT_CONFIGURED', str(exc))
+    except StorageWriteError as exc:
+        _cleanup_profile_photo(profile_photo_key)
+        raise _problem(503, 'PROFILE_PHOTO_STORAGE_UNAVAILABLE', str(exc))
+    except Exception:
+        _cleanup_profile_photo(profile_photo_key)
+        raise
     return {'status': 'pending', 'message': 'Solicitud enviada para revisión del gimnasio.'}
 
 

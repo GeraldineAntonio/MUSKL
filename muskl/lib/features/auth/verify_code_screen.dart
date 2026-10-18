@@ -103,7 +103,7 @@ class _VerifyCodeScreenState extends State<VerifyCodeScreen> {
     return AuthScaffold(
       kicker: 'Paso 2 de 3',
       title: 'Código de verificación',
-      subtitle: 'Lo enviamos a ${widget.email}. Escríbelo aquí.',
+      subtitle: 'Enviamos el código a ${widget.email}. Escríbelo aquí.',
       bottom: MusklButton(
         label: 'Verificar',
         icon: Icons.check,

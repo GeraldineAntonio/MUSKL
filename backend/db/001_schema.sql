@@ -232,6 +232,7 @@ CREATE INDEX workout_completions_client_date_idx ON workout_completions (client_
 CREATE TABLE password_reset_codes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purpose text NOT NULL DEFAULT 'reset' CHECK (purpose IN ('reset', 'change')),
   code_hash text NOT NULL,
   expires_at timestamptz NOT NULL,
   attempts smallint NOT NULL DEFAULT 0,

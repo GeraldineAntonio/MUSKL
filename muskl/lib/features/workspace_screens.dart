@@ -2308,23 +2308,40 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
   }
 
   Future<void> _changePassword() async {
+    try {
+      final channel = await authController.sendPasswordChangeCode();
+      if (!mounted) return;
+      _message(channel == 'development'
+          ? 'Código de prueba generado; revisa la consola del API.'
+          : 'Enviamos un código al correo vinculado.');
+    } catch (e) {
+      _message('No se pudo enviar el código de seguridad: $e');
+      return;
+    }
     final result = await _editFields(
         context,
         'CAMBIAR CONTRASEÑA',
-        ['Contraseña actual', 'Nueva contraseña', 'Confirmar contraseña'],
-        ['', '', ''],
+        [
+          'Código de seguridad (6 dígitos)',
+          'Contraseña actual',
+          'Nueva contraseña',
+          'Confirmar contraseña'
+        ],
+        ['', '', '', ''],
         obscure: true);
     if (!mounted) return;
     if (result == null) return;
-    if (result[1].length < 8 || result[1] != result[2]) {
+    if (result[0].length != 6 ||
+        result[2].length < 8 ||
+        result[2] != result[3]) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text(
-              'Revisa que la nueva contraseña tenga 8 caracteres y coincida con su confirmación.')));
+              'Escribe el código de 6 dígitos y revisa que la nueva contraseña tenga al menos 8 caracteres y coincida.')));
       return;
     }
     try {
       await authController.changePassword(
-          currentPassword: result[0], newPassword: result[1]);
+          currentPassword: result[1], newPassword: result[2], code: result[0]);
       _message('Contraseña actualizada. Las demás sesiones se cerraron.');
     } catch (e) {
       _message('No se pudo cambiar la contraseña: $e');
@@ -2454,26 +2471,41 @@ Widget _setting(String title, String subtitle, IconData icon,
             trailing: const Icon(Icons.chevron_right)));
 
 Future<void> _changeAccountPassword(BuildContext context) async {
+  try {
+    final channel = await authController.sendPasswordChangeCode();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(channel == 'development'
+            ? 'Código de prueba generado; revisa la consola del API.'
+            : 'Enviamos un código al correo vinculado.')));
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('No se pudo enviar el código de seguridad: $e')));
+    }
+    return;
+  }
   final values = await _editFields(
       context,
       'CAMBIAR CONTRASEÑA',
       [
+        'Código de seguridad (6 dígitos)',
         'Contraseña actual',
         'Nueva contraseña',
         'Confirmar contraseña',
       ],
-      ['', '', ''],
+      ['', '', '', ''],
       obscure: true);
   if (!context.mounted || values == null) return;
-  if (values[1].length < 8 || values[1] != values[2]) {
+  if (values[0].length != 6 || values[2].length < 8 || values[2] != values[3]) {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content:
-            Text('La nueva contraseña debe tener 8 caracteres y coincidir.')));
+        content: Text(
+            'Escribe el código de 6 dígitos y asegúrate de que la nueva contraseña tenga al menos 8 caracteres y coincida.')));
     return;
   }
   try {
     await authController.changePassword(
-        currentPassword: values[0], newPassword: values[1]);
+        currentPassword: values[1], newPassword: values[2], code: values[0]);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content:
@@ -2660,6 +2692,21 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         authController.adminUsers(search: search, role: role, status: status);
   }
 
+  Future<void> _deactivateUser(Map<String, dynamic> user) async {
+    final name = '${user['first_name']} ${user['last_name']}';
+    final changed = await context.push<bool>(
+      Uri(
+        path: '/admin/deactivate',
+        queryParameters: {
+          'id': user['id'].toString(),
+          'member': (user['member_number'] ?? '').toString(),
+          'name': name,
+        },
+      ).toString(),
+    );
+    if (changed == true && mounted) setState(_reload);
+  }
+
   @override
   Widget build(BuildContext context) => WorkspacePage(
       title: 'Usuarios',
@@ -2703,7 +2750,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   _section('${rows.length} usuarios'),
                   if (rows.isEmpty)
                     const Text('No hay usuarios que coincidan.'),
-                  for (final user in rows)
+                  for (final user in rows) ...[
                     _record(
                       '${user['first_name']} ${user['last_name']}',
                       '${user['role'] == 'client' ? 'Socio' : user['role'] == 'trainer' ? 'Entrenador' : 'Admin'} · ${user['status'] == 'deactivated' ? 'Baja' : user['status'] == 'pending' ? 'En revisión' : user['status'] == 'rejected' ? 'Rechazado' : 'Activo'}${user['member_number'] == null ? '' : ' · ${user['member_number']}'}',
@@ -2730,6 +2777,23 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                         if (changed == true && mounted) setState(_reload);
                       },
                     ),
+                    if (user['role'] == 'client' &&
+                        user['status'] != 'deactivated')
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8, bottom: 10),
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: OutlinedButton.icon(
+                            onPressed: () => _deactivateUser(user),
+                            icon: const Icon(Icons.person_off_outlined),
+                            label: const Text('Dar de baja'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.red,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ]);
           },
         ),
@@ -3265,6 +3329,48 @@ class _AdminRequestsScreenState extends State<AdminRequestsScreen> {
     }
   }
 
+  Future<void> _showCertificateLink(
+      Map<String, dynamic> request, Map<String, dynamic> certificate) async {
+    try {
+      final url = await authController.trainerCertificationDownloadUrl(
+        trainerId: request['id'].toString(),
+        certificationId: certificate['id'].toString(),
+      );
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(certificate['title']?.toString() ?? 'Certificado'),
+          content: const Text(
+              'Este enlace privado vence en 10 minutos. Cópialo y ábrelo en el navegador para revisar el documento.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cerrar'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: url));
+                if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Enlace temporal copiado.')));
+                }
+              },
+              icon: const Icon(Icons.copy),
+              label: const Text('Copiar enlace'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No se pudo obtener el certificado: $e')));
+      }
+    }
+  }
+
   Future<void> _reviewDeletion(
       Map<String, dynamic> request, bool approved) async {
     try {
@@ -3381,6 +3487,23 @@ class _AdminRequestsScreenState extends State<AdminRequestsScreen> {
                               Text('Especialidad: ${request['specialty']}',
                                   style: const TextStyle(
                                       color: AppColors.textMuted)),
+                            if (!_showDeletions && request['role'] == 'trainer')
+                              for (final rawCertificate
+                                  in (request['certifications'] as List? ?? []))
+                                Builder(builder: (context) {
+                                  final certificate = Map<String, dynamic>.from(
+                                      rawCertificate as Map);
+                                  return Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: TextButton.icon(
+                                      onPressed: () => _showCertificateLink(
+                                          request, certificate),
+                                      icon: const Icon(Icons.lock_clock),
+                                      label: Text(
+                                          'Ver certificado · ${certificate['title']}'),
+                                    ),
+                                  );
+                                }),
                             const SizedBox(height: 12),
                             Row(children: [
                               Expanded(

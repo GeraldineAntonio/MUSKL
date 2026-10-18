@@ -4,10 +4,15 @@ import asyncio
 import base64
 import binascii
 import hashlib
+import json
 import logging
 import os
+import re
 import secrets
 import smtplib
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
@@ -25,6 +30,15 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from psycopg.types.json import Jsonb
+
+from .object_storage import (
+    StorageNotConfigured,
+    StorageReadError,
+    StorageWriteError,
+    delete_certificate,
+    presigned_certificate_url,
+    put_certificate,
+)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('muskl.api')
@@ -273,6 +287,7 @@ class AdminPreferencesUpdate(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=8, max_length=128)
+    code: str = Field(min_length=6, max_length=6, pattern=r'^\d{6}$')
 
 
 class LoginRequest(BaseModel):
@@ -382,33 +397,85 @@ def _notify_admins_of_staff_request(cur, gym_id: uuid.UUID, request_user: dict) 
                  Jsonb({'user_id': str(request_user['id']), 'role': request_user['role']})))
 
 
-def _deliver_reset_code(email: str, code: str) -> None:
-    host = os.getenv('MUSKL_SMTP_HOST')
-    if not host:
-        if os.getenv('MUSKL_ENV', 'development') != 'development':
-            raise RuntimeError('Configura SMTP para enviar códigos de recuperación.')
-        log.info('DEV password reset code for %s: %s', email, code)
-        return
-    message = EmailMessage()
-    message['Subject'] = 'Código para restablecer tu contraseña de MUSKL'
-    message['From'] = os.environ['MUSKL_SMTP_FROM']
-    message['To'] = email
-    message.set_content(f'Tu código de recuperación es {code}. Vence en 10 minutos.')
-    port = int(os.getenv('MUSKL_SMTP_PORT', '587'))
-    with smtplib.SMTP(host, port, timeout=15) as server:
-        if os.getenv('MUSKL_SMTP_STARTTLS', 'true').lower() == 'true':
-            server.starttls()
-        if os.getenv('MUSKL_SMTP_USER'):
-            server.login(os.environ['MUSKL_SMTP_USER'], os.environ['MUSKL_SMTP_PASSWORD'])
-        server.send_message(message)
+def _deliver_auth_code(email: str, code: str,
+                       purpose: Literal['reset', 'change']) -> str:
+    if purpose == 'reset':
+        subject = 'Código para restablecer tu contraseña de MUSKL'
+        action = 'restablecer'
+    else:
+        subject = 'Código para cambiar tu contraseña de MUSKL'
+        action = 'cambiar'
+    body = f'Tu código para {action} la contraseña es {code}. Vence en 10 minutos.'
+    email_provider_configured = (
+        bool(os.getenv('MUSKL_SMTP_HOST'))
+        or bool(os.getenv('BREVO_API_KEY') and os.getenv('BREVO_FROM_EMAIL'))
+        or bool(os.getenv('MUSKL_RESEND_API_KEY') and os.getenv('MUSKL_RESEND_FROM'))
+    )
+    if email_provider_configured and _deliver_notice_email(email, subject, body):
+        return 'email'
+    if os.getenv('MUSKL_ENV', 'development') == 'development':
+        log.info('DEV %s password code for %s: %s', purpose, email, code)
+        return 'development'
+    raise RuntimeError('No hay un canal disponible para enviar el código de seguridad.')
 
 
-def _deliver_notice_email(email: str, subject: str, body: str) -> None:
-    """Best-effort account notice; internal notifications remain available without SMTP."""
+def _deliver_notice_email(email: str, subject: str, body: str) -> bool:
+    """Send transactional mail over HTTPS when configured, with SMTP as fallback."""
+    brevo_key = os.getenv('BREVO_API_KEY', '').strip()
+    brevo_from = os.getenv('BREVO_FROM_EMAIL', '').strip()
+    if brevo_key and brevo_from:
+        sender = {'email': brevo_from}
+        sender_name = os.getenv('BREVO_FROM_NAME', '').strip()
+        if sender_name:
+            sender['name'] = sender_name
+        request = urllib.request.Request(
+            'https://api.brevo.com/v3/smtp/email',
+            data=json.dumps({
+                'sender': sender,
+                'to': [{'email': email}],
+                'subject': subject,
+                'textContent': body,
+            }).encode(),
+            headers={
+                'api-key': brevo_key,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            method='POST',
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                if 200 <= response.status < 300:
+                    return True
+        except Exception:
+            log.exception('Could not send transactional email with Brevo to %s', email)
+
+    resend_key = os.getenv('MUSKL_RESEND_API_KEY', '').strip()
+    resend_from = os.getenv('MUSKL_RESEND_FROM', '').strip()
+    if resend_key and resend_from:
+        request = urllib.request.Request(
+            'https://api.resend.com/emails',
+            data=json.dumps({
+                'from': resend_from,
+                'to': [email],
+                'subject': subject,
+                'text': body,
+            }).encode(),
+            headers={
+                'Authorization': f'Bearer {resend_key}',
+                'Content-Type': 'application/json',
+            },
+            method='POST',
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return 200 <= response.status < 300
+        except Exception:
+            log.exception('Could not send account notice with Resend to %s', email)
     host = os.getenv('MUSKL_SMTP_HOST')
     if not host:
         log.warning('SMTP is not configured; account notice email was not sent to %s', email)
-        return
+        return False
     message = EmailMessage()
     message['Subject'] = subject
     message['From'] = os.environ['MUSKL_SMTP_FROM']
@@ -422,8 +489,54 @@ def _deliver_notice_email(email: str, subject: str, body: str) -> None:
             if os.getenv('MUSKL_SMTP_USER'):
                 server.login(os.environ['MUSKL_SMTP_USER'], os.environ['MUSKL_SMTP_PASSWORD'])
             server.send_message(message)
+        return True
     except Exception:
         log.exception('Could not send account notice email to %s', email)
+        return False
+
+
+def _deliver_notice_sms(phone: str, body: str) -> bool:
+    """Send an optional SMS using Twilio's HTTPS API; no-op when unconfigured."""
+    account_sid = os.getenv('MUSKL_TWILIO_ACCOUNT_SID', '').strip()
+    auth_token = os.getenv('MUSKL_TWILIO_AUTH_TOKEN', '').strip()
+    from_number = os.getenv('MUSKL_TWILIO_FROM', '').strip()
+    if not all((account_sid, auth_token, from_number)):
+        return False
+    to_number = re.sub(r'[\s().-]', '', phone)
+    if not re.fullmatch(r'\+[1-9]\d{7,14}', to_number):
+        log.warning('SMS notice skipped because the phone number is not E.164 formatted')
+        return False
+    token = base64.b64encode(f'{account_sid}:{auth_token}'.encode()).decode()
+    request = urllib.request.Request(
+        f'https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json',
+        data=urllib.parse.urlencode({
+            'To': to_number,
+            'From': from_number,
+            'Body': body,
+        }).encode(),
+        headers={
+            'Authorization': f'Basic {token}',
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return 200 <= response.status < 300
+    except (urllib.error.URLError, TimeoutError):
+        log.exception('Could not send account notice SMS')
+        return False
+
+
+def _deliver_account_notice(email: str | None, phone: str | None,
+                            subject: str, body: str) -> str | None:
+    """Try email first, then SMS; return the channel used when delivery succeeds."""
+    if email and _deliver_notice_email(email, subject, body):
+        return 'email'
+    if phone and _deliver_notice_sms(phone, body):
+        return 'sms'
+    log.warning('Account notice could not be delivered: no configured channel succeeded')
+    return None
 
 
 @app.get('/health')
@@ -497,11 +610,15 @@ def register_trainer(
     data = certification.file.read(10 * 1024 * 1024 + 1)
     if not data or len(data) > 10 * 1024 * 1024:
         raise _problem(413, 'CERTIFICATION_SIZE', 'El archivo debe pesar hasta 10 MB.')
-    user_id = uuid.uuid4()
-    relative_key = f'certifications/{user_id}/{uuid.uuid4()}{ext}'
-    destination = UPLOAD_DIR / relative_key
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(data)
+    signatures = {
+        '.pdf': data.startswith(b'%PDF-'),
+        '.png': data.startswith(b'\x89PNG\r\n\x1a\n'),
+        '.jpg': data.startswith(b'\xff\xd8\xff'),
+        '.jpeg': data.startswith(b'\xff\xd8\xff'),
+    }
+    if not signatures[ext]:
+        raise _problem(415, 'INVALID_CERTIFICATION', 'El contenido del archivo no coincide con su formato.')
+    storage_key = None
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
@@ -511,15 +628,38 @@ def register_trainer(
                 user = _create_user(cur, role='trainer', status='pending', first_name=first_name,
                                     last_name=last_name, email=str(email), phone=phone,
                                     password=password)
+                key = f'certifications/{GYM_ID}/{user["id"]}/{uuid.uuid4()}{ext}'
+                storage_key = put_certificate(
+                    key, data, allowed[ext], UPLOAD_DIR)
                 cur.execute('INSERT INTO trainer_profiles (user_id, specialty) VALUES (%s, %s)',
                             (user['id'], specialty.strip()))
                 cur.execute('INSERT INTO trainer_certifications (trainer_id, title, storage_key) VALUES (%s, %s, %s)',
-                            (user['id'], certification.filename or 'Certificación', relative_key))
+                            (user['id'], certification.filename or 'Certificación', storage_key))
                 cur.execute('INSERT INTO account_audit_events (gym_id, subject_id, event_type) VALUES (%s, %s, %s)',
                             (GYM_ID, user['id'], 'trainer_registration_submitted'))
                 _notify_admins_of_staff_request(cur, GYM_ID, user)
+    except HTTPException:
+        if storage_key:
+            try:
+                delete_certificate(storage_key)
+                if storage_key.startswith('local://'):
+                    (UPLOAD_DIR / storage_key.removeprefix('local://')).unlink(missing_ok=True)
+            except Exception:
+                log.exception('Could not clean up certificate object after registration failure')
+        raise
+    except StorageNotConfigured as exc:
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', str(exc))
+    except StorageWriteError:
+        log.exception('Certificate upload failed')
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', 'No se pudo guardar el certificado. Intenta más tarde.')
     except Exception:
-        destination.unlink(missing_ok=True)
+        if storage_key:
+            try:
+                delete_certificate(storage_key)
+                if storage_key.startswith('local://'):
+                    (UPLOAD_DIR / storage_key.removeprefix('local://')).unlink(missing_ok=True)
+            except Exception:
+                log.exception('Could not clean up certificate object after registration failure')
         raise
     return {'status': 'pending', 'message': 'Solicitud enviada para revisión del gimnasio.'}
 
@@ -755,15 +895,60 @@ def change_password(payload: PasswordChangeRequest,
         password_hasher.verify(user['password_hash'], payload.current_password)
     except (VerifyMismatchError, VerificationError, InvalidHashError):
         raise _problem(400, 'CURRENT_PASSWORD_INVALID', 'La contraseña actual no es correcta.')
+    code_valid = False
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            cur.execute('UPDATE users SET password_hash = %s, updated_at = now() WHERE id = %s',
-                (password_hasher.hash(payload.new_password), user['id']))
-            cur.execute('UPDATE auth_sessions SET revoked_at = now() WHERE user_id = %s AND id <> %s AND revoked_at IS NULL',
-                (user['id'], user['session_id']))
-            cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type) VALUES (%s, %s, 'password_changed')",
-                (user['gym_id'], user['id']))
+            code_valid = _valid_reset_code(
+                cur, user['email'], payload.code, purpose='change', consume=True)
+            if code_valid:
+                cur.execute('UPDATE users SET password_hash = %s, updated_at = now() WHERE id = %s',
+                    (password_hasher.hash(payload.new_password), user['id']))
+                cur.execute('UPDATE auth_sessions SET revoked_at = now() WHERE user_id = %s AND id <> %s AND revoked_at IS NULL',
+                    (user['id'], user['session_id']))
+                cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type) VALUES (%s, %s, 'password_changed')",
+                    (user['gym_id'], user['id']))
+    if not code_valid:
+        raise _problem(400, 'INVALID_CODE', 'El código es incorrecto o ya venció.')
+    _deliver_account_notice(
+        user.get('email'), user.get('phone'), 'Tu contraseña cambió · MUSKL',
+        'La contraseña de tu cuenta MUSKL fue actualizada. Si no hiciste este cambio, contacta al gimnasio de inmediato.')
     return {'status': 'updated'}
+
+
+@app.post('/api/v1/auth/password/change-code', status_code=202)
+def send_password_change_code(user: dict = Depends(current_user)) -> dict:
+    code = f'{secrets.randbelow(1_000_000):06d}'
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                recent = cur.execute(
+                    """SELECT count(*) AS n FROM password_reset_codes
+                       WHERE user_id = %s AND purpose = 'change'
+                         AND created_at > now() - interval '1 hour'""",
+                    (user['id'],)).fetchone()['n']
+                if recent >= 3:
+                    raise _problem(429, 'CODE_RATE_LIMIT',
+                                   'Ya solicitaste varios códigos. Intenta de nuevo más tarde.')
+                cur.execute("""UPDATE password_reset_codes SET consumed_at = now()
+                    WHERE user_id = %s AND purpose = 'change' AND consumed_at IS NULL""",
+                    (user['id'],))
+                cur.execute("""INSERT INTO password_reset_codes
+                    (user_id, purpose, code_hash, expires_at)
+                    VALUES (%s, 'change', %s, now() + interval '10 minutes')""",
+                    (user['id'], _email_hash_code(code)))
+        channel = _deliver_auth_code(user['email'], code, 'change')
+    except HTTPException:
+        raise
+    except Exception:
+        with pool.connection() as conn:
+            conn.execute("""UPDATE password_reset_codes SET consumed_at = now()
+                WHERE user_id = %s AND purpose = 'change' AND consumed_at IS NULL""",
+                (user['id'],))
+        log.exception('Could not deliver password change code for user %s', user['id'])
+        raise _problem(503, 'CODE_DELIVERY_UNAVAILABLE',
+                       'No se pudo enviar el código. Configura Brevo, Resend o SMTP e inténtalo de nuevo.')
+    return {'message': 'Si tienes acceso al correo vinculado, recibirás un código.',
+            'channel': channel}
 
 
 @app.get('/api/v1/client/onboarding/options')
@@ -1601,28 +1786,38 @@ def send_password_code(payload: PasswordCodeRequest) -> dict:
             user = cur.execute('SELECT id FROM users WHERE gym_id = %s AND email = %s',
                                (GYM_ID, email)).fetchone()
             if user:
-                recent = cur.execute("SELECT count(*) AS n FROM password_reset_codes WHERE user_id = %s AND created_at > now() - interval '1 hour'",
+                recent = cur.execute("SELECT count(*) AS n FROM password_reset_codes WHERE user_id = %s AND purpose = 'reset' AND created_at > now() - interval '1 hour'",
                                      (user['id'],)).fetchone()['n']
                 if recent < 3:
-                    cur.execute('INSERT INTO password_reset_codes (user_id, code_hash, expires_at) VALUES (%s, %s, now() + interval \'10 minutes\')',
+                    cur.execute("""UPDATE password_reset_codes SET consumed_at = now()
+                        WHERE user_id = %s AND purpose = 'reset' AND consumed_at IS NULL""",
+                        (user['id'],))
+                    cur.execute("INSERT INTO password_reset_codes (user_id, purpose, code_hash, expires_at) VALUES (%s, 'reset', %s, now() + interval '10 minutes')",
                                 (user['id'], _email_hash_code(code)))
                     should_deliver = True
     if should_deliver:
         try:
-            _deliver_reset_code(email, code)
+            _deliver_auth_code(email, code, 'reset')
         except Exception:
             log.exception('Could not deliver password reset code')
-            raise _problem(503, 'EMAIL_UNAVAILABLE', 'No se pudo enviar el correo. Intenta más tarde.')
+            with pool.connection() as conn:
+                conn.execute("""UPDATE password_reset_codes SET consumed_at = now()
+                    WHERE code_hash = %s AND purpose = 'reset' AND consumed_at IS NULL""",
+                    (_email_hash_code(code),))
     return {'message': 'Si el correo pertenece a una cuenta, recibirá un código de recuperación.'}
 
 
-def _valid_reset_code(cur, email: str, code: str, *, consume: bool) -> bool:
+def _valid_reset_code(cur, email: str, code: str, *,
+                      purpose: Literal['reset', 'change'] = 'reset',
+                      consume: bool) -> bool:
     row = cur.execute(
         """SELECT c.id, c.user_id, c.code_hash, c.attempts
            FROM password_reset_codes c JOIN users u ON u.id = c.user_id
-           WHERE u.email = %s AND c.consumed_at IS NULL AND c.expires_at > now()
-             AND c.attempts < 5 ORDER BY c.created_at DESC LIMIT 1 FOR UPDATE OF c""",
-        (email.lower(),)).fetchone()
+           WHERE u.gym_id = %s AND u.email = %s
+             AND c.consumed_at IS NULL AND c.expires_at > now()
+             AND c.attempts < 5 AND c.purpose = %s
+           ORDER BY c.created_at DESC LIMIT 1 FOR UPDATE OF c""",
+        (GYM_ID, email.lower(), purpose)).fetchone()
     if row is None:
         return False
     valid = secrets.compare_digest(row['code_hash'], _email_hash_code(code))
@@ -1657,8 +1852,16 @@ def reset_password(payload: ResetPasswordRequest) -> dict:
                                 (password_hasher.hash(payload.new_password), user['id']))
                     cur.execute('UPDATE auth_sessions SET revoked_at = now() WHERE user_id = %s AND revoked_at IS NULL',
                                 (user['id'],))
+                    cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, subject_id, event_type) VALUES (%s, %s, %s, 'password_reset')",
+                                (GYM_ID, user['id'], user['id']))
     if not valid:
         raise _problem(400, 'INVALID_CODE', 'El código es incorrecto o ya venció.')
+    with pool.connection() as conn:
+        user = conn.execute('SELECT email, phone FROM users WHERE id = %s',
+                             (user['id'],)).fetchone()
+    _deliver_account_notice(
+        user['email'], user['phone'], 'Tu contraseña cambió · MUSKL',
+        'La contraseña de tu cuenta MUSKL fue restablecida. Si no hiciste este cambio, contacta al gimnasio de inmediato.')
     return {'message': 'Contraseña actualizada. Inicia sesión con tu nueva contraseña.'}
 
 
@@ -1908,9 +2111,40 @@ def revoke_invite(invite_id: uuid.UUID, admin: dict = Depends(active_admin)) -> 
 def staff_requests(admin: dict = Depends(active_admin)) -> list[dict]:
     with pool.connection() as conn:
         return conn.execute("""SELECT u.id, u.role, u.first_name, u.last_name, u.email, u.phone, u.created_at,
-           tp.specialty FROM users u LEFT JOIN trainer_profiles tp ON tp.user_id = u.id
+           tp.specialty,
+           coalesce((SELECT jsonb_agg(jsonb_build_object('id', tc.id, 'title', tc.title)
+               ORDER BY tc.created_at) FROM trainer_certifications tc
+               WHERE tc.trainer_id = u.id), '[]'::jsonb) AS certifications
+           FROM users u LEFT JOIN trainer_profiles tp ON tp.user_id = u.id
            WHERE u.gym_id = %s AND u.status = 'pending' AND u.role IN ('trainer', 'admin')
             ORDER BY u.created_at""", (admin['gym_id'],)).fetchall()
+
+
+@app.get('/api/v1/admin/trainers/{trainer_id}/certifications/{certification_id}/download')
+def admin_trainer_certification_download(
+    trainer_id: uuid.UUID,
+    certification_id: uuid.UUID,
+    admin: dict = Depends(active_admin),
+) -> dict:
+    with pool.connection() as conn:
+        certificate = conn.execute("""SELECT tc.storage_key FROM trainer_certifications tc
+            JOIN users trainer ON trainer.id = tc.trainer_id
+            WHERE tc.id = %s AND trainer.id = %s AND trainer.gym_id = %s
+              AND trainer.role = 'trainer'""",
+            (certification_id, trainer_id, admin['gym_id'])).fetchone()
+    if certificate is None:
+        raise _problem(404, 'CERTIFICATION_NOT_FOUND', 'No encontramos ese certificado.')
+    if not certificate['storage_key'].startswith('r2://'):
+        raise _problem(410, 'CERTIFICATION_NEEDS_MIGRATION',
+                       'Este certificado aún no está en el almacenamiento privado. Migra o vuelve a subir el archivo.')
+    try:
+        url = presigned_certificate_url(certificate['storage_key'], expires_in=600)
+    except StorageNotConfigured:
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', 'El almacenamiento privado no está disponible.')
+    except StorageReadError:
+        log.exception('Could not create private certificate link')
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', 'No se pudo generar el enlace temporal.')
+    return {'url': url, 'expires_in': 600}
 
 
 @app.get('/api/v1/admin/notifications')
@@ -2013,7 +2247,7 @@ def deactivate_user(user_id: uuid.UUID, payload: DeactivationRequest,
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
-                user = cur.execute("SELECT id, role, status, email FROM users WHERE id = %s AND gym_id = %s FOR UPDATE",
+                user = cur.execute("SELECT id, role, status, email, phone FROM users WHERE id = %s AND gym_id = %s FOR UPDATE",
                                    (user_id, admin['gym_id'])).fetchone()
                 if user is None:
                     raise _problem(404, 'USER_NOT_FOUND', 'No encontramos ese usuario.')
@@ -2040,11 +2274,15 @@ def deactivate_user(user_id: uuid.UUID, payload: DeactivationRequest,
         if 'Reasigna los clientes' in db_message:
             raise _problem(409, 'TRAINER_HAS_CLIENTS', 'Reasigna los clientes antes de dar de baja al entrenador.')
         raise
-    _deliver_notice_email(user['email'], 'Tu cuenta fue dada de baja · MUSKL',
-        f"Tu cuenta fue dada de baja por el gimnasio.\nMotivo: {payload.reason}"
-        f"\nReactivación disponible hasta: {(now + timedelta(days=90)).date().isoformat()}.")
+    notification_channel = _deliver_account_notice(
+        user['email'], user['phone'], 'Tu cuenta fue dada de baja · MUSKL',
+        f"Tu cuenta fue dada de baja por el gimnasio. Motivo: {payload.reason}. "
+        f"Puedes contactar al gimnasio para solicitar más información. "
+        f"La fecha límite para reactivarla es {(now + timedelta(days=90)).date().isoformat()}."
+    )
     return {'id': str(user_id), 'status': 'deactivated', 'deactivated_at': now.isoformat(),
-            'reactivation_until': (now + timedelta(days=90)).isoformat()}
+            'reactivation_until': (now + timedelta(days=90)).isoformat(),
+            'notification_channel': notification_channel}
 
 
 @app.patch('/api/v1/admin/members/{member_number}/deactivate')

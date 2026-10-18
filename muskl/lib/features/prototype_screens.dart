@@ -571,7 +571,6 @@ class DeactivateMemberScreen extends StatefulWidget {
 
 class _DeactivateMemberScreenState extends State<DeactivateMemberScreen> {
   String? reason;
-  bool understood = false;
   bool _saving = false;
   final note = TextEditingController();
   final reasons = [
@@ -608,29 +607,55 @@ class _DeactivateMemberScreenState extends State<DeactivateMemberScreen> {
             child: Text(
                 'El socio perderá acceso a su rutina, asistencia y progreso hasta que se reactive la cuenta.',
                 style: TextStyle(color: AppColors.red))),
-        CheckboxListTile(
-            value: understood,
-            onChanged: (v) => setState(() => understood = v ?? false),
-            title: const Text('Entiendo que la cuenta quedará desactivada'),
-            contentPadding: EdgeInsets.zero),
         MusklButton(
             label: _saving ? 'Procesando…' : 'Confirmar baja',
             style: MusklButtonStyle.primary,
             loading: _saving,
-            onPressed: reason == null || !understood || _saving
+            onPressed: reason == null || _saving
                 ? null
                 : () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('¿Confirmas la baja?'),
+                        content: Text(
+                          'Se desactivará el acceso de ${widget.name} a MUSKL. '
+                          'Intentaremos avisarle al correo registrado y, si falla, '
+                          'por SMS si está configurado.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => dialogContext.pop(false),
+                            child: const Text('Cancelar'),
+                          ),
+                          FilledButton(
+                            onPressed: () => dialogContext.pop(true),
+                            child: const Text('Sí, dar de baja'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true || !mounted) return;
                     setState(() => _saving = true);
                     try {
                       final detail = note.text.trim();
-                      await authController.repository.deactivateMember(
-                          memberNumber: widget.memberNumber,
-                          userId: widget.userId,
-                          reason:
-                              detail.isEmpty ? reason! : '${reason!}: $detail',
-                          by: 'Admin MUSKL',
-                          at: DateTime.now());
+                      final channel = await authController.repository
+                          .deactivateMember(
+                              memberNumber: widget.memberNumber,
+                              userId: widget.userId,
+                              reason: detail.isEmpty
+                                  ? reason!
+                                  : '${reason!}: $detail',
+                              by: 'Admin MUSKL',
+                              at: DateTime.now());
                       if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(channel == 'email'
+                              ? 'Baja registrada. Aviso enviado al correo.'
+                              : channel == 'sms'
+                                  ? 'Baja registrada. Aviso enviado por SMS.'
+                                  : 'Baja registrada, pero no se pudo enviar el aviso. Configura SMTP o Twilio.'),
+                        ));
                         context.pop(true);
                       }
                     } catch (e) {

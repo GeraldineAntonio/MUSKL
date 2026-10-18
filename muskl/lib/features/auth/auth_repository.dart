@@ -79,7 +79,10 @@ abstract class AuthRepository {
       required String bio,
       required Map<String, bool> notificationPreferences});
   Future<void> changePassword(
-      {required String currentPassword, required String newPassword});
+      {required String currentPassword,
+      required String newPassword,
+      required String code});
+  Future<String?> sendPasswordChangeCode();
   Future<List<Map<String, dynamic>>> getTrainerClients({String search = ''});
   Future<Map<String, dynamic>> getTrainerClient({required String clientId});
   Future<List<Map<String, dynamic>>> getTrainerRoutines();
@@ -125,6 +128,10 @@ abstract class AuthRepository {
   Future<Map<String, dynamic>> completeClientWorkout({int? durationSeconds});
   Future<void> requestAccountDeletion();
   Future<List<Map<String, dynamic>>> getStaffRequests();
+  Future<String> getTrainerCertificationDownloadUrl({
+    required String trainerId,
+    required String certificationId,
+  });
   Future<void> reviewStaffRequest(
       {required String userId, required bool approved, String? reason});
   Future<List<Map<String, dynamic>>> getAccountDeletionRequests();
@@ -143,7 +150,7 @@ abstract class AuthRepository {
 
   // Admin actions implemented by the API; the fake repository is only a
   // local preview implementation.
-  Future<void> deactivateMember({
+  Future<String?> deactivateMember({
     required String memberNumber,
     String? userId,
     required String reason,
@@ -581,7 +588,12 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<void> changePassword(
-      {required String currentPassword, required String newPassword}) async {}
+      {required String currentPassword,
+      required String newPassword,
+      required String code}) async {}
+
+  @override
+  Future<String?> sendPasswordChangeCode() async => 'development';
 
   @override
   Future<List<Map<String, dynamic>>> getTrainerClients(
@@ -863,6 +875,13 @@ class FakeAuthRepository implements AuthRepository {
       _staffRequests.map((e) => Map<String, dynamic>.from(e)).toList();
 
   @override
+  Future<String> getTrainerCertificationDownloadUrl({
+    required String trainerId,
+    required String certificationId,
+  }) async =>
+      'https://example.invalid/certification.pdf';
+
+  @override
   Future<void> reviewStaffRequest(
       {required String userId, required bool approved, String? reason}) async {
     _staffRequests.removeWhere((request) => request['id'] == userId);
@@ -968,7 +987,7 @@ class FakeAuthRepository implements AuthRepository {
   Future<void> signOut() async {}
 
   @override
-  Future<void> deactivateMember({
+  Future<String?> deactivateMember({
     required String memberNumber,
     String? userId,
     required String reason,
@@ -989,6 +1008,7 @@ class FakeAuthRepository implements AuthRepository {
           reactivationUntil ?? when.add(const Duration(days: 90)),
     );
     await Future<void>.delayed(const Duration(milliseconds: 300));
+    return null;
   }
 
   @override

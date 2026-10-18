@@ -444,13 +444,23 @@ class ApiAuthRepository implements AuthRepository {
 
   @override
   Future<void> changePassword(
-      {required String currentPassword, required String newPassword}) async {
+      {required String currentPassword,
+      required String newPassword,
+      required String code}) async {
     await _request('PATCH', '/api/v1/auth/password',
         authenticated: true,
         body: {
           'current_password': currentPassword,
           'new_password': newPassword,
+          'code': code,
         });
+  }
+
+  @override
+  Future<String?> sendPasswordChangeCode() async {
+    final result = await _request('POST', '/api/v1/auth/password/change-code',
+        authenticated: true) as Map;
+    return result['channel']?.toString();
   }
 
   @override
@@ -576,6 +586,17 @@ class ApiAuthRepository implements AuthRepository {
     final rows = await _request('GET', '/api/v1/admin/staff-requests',
         authenticated: true) as List;
     return rows.map((row) => Map<String, dynamic>.from(row as Map)).toList();
+  }
+
+  @override
+  Future<String> getTrainerCertificationDownloadUrl({
+    required String trainerId,
+    required String certificationId,
+  }) async {
+    final result = await _request('GET',
+        '/api/v1/admin/trainers/${Uri.encodeComponent(trainerId)}/certifications/${Uri.encodeComponent(certificationId)}/download',
+        authenticated: true) as Map;
+    return result['url'].toString();
   }
 
   @override
@@ -792,7 +813,7 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> deactivateMember(
+  Future<String?> deactivateMember(
       {required String memberNumber,
       String? userId,
       required String reason,
@@ -804,10 +825,11 @@ class ApiAuthRepository implements AuthRepository {
     final path = userId == null
         ? '/api/v1/admin/members/${Uri.encodeComponent(memberNumber)}/deactivate'
         : '/api/v1/admin/users/${Uri.encodeComponent(userId)}/deactivate';
-    await _request('PATCH', path, authenticated: true, body: {
+    final result = await _request('PATCH', path, authenticated: true, body: {
       'reason': category,
       'note': parts.length > 1 ? parts.skip(1).join(':').trim() : null,
-    });
+    }) as Map;
+    return result['notification_channel']?.toString();
   }
 
   @override

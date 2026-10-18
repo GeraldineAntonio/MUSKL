@@ -143,9 +143,16 @@ class AuthController extends ChangeNotifier {
           notificationPreferences: notificationPreferences);
 
   Future<void> changePassword(
-          {required String currentPassword, required String newPassword}) =>
+          {required String currentPassword,
+          required String newPassword,
+          required String code}) =>
       repository.changePassword(
-          currentPassword: currentPassword, newPassword: newPassword);
+          currentPassword: currentPassword,
+          newPassword: newPassword,
+          code: code);
+
+  Future<String?> sendPasswordChangeCode() =>
+      repository.sendPasswordChangeCode();
 
   Future<List<Map<String, dynamic>>> trainerClients({String search = ''}) =>
       repository.getTrainerClients(search: search);
@@ -246,6 +253,13 @@ class AuthController extends ChangeNotifier {
 
   Future<List<Map<String, dynamic>>> staffRequests() =>
       repository.getStaffRequests();
+
+  Future<String> trainerCertificationDownloadUrl({
+    required String trainerId,
+    required String certificationId,
+  }) =>
+      repository.getTrainerCertificationDownloadUrl(
+          trainerId: trainerId, certificationId: certificationId);
 
   Future<void> reviewStaffRequest(
           {required String userId, required bool approved, String? reason}) =>

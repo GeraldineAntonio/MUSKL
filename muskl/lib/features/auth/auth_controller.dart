@@ -93,7 +93,7 @@ class AuthController extends ChangeNotifier {
           {required String name,
           required String address,
           required String phone,
-          required String openingHours}) =>
+          required Map<String, String> openingHours}) =>
       repository.updateAdminGym(
           name: name,
           address: address,

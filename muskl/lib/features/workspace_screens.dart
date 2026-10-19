@@ -386,7 +386,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
         final hours = data['gym_opening_hours'];
         final hoursText = hours is Map
             ? (hours['display']?.toString() ??
-                hours.entries.map((entry) => '${entry.key}: ${entry.value}').join('\n'))
+                _formatGymHours(Map<String, dynamic>.from(hours)))
             : '';
         final today = DateTime(now.year, now.month, now.day);
         final week =
@@ -2198,7 +2198,132 @@ class _PrototypeSettings {
   static String gymName = '';
   static String gymAddress = '';
   static String gymPhone = '';
-  static String hours = '';
+  static Map<String, String> hours = {
+    for (final day in _weekDays) day: 'Cerrado',
+  };
+}
+
+const _weekDays = [
+  'Lunes',
+  'Martes',
+  'Miércoles',
+  'Jueves',
+  'Viernes',
+  'Sábado',
+  'Domingo'
+];
+
+String _formatGymHours(Map<String, dynamic> hours) => _weekDays
+    .map((day) => '$day: ${hours[day]?.toString() ?? 'Cerrado'}')
+    .join('\n');
+
+Map<String, String> _readGymHours(Map<String, dynamic> value) {
+  final result = {for (final day in _weekDays) day: 'Cerrado'};
+  for (final day in _weekDays) {
+    final schedule = value[day]?.toString();
+    if (schedule != null && schedule.isNotEmpty) result[day] = schedule;
+  }
+  final legacy = value['display']?.toString();
+  if (legacy != null) {
+    for (final line in legacy.split('\n')) {
+      final parts = line.split(':');
+      if (parts.length < 2) continue;
+      final label = parts.first.trim().toLowerCase();
+      final schedule = parts.skip(1).join(':').trim();
+      final range = RegExp(
+              r'^(lunes|martes|miércoles|jueves|viernes|sábado|domingo)\s+a\s+(lunes|martes|miércoles|jueves|viernes|sábado|domingo)$',
+              caseSensitive: false)
+          .firstMatch(label);
+      if (range != null) {
+        final start = _weekDays.indexWhere(
+            (d) => d.toLowerCase() == range.group(1)!.toLowerCase());
+        final end = _weekDays.indexWhere(
+            (d) => d.toLowerCase() == range.group(2)!.toLowerCase());
+        if (start >= 0 && end >= start) {
+          for (var i = start; i <= end; i++) {
+            result[_weekDays[i]] = schedule;
+          }
+        }
+      } else {
+        for (final day in _weekDays) {
+          if (day.toLowerCase() == label) result[day] = schedule;
+        }
+      }
+    }
+  }
+  return result;
+}
+
+class _GymDayHoursEditor extends StatelessWidget {
+  const _GymDayHoursEditor(
+      {required this.day, required this.value, required this.onChanged});
+
+  final String day;
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  Future<void> _pickTime(BuildContext context, {required bool opening}) async {
+    final parts = value.split(RegExp(r'[–-]'));
+    final current = parts.length == 2
+        ? (opening ? parts.first.trim() : parts.last.trim())
+        : opening
+            ? '05:00'
+            : '23:00';
+    final parsed = current.split(':');
+    final initial = TimeOfDay(
+      hour: int.tryParse(parsed.first) ?? (opening ? 5 : 23),
+      minute: parsed.length > 1 ? int.tryParse(parsed[1]) ?? 0 : 0,
+    );
+    final picked = await showTimePicker(context: context, initialTime: initial);
+    if (picked == null) return;
+    final formatted =
+        '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+    final start = opening
+        ? formatted
+        : (parts.length == 2 ? parts.first.trim() : '05:00');
+    final end =
+        opening ? (parts.length == 2 ? parts.last.trim() : '23:00') : formatted;
+    onChanged('$start–$end');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isOpen = value.toLowerCase() != 'cerrado';
+    final parts = value.split(RegExp(r'[–-]'));
+    return Column(children: [
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: Text(day),
+        subtitle: Text(isOpen ? value : 'No se labora'),
+        value: isOpen,
+        onChanged: (enabled) => onChanged(enabled ? '05:00–23:00' : 'Cerrado'),
+      ),
+      if (isOpen)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _pickTime(context, opening: true),
+                icon: const Icon(Icons.access_time),
+                label: Text(
+                    'De ${parts.isNotEmpty ? parts.first.trim() : '05:00'}'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _pickTime(context, opening: false),
+                icon: const Icon(Icons.access_time),
+                label:
+                    Text('A ${parts.length > 1 ? parts.last.trim() : '23:00'}'),
+              ),
+            ),
+          ]),
+        ),
+      const Divider(height: 1),
+    ]);
+  }
 }
 
 Future<void> _showCertificationPreview(
@@ -3350,7 +3475,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         _PrototypeSettings.gymName = (gym['name'] ?? '').toString();
         _PrototypeSettings.gymAddress = (gym['address'] ?? '').toString();
         _PrototypeSettings.gymPhone = (gym['phone'] ?? '').toString();
-        _PrototypeSettings.hours = (hours['display'] ?? '').toString();
+        _PrototypeSettings.hours = _readGymHours(hours);
       });
     } catch (e) {
       if (mounted)
@@ -3387,20 +3512,54 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   }
 
   Future<void> _editHours() async {
-    final values = await _editFields(context, 'HORARIOS DE APERTURA',
-        ['Un día por línea'], [_PrototypeSettings.hours],
-        multiline: const {0});
-    if (values != null) {
-      try {
-        await authController.updateAdminGym(
-            name: _PrototypeSettings.gymName,
-            address: _PrototypeSettings.gymAddress,
-            phone: _PrototypeSettings.gymPhone,
-            openingHours: values[0]);
-        if (mounted) setState(() => _PrototypeSettings.hours = values[0]);
-      } catch (e) {
-        _showLocalMessage('No se pudieron guardar los horarios: $e');
+    final hours = Map<String, String>.from(_PrototypeSettings.hours);
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('HORARIOS DE APERTURA'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final day in _weekDays)
+                    _GymDayHoursEditor(
+                      day: day,
+                      value: hours[day] ?? 'Cerrado',
+                      onChanged: (value) =>
+                          setDialogState(() => hours[day] = value),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancelar')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, hours),
+                child: const Text('Guardar')),
+          ],
+        ),
+      ),
+    );
+    if (result == null) return;
+    try {
+      final saved = await authController.updateAdminGym(
+          name: _PrototypeSettings.gymName,
+          address: _PrototypeSettings.gymAddress,
+          phone: _PrototypeSettings.gymPhone,
+          openingHours: result);
+      if (mounted) {
+        setState(() => _PrototypeSettings.hours = _readGymHours(
+            Map<String, dynamic>.from(
+                saved['opening_hours'] as Map? ?? result)));
       }
+    } catch (e) {
+      _showLocalMessage('No se pudieron guardar los horarios: $e');
     }
   }
 
@@ -3446,10 +3605,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       TextEditingController(text: plan?['name']?.toString() ?? ''),
       TextEditingController(text: plan?['price_mxn']?.toString() ?? ''),
       TextEditingController(text: plan?['duration_days']?.toString() ?? '30'),
-      TextEditingController(
-          text: plan?['min_group_size']?.toString() ?? '1'),
-      TextEditingController(
-          text: plan?['max_group_size']?.toString() ?? '1'),
+      TextEditingController(text: plan?['min_group_size']?.toString() ?? '1'),
+      TextEditingController(text: plan?['max_group_size']?.toString() ?? '1'),
     ];
     var active = plan?['active'] != false;
     List<String>? values;
@@ -3497,7 +3654,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                         child: const Text('Cancelar')),
                     FilledButton(
                       onPressed: () => Navigator.pop(dialogContext, [
-                        ...controllers.map((controller) => controller.text.trim()),
+                        ...controllers
+                            .map((controller) => controller.text.trim()),
                         active.toString(),
                       ]),
                       child: const Text('Guardar'),
@@ -3524,7 +3682,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         maxGroupSize == null ||
         minGroupSize < 1 ||
         maxGroupSize < minGroupSize) {
-      _showLocalMessage('Revisa nombre, precio, duración y cantidad de personas.');
+      _showLocalMessage(
+          'Revisa nombre, precio, duración y cantidad de personas.');
       return;
     }
     try {
@@ -3640,8 +3799,10 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             '${_PrototypeSettings.gymAddress} · ${_PrototypeSettings.gymPhone}',
             Icons.business_outlined,
             onTap: _editGym),
-        _setting('Horarios de apertura',
-            _PrototypeSettings.hours.replaceAll('\n', ' · '), Icons.schedule,
+        _setting(
+            'Horarios de apertura',
+            _formatGymHours(_PrototypeSettings.hours).replaceAll('\n', ' · '),
+            Icons.schedule,
             onTap: _editHours),
         _setting('Planes de membresía',
             _plans.map((p) => p['name']).join(' · '), Icons.card_membership,

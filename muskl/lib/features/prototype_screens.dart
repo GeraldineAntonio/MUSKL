@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/widgets/muskl_button.dart';
@@ -1088,6 +1089,7 @@ class OnboardingStartScreen extends StatefulWidget {
 }
 
 class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
+  static const _draftStorage = FlutterSecureStorage();
   int _step = 0;
   bool _loading = true;
   bool _saving = false;
@@ -1111,10 +1113,64 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
   bool _groupRegistered = false;
   final _limitations = TextEditingController();
 
+  String? get _draftKey {
+    final id = authController.session?.userId;
+    return id == null ? null : 'muskl_onboarding_draft_$id';
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadOptions();
+    _restoreDraft().then((_) {
+      if (mounted) _loadOptions();
+    });
+  }
+
+  Future<void> _restoreDraft() async {
+    final key = _draftKey;
+    if (key == null) return;
+    try {
+      final encoded = await _draftStorage.read(key: key);
+      if (encoded == null || !mounted) return;
+      final draft = Map<String, dynamic>.from(jsonDecode(encoded) as Map);
+      setState(() {
+        _step = (draft['step'] as num?)?.toInt().clamp(0, 4).toInt() ?? 0;
+        _planId = draft['plan_id']?.toString();
+        _trainerId = draft['trainer_id']?.toString();
+        _routineId = draft['routine_id']?.toString();
+        _goal = draft['goal']?.toString();
+        _level = draft['level']?.toString();
+        _days = (draft['days'] as num?)?.toInt();
+        _selectedGroupSize =
+            (draft['group_size'] as num?)?.toInt().clamp(1, 4).toInt() ?? 1;
+        _weightKg.text = draft['weight_kg']?.toString() ?? '';
+        _heightCm.text = draft['height_cm']?.toString() ?? '';
+        _limitations.text = draft['limitations']?.toString() ?? '';
+      });
+    } catch (_) {
+      await _draftStorage.delete(key: key);
+    }
+  }
+
+  Future<void> _saveDraft() async {
+    final key = _draftKey;
+    if (key == null) return;
+    await _draftStorage.write(
+      key: key,
+      value: jsonEncode({
+        'step': _step,
+        'plan_id': _planId,
+        'trainer_id': _trainerId,
+        'routine_id': _routineId,
+        'goal': _goal,
+        'level': _level,
+        'days': _days,
+        'group_size': _selectedGroupSize,
+        'weight_kg': _weightKg.text,
+        'height_cm': _heightCm.text,
+        'limitations': _limitations.text,
+      }),
+    );
   }
 
   Future<void> _goBack() async {
@@ -1123,6 +1179,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         _step--;
         _error = null;
       });
+      await _saveDraft();
       return;
     }
     final shouldSignOut = await showDialog<bool>(
@@ -1140,7 +1197,10 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                     child: const Text('Cerrar sesión')),
               ],
             ));
-    if (shouldSignOut == true) await authController.signOut();
+    if (shouldSignOut == true) {
+      await _saveDraft();
+      await authController.signOut();
+    }
   }
 
   @override
@@ -1165,7 +1225,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         _trainers = (data['trainers'] as List)
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
-        _trainerId = data['assigned_trainer_id']?.toString();
+        _trainerId ??= data['assigned_trainer_id']?.toString();
         final groupPlanId = data['group_plan_id']?.toString();
         if (groupPlanId != null) {
           _planId = groupPlanId;
@@ -1178,6 +1238,15 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
               'El gimnasio todavía no tiene membresías activas. Contacta al administrador.';
         }
       });
+      if (_step == 4 && _goal != null && _days != null) {
+        try {
+          final routines = await authController.clientOnboardingRoutines(
+              goal: _goal!, daysPerWeek: _days!, trainerId: _trainerId);
+          if (mounted) setState(() => _routines = routines);
+        } catch (_) {
+          if (mounted) setState(() => _step = 3);
+        }
+      }
     } on AuthException catch (e) {
       if (mounted)
         setState(() {
@@ -1235,6 +1304,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
           : 'Selecciona una opción para continuar.');
       return;
     }
+    await _saveDraft();
     if (_step == 0 && !_groupRegistered) {
       if (_selectedGroupSize > 1 && !_editingGroupMembers) {
         setState(() {
@@ -1296,6 +1366,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         _step++;
         _error = null;
       });
+      await _saveDraft();
       return;
     }
     if (_step == 3) {
@@ -1311,6 +1382,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
           _step = 4;
           _routineId = null;
         });
+        await _saveDraft();
       } on AuthException catch (e) {
         if (mounted) setState(() => _error = e.message);
       } catch (_) {
@@ -1340,6 +1412,8 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         limitations:
             _limitations.text.trim().isEmpty ? null : _limitations.text.trim(),
       );
+      final key = _draftKey;
+      if (key != null) await _draftStorage.delete(key: key);
       if (mounted) context.go('/home');
     } on AuthException catch (e) {
       if (mounted) setState(() => _error = e.message);

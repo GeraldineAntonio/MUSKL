@@ -61,7 +61,7 @@ abstract class AuthRepository {
       {required String name,
       required String address,
       required String phone,
-      required String openingHours});
+      required Map<String, String> openingHours});
   Future<Map<String, dynamic>> getAdminPreferences();
   Future<Map<String, dynamic>> updateAdminPreferences(
       {required bool newRequests});
@@ -474,8 +474,13 @@ class FakeAuthRepository implements AuthRepository {
         'address': 'Ciudad de México, México',
         'phone': '+52 55 1234 5678',
         'opening_hours': {
-          'display':
-              'Lunes a viernes: 05:00–23:00\nSábado: 07:00–17:00\nDomingo: cerrado'
+          'Lunes': '05:00–23:00',
+          'Martes': '05:00–23:00',
+          'Miércoles': '05:00–23:00',
+          'Jueves': '05:00–23:00',
+          'Viernes': '05:00–23:00',
+          'Sábado': '07:00–17:00',
+          'Domingo': 'Cerrado',
         },
         'timezone': 'America/Mexico_City'
       };
@@ -485,12 +490,12 @@ class FakeAuthRepository implements AuthRepository {
           {required String name,
           required String address,
           required String phone,
-          required String openingHours}) async =>
+          required Map<String, String> openingHours}) async =>
       {
         'name': name,
         'address': address,
         'phone': phone,
-        'opening_hours': {'display': openingHours},
+        'opening_hours': openingHours,
         'timezone': 'America/Mexico_City'
       };
 

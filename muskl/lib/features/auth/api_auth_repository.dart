@@ -113,6 +113,7 @@ class ApiAuthRepository implements AuthRepository {
   Session _sessionFromJson(Map<String, dynamic> json) => Session(
         role: UserRole.values.byName(json['role'] as String),
         status: AccountStatus.values.byName(json['status'] as String),
+        userId: json['user_id'] as String?,
         memberNumber: json['member_number'] as String?,
         reason: json['reason'] as String?,
         deactivatedAt:
@@ -125,6 +126,7 @@ class ApiAuthRepository implements AuthRepository {
   Map<String, dynamic> _sessionToJson(Session session) => {
         'role': session.role.name,
         'status': session.status.name,
+        'user_id': session.userId,
         'member_number': session.memberNumber,
         'reason': session.reason,
         'deactivated_at': session.deactivatedAt?.toIso8601String(),
@@ -342,14 +344,14 @@ class ApiAuthRepository implements AuthRepository {
           {required String name,
           required String address,
           required String phone,
-          required String openingHours}) async =>
+          required Map<String, String> openingHours}) async =>
       Map<String, dynamic>.from(await _request('PATCH', '/api/v1/admin/gym',
           authenticated: true,
           body: {
             'name': name,
             'address': address,
             'phone': phone,
-            'opening_hours': {'display': openingHours},
+            'opening_hours': openingHours,
             'timezone': 'America/Mexico_City',
           }) as Map);
 
@@ -913,6 +915,7 @@ class ApiAuthRepository implements AuthRepository {
     return Session(
       role: role,
       status: status,
+      userId: user['id']?.toString(),
       memberNumber: user['member_number'] as String?,
       reason: (user['deactivation_reason'] ?? user['status_reason']) as String?,
       deactivatedAt:

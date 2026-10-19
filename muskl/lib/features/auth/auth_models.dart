@@ -13,6 +13,7 @@ class Session {
   const Session({
     required this.role,
     required this.status,
+    this.userId,
     this.memberNumber,
     this.reason,
     this.deactivatedAt,
@@ -22,6 +23,7 @@ class Session {
 
   final UserRole role;
   final AccountStatus status;
+  final String? userId;
   final String? memberNumber;
 
   /// Motivo de rechazo o de baja.
@@ -53,7 +55,8 @@ class AuthException implements Exception {
         AuthErrorType.offline =>
           'Sin conexión. Revisa tu internet e intenta de nuevo.',
         AuthErrorType.invalidCode => 'El código es incorrecto o ya venció.',
-        AuthErrorType.emailNotVerified => 'Verifica tu correo antes de iniciar sesión.',
+        AuthErrorType.emailNotVerified =>
+          'Verifica tu correo antes de iniciar sesión.',
         AuthErrorType.server => 'Ocurrió un error. Intenta de nuevo.',
       };
 }

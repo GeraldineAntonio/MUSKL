@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -310,6 +311,11 @@ Widget _metric(String value, String label,
           ])),
     );
 
+String _restTimeLabel(Object? value) {
+  final seconds = int.tryParse(value?.toString() ?? '') ?? 0;
+  return '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+}
+
 Widget _record(String title, String subtitle,
         {IconData icon = Icons.fitness_center,
         String? badge,
@@ -390,11 +396,6 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
             Set<String>.from(data['attendance_7d_dates'] as List? ?? []);
         final now = DateTime.tryParse(data['today']?.toString() ?? '') ??
             DateTime.now();
-        final hours = data['gym_opening_hours'];
-        final hoursText = hours is Map
-            ? (hours['display']?.toString() ??
-                _formatGymHours(Map<String, dynamic>.from(hours)))
-            : '';
         final today = DateTime(now.year, now.month, now.day);
         final week =
             List.generate(7, (i) => today.subtract(Duration(days: 6 - i)));
@@ -445,44 +446,45 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                       icon: const Icon(Icons.chevron_right),
                     ),
                   ])),
-              if ((data['trainer_name'] ?? '').toString().isEmpty) ...[
-                _section('Tu entrenador'),
-                if (data['pending_trainer_id'] != null)
-                  MusklCard(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Text(
-                            'Tu solicitud está pendiente con ${data['pending_trainer_name'] ?? 'el entrenador'}. Cuando la acepte, podrá asignarte una rutina.'),
-                        TextButton(
-                            onPressed: () => context.push('/home/trainers'),
-                            child: const Text('Cambiar solicitud')),
-                      ]))
-                else
-                  MusklButton(
-                      label: 'Elegir entrenador',
-                      icon: Icons.fitness_center,
-                      onPressed: () => context.push('/home/trainers')),
-              ],
-              if (((data['gym_address'] ?? '').toString().isNotEmpty ||
-                  (data['gym_phone'] ?? '').toString().isNotEmpty ||
-                  hoursText.isNotEmpty))
+              if ((data['trainer_name'] ?? '').toString().isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(top: 4, left: 8),
-                  child: Text(
-                    [
-                      data['gym_address'],
-                      data['gym_phone'],
-                      if (hoursText.isNotEmpty)
-                        hoursText.replaceAll('\n', ' · ')
-                    ]
-                        .where((value) =>
-                            value != null && value.toString().isNotEmpty)
-                        .join('  ·  '),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 10, color: AppColors.textMuted),
+                  padding: const EdgeInsets.only(top: 8, bottom: 4),
+                  child: Row(children: [
+                    ProfilePhotoAvatar(
+                      radius: 18,
+                      allowEdit: false,
+                      onEdit: () {},
+                      image: (data['trainer_profile_photo_url'] ?? '')
+                              .toString()
+                              .isEmpty
+                          ? null
+                          : NetworkImage(
+                              data['trainer_profile_photo_url'].toString()),
+                      name: data['trainer_name'].toString(),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Tu entrenador: ${data['trainer_name']}',
+                        style: const TextStyle(
+                            color: AppColors.textMuted,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ]),
+                ),
+              if ((data['trainer_name'] ?? '').toString().isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: MusklCard(
+                    child: Row(children: [
+                      const Icon(Icons.hourglass_top, color: AppColors.accent),
+                      const SizedBox(width: 10),
+                      Expanded(
+                          child: Text(data['pending_trainer_id'] != null
+                              ? 'Solicitud enviada a ${data['pending_trainer_name'] ?? 'tu entrenador'}. Espera su aceptación.'
+                              : 'Elige un entrenador durante tu registro para enviarle una solicitud.')),
+                    ]),
                   ),
                 ),
               _section('Tu actividad'),
@@ -757,6 +759,8 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
   bool _isForeground = true;
   bool _workoutFinished = false;
   bool _saving = false;
+  bool _encouragementVisible = false;
+  String _activeEncouragement = '';
 
   static const _encouragements = [
     '¡Bien hecho! Mantén ese ritmo, vas muy bien.',
@@ -813,6 +817,17 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
         _encouragements[_encouragementIndex % _encouragements.length];
     _encouragementIndex++;
     HapticFeedback.mediumImpact();
+    if (mounted) {
+      setState(() {
+        _activeEncouragement = message;
+        _encouragementVisible = true;
+      });
+      Future<void>.delayed(const Duration(seconds: 5), () {
+        if (mounted && _activeEncouragement == message) {
+          setState(() => _encouragementVisible = false);
+        }
+      });
+    }
     _playEncouragement(message);
   }
 
@@ -936,6 +951,33 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
               ),
             ),
         ]),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 350),
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(scale: animation, child: child),
+          ),
+          child: _encouragementVisible
+              ? Padding(
+                  key: ValueKey(_activeEncouragement),
+                  padding: const EdgeInsets.only(top: 8),
+                  child: MusklCard(
+                    selected: true,
+                    child: Row(children: [
+                      const Icon(Icons.local_fire_department,
+                          color: AppColors.accent, size: 30),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(_activeEncouragement,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w800)),
+                      ),
+                      const Icon(Icons.celebration, color: AppColors.red),
+                    ]),
+                  ),
+                )
+              : const SizedBox.shrink(key: ValueKey('no-encouragement')),
+        ),
         Align(
           alignment: Alignment.centerRight,
           child: TextButton.icon(
@@ -1010,8 +1052,12 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                     final exercise = entry.value;
                     final exerciseId = exercise['id'].toString();
                     final isCompleted = completedIds.contains(exerciseId);
-                    final isScheduledToday = data['scheduled_for_date'] !=
-                            null &&
+                    final canCompleteToday =
+                        data['can_complete_today'] == true ||
+                            (data['can_complete_today'] == null &&
+                                data['scheduled_for_date'] != null);
+                    final isScheduledToday = canCompleteToday &&
+                        data['completed_today'] != true &&
                         exercise['day_number'] == data['scheduled_day_number'];
                     return _record(
                       exercise['name'].toString(),
@@ -1044,8 +1090,13 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                                       0)
                                   .toString(),
                         }).toString());
-                        if (finished == true && mounted) {
-                          setState(() => _completedExerciseIds.add(exerciseId));
+                        if (mounted) {
+                          setState(() {
+                            if (finished == true) {
+                              _completedExerciseIds.add(exerciseId);
+                            }
+                            _load();
+                          });
                         }
                       },
                     );
@@ -1102,7 +1153,36 @@ class ExerciseDetailScreen extends StatefulWidget {
 
 class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
   bool _saving = false;
+  bool _exerciseFinished = false;
+  bool _setFeedbackVisible = false;
+  String _setFeedback = '';
+  final AudioPlayer _completionPlayer = AudioPlayer();
+  final FlutterTts _speech = FlutterTts();
   late int _setsCompleted = widget.setsCompleted;
+
+  @override
+  void initState() {
+    super.initState();
+    _exerciseFinished = _setsCompleted >= (int.tryParse(widget.sets) ?? 1);
+    _completionPlayer.setReleaseMode(ReleaseMode.stop);
+    _speech.setLanguage('es-MX');
+    _speech.setSpeechRate(0.48);
+  }
+
+  Future<void> _celebrate(String message, {bool applause = false}) async {
+    HapticFeedback.mediumImpact();
+    try {
+      if (applause) {
+        await _completionPlayer.play(AssetSource('audio/applause.wav'),
+            volume: 0.65);
+      } else {
+        await SystemSound.play(SystemSoundType.click);
+      }
+      await _speech.speak(message);
+    } catch (_) {
+      // Animation and on-screen feedback remain available without audio.
+    }
+  }
 
   Future<void> _finishExercise() async {
     final totalSets = int.tryParse(widget.sets) ?? 1;
@@ -1113,9 +1193,21 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
       final result = await authController.completeClientExercise(
           exerciseId: widget.id, setsCompleted: _setsCompleted + 1);
       if (!mounted) return;
-      setState(() => _setsCompleted =
-          result['sets_completed'] as int? ?? _setsCompleted + 1);
-      if (_setsCompleted >= totalSets) context.pop(true);
+      final savedSets = result['sets_completed'] as int? ?? _setsCompleted + 1;
+      setState(() {
+        _setsCompleted = savedSets;
+        _exerciseFinished = savedSets >= totalSets;
+        _setFeedback = _exerciseFinished
+            ? '¡Ejercicio completado! Excelente trabajo.'
+            : '¡Bien hecho! Te ${totalSets - savedSets == 1 ? 'queda' : 'quedan'} ${totalSets - savedSets} ${totalSets - savedSets == 1 ? 'serie' : 'series'}. ¡Sigue así!';
+        _setFeedbackVisible = true;
+      });
+      await _celebrate(_setFeedback, applause: _exerciseFinished);
+      if (!_exerciseFinished) {
+        Future<void>.delayed(const Duration(seconds: 3), () {
+          if (mounted) setState(() => _setFeedbackVisible = false);
+        });
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -1128,77 +1220,148 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
   }
 
   @override
+  void dispose() {
+    _completionPlayer.dispose();
+    _speech.stop();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => WorkspacePage(
       title: 'Detalle de ejercicio',
       items: _clientNav,
       selected: 1,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            width: double.infinity,
-            height: 220,
-            color: AppColors.surface,
-            alignment: Alignment.center,
-            child: widget.mediaUrl.isEmpty
-                ? const Icon(Icons.fitness_center,
-                    size: 70, color: AppColors.red)
-                : Image.network(
-                    widget.mediaUrl,
-                    width: double.infinity,
-                    height: 220,
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => const Icon(
-                        Icons.broken_image_outlined,
-                        size: 64,
-                        color: AppColors.textMuted),
-                  ),
+      child: _exerciseFinished
+          ? _buildExerciseCelebration(context)
+          : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  width: double.infinity,
+                  height: 220,
+                  color: AppColors.surface,
+                  alignment: Alignment.center,
+                  child: widget.mediaUrl.isEmpty
+                      ? const Icon(Icons.fitness_center,
+                          size: 70, color: AppColors.red)
+                      : Image.network(
+                          widget.mediaUrl,
+                          width: double.infinity,
+                          height: 220,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Icon(
+                              Icons.broken_image_outlined,
+                              size: 64,
+                              color: AppColors.textMuted),
+                        ),
+                ),
+              ),
+              _section(widget.muscleGroup),
+              Text(widget.name.toUpperCase(),
+                  style: const TextStyle(
+                      fontSize: 28, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 14),
+              Row(children: [
+                _metric(widget.sets, 'Series'),
+                const SizedBox(width: 8),
+                _metric(widget.reps, 'Repeticiones'),
+                const SizedBox(width: 8),
+                _metric(_restTimeLabel(widget.restSeconds), 'Descanso · min:s')
+              ]),
+              _section('Cómo se hace'),
+              MusklCard(
+                  child: Text(widget.instructions.isEmpty
+                      ? 'Tu entrenador todavía no agregó instrucciones para este ejercicio.'
+                      : widget.instructions)),
+              const SizedBox(height: 20),
+              if (widget.canMarkComplete) ...[
+                _section(
+                    'Progreso de series · $_setsCompleted de ${int.tryParse(widget.sets) ?? 1}'),
+                Wrap(spacing: 8, children: [
+                  for (var i = 0; i < (int.tryParse(widget.sets) ?? 1); i++)
+                    Chip(
+                        avatar: Icon(
+                            i < _setsCompleted
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            size: 18),
+                        label: Text('Serie ${i + 1}')),
+                ]),
+              ],
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 400),
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(scale: animation, child: child),
+                ),
+                child: _setFeedbackVisible
+                    ? Padding(
+                        key: ValueKey(_setFeedback),
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: MusklCard(
+                          selected: true,
+                          child: Row(children: [
+                            const Icon(Icons.celebration,
+                                color: AppColors.accent, size: 30),
+                            const SizedBox(width: 10),
+                            Expanded(
+                                child: Text(_setFeedback,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w800))),
+                          ]),
+                        ),
+                      )
+                    : const SizedBox.shrink(key: ValueKey('no-set-feedback')),
+              ),
+              MusklButton(
+                  label: _setsCompleted >= (int.tryParse(widget.sets) ?? 1)
+                      ? 'Ejercicio finalizado'
+                      : widget.canMarkComplete
+                          ? 'Finalizar serie ${_setsCompleted + 1}'
+                          : 'Solo lectura · consulta fuera del día de entrenamiento',
+                  icon: Icons.check,
+                  loading: _saving,
+                  onPressed: widget.canMarkComplete &&
+                          _setsCompleted < (int.tryParse(widget.sets) ?? 1)
+                      ? _finishExercise
+                      : null),
+            ]));
+
+  Widget _buildExerciseCelebration(BuildContext context) => Center(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.45, end: 1),
+            duration: const Duration(milliseconds: 650),
+            curve: Curves.elasticOut,
+            builder: (context, scale, child) =>
+                Transform.scale(scale: scale, child: child),
+            child: Container(
+              width: 132,
+              height: 132,
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.emoji_events_rounded,
+                  color: AppColors.accent, size: 82),
+            ),
           ),
-        ),
-        _section('${widget.muscleGroup} · Ejercicio ${widget.id}'),
-        Text(widget.name.toUpperCase(),
-            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
-        const SizedBox(height: 14),
-        Row(children: [
-          _metric(widget.sets, 'Series'),
-          const SizedBox(width: 8),
-          _metric(widget.reps, 'Repeticiones'),
-          const SizedBox(width: 8),
-          _metric('${widget.restSeconds} s', 'Descanso')
+          const SizedBox(height: 24),
+          const Text('¡EJERCICIO COMPLETADO!',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 10),
+          Text('Terminaste ${widget.name}. ¡Vas con todo!',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16)),
+          const SizedBox(height: 28),
+          MusklButton(
+            label: 'Continuar con la rutina',
+            icon: Icons.arrow_forward,
+            onPressed: () => context.pop(true),
+          ),
         ]),
-        _section('Cómo se hace'),
-        MusklCard(
-            child: Text(widget.instructions.isEmpty
-                ? 'Tu entrenador todavía no agregó instrucciones para este ejercicio.'
-                : widget.instructions)),
-        const SizedBox(height: 20),
-        if (widget.canMarkComplete) ...[
-          _section(
-              'Progreso de series · $_setsCompleted de ${int.tryParse(widget.sets) ?? 1}'),
-          Wrap(spacing: 8, children: [
-            for (var i = 0; i < (int.tryParse(widget.sets) ?? 1); i++)
-              Chip(
-                  avatar: Icon(
-                      i < _setsCompleted
-                          ? Icons.check_circle
-                          : Icons.radio_button_unchecked,
-                      size: 18),
-                  label: Text('Serie ${i + 1}')),
-          ]),
-        ],
-        MusklButton(
-            label: _setsCompleted >= (int.tryParse(widget.sets) ?? 1)
-                ? 'Ejercicio finalizado'
-                : widget.canMarkComplete
-                    ? 'Finalizar serie ${_setsCompleted + 1}'
-                    : 'Disponible en su día programado',
-            icon: Icons.check,
-            loading: _saving,
-            onPressed: widget.canMarkComplete &&
-                    _setsCompleted < (int.tryParse(widget.sets) ?? 1)
-                ? _finishExercise
-                : null),
-      ]));
+      );
 }
 
 class RoutineCompleteScreen extends StatelessWidget {
@@ -1354,6 +1517,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Row(children: [
+                  Expanded(child: _section('Calendario de asistencias')),
+                  IconButton(
+                    tooltip: 'Actualizar asistencias',
+                    onPressed: () => setState(_load),
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ]),
                 if (data['can_check_in'] == true)
                   MusklButton(
                     label: _checkingIn
@@ -1368,10 +1539,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                         _checkingIn || alreadyCheckedIn ? null : _checkIn,
                   )
                 else
-                  const Text(
-                    'Necesitas una membresía activa para registrar asistencia.',
-                    style: TextStyle(color: AppColors.textMuted),
-                  ),
+                  MusklCard(
+                      child: Row(children: [
+                    const Icon(Icons.info_outline, color: AppColors.accent),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                        child: Text(
+                            'Para registrar una visita necesitas una membresía vigente. Revisa el estado en Perfil o pide al gimnasio que actualice tu membresía.')),
+                    IconButton(
+                        tooltip: 'Ver perfil',
+                        onPressed: () => context.go('/home/profile'),
+                        icon: const Icon(Icons.chevron_right)),
+                  ])),
                 const SizedBox(height: 12),
                 MusklCard(
                     child: Column(children: [
@@ -1673,38 +1852,52 @@ class _ClientProfileWorkspaceScreenState
           final photoBytes =
               photo is String && photo.isNotEmpty ? base64Decode(photo) : null;
           final photoUrl = data['profile_photo_url']?.toString();
+          final openingHours = data['gym_opening_hours'];
+          final openingHoursText = openingHours is Map
+              ? (openingHours['display']?.toString() ??
+                  _formatGymHours(Map<String, dynamic>.from(openingHours)))
+              : '';
           return Column(children: [
             if (_savingProfile) const LinearProgressIndicator(),
             MusklCard(
-                child: Column(children: [
-              ProfilePhotoAvatar(
-                  radius: 38,
-                  image: photoUrl != null && photoUrl.isNotEmpty
-                      ? NetworkImage(photoUrl)
-                      : photoBytes == null
-                          ? null
-                          : MemoryImage(photoBytes),
-                  name: '${data['first_name']} ${data['last_name']}',
-                  onEdit: _savingProfile ? () {} : _pickProfilePhoto),
-              const SizedBox(height: 10),
-              Text('${data['first_name']} ${data['last_name']}'.toUpperCase(),
-                  style: const TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.w900)),
-              Text('${data['member_number'] ?? ''}',
-                  style: const TextStyle(
-                      color: AppColors.red, fontWeight: FontWeight.bold)),
-              Text('${data['goal'] ?? 'OBJETIVO PENDIENTE'}',
-                  style: const TextStyle(color: AppColors.textMuted)),
-            ])),
-            _section('Datos personales'),
-            _record('Biografía',
-                (data['bio'] ?? 'Agrega una descripción').toString(),
-                icon: Icons.notes_outlined,
-                editable: true,
-                onTap: _savingProfile
-                    ? null
-                    : () =>
-                        _editContact('bio', (data['bio'] ?? '').toString())),
+                child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  ProfilePhotoAvatar(
+                      radius: 42,
+                      image: photoUrl != null && photoUrl.isNotEmpty
+                          ? NetworkImage(photoUrl)
+                          : photoBytes == null
+                              ? null
+                              : MemoryImage(photoBytes),
+                      name: '${data['first_name']} ${data['last_name']}',
+                      onEdit: _savingProfile ? () {} : _pickProfilePhoto),
+                  const SizedBox(width: 14),
+                  Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text(
+                            '${data['first_name']} ${data['last_name']}'
+                                .toUpperCase(),
+                            style: const TextStyle(
+                                fontSize: 19, fontWeight: FontWeight.w900)),
+                        Text('Socio ${data['member_number'] ?? '—'}',
+                            style: const TextStyle(
+                                color: AppColors.red,
+                                fontWeight: FontWeight.bold)),
+                        Text(
+                            'Nacimiento · ${data['birth_date'] ?? 'Sin fecha'}',
+                            style: const TextStyle(color: AppColors.textMuted)),
+                        Text('Objetivo · ${data['goal'] ?? 'Pendiente'}',
+                            style: const TextStyle(color: AppColors.textMuted)),
+                        if ((data['bio'] ?? '').toString().trim().isNotEmpty)
+                          Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(data['bio'].toString())),
+                      ])),
+                ])),
+            _section('Contacto y detalles'),
             _record('Correo', (data['email'] ?? '').toString(),
                 icon: Icons.mail_outline,
                 editable: true,
@@ -1724,6 +1917,35 @@ class _ClientProfileWorkspaceScreenState
                 icon: Icons.person_outline,
                 editable: true,
                 onTap: () => _editTrainer(data)),
+            _record('Biografía',
+                (data['bio'] ?? 'Agrega una descripción').toString(),
+                icon: Icons.notes_outlined,
+                editable: true,
+                onTap: _savingProfile
+                    ? null
+                    : () =>
+                        _editContact('bio', (data['bio'] ?? '').toString())),
+            if ((data['gym_name'] ?? '').toString().isNotEmpty ||
+                (data['gym_address'] ?? '').toString().isNotEmpty ||
+                (data['gym_phone'] ?? '').toString().isNotEmpty ||
+                openingHoursText.isNotEmpty) ...[
+              _section('Gimnasio'),
+              MusklCard(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text((data['gym_name'] ?? 'Gimnasio').toString(),
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    if ((data['gym_address'] ?? '').toString().isNotEmpty)
+                      Text(data['gym_address'].toString()),
+                    if ((data['gym_phone'] ?? '').toString().isNotEmpty)
+                      Text('Tel. ${data['gym_phone']}'),
+                    if (openingHoursText.isNotEmpty)
+                      Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(openingHoursText)),
+                  ])),
+            ],
             if ((data['trainer_name'] ?? '').toString().isEmpty)
               _setting(
                   data['pending_trainer_id'] == null
@@ -1749,8 +1971,6 @@ class _ClientProfileWorkspaceScreenState
                     Text(membershipCurrent ? 'VIGENTE' : 'PENDIENTE',
                         style: const TextStyle(
                             color: AppColors.red, fontWeight: FontWeight.w800)),
-                    Text('Paga el ${data['payment_due_on'] ?? 'pendiente'}',
-                        style: const TextStyle(color: AppColors.textMuted)),
                     Text('Membresía hasta ${membershipEnds ?? '—'}',
                         style: const TextStyle(color: AppColors.textMuted)),
                   ])),
@@ -2239,38 +2459,34 @@ class _TrainerRoutinesScreenState extends State<TrainerRoutinesScreen> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: MusklCard(
-                      child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.fitness_center,
-                            color: AppColors.red),
-                        title: Text(routine['name'].toString(),
-                            style:
-                                const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(
-                            '${routine['goal']} · ${routine['days_per_week']} días · ${routine['assigned_clients']} socios'),
-                        onTap: () => context.push(Uri(
-                            path: '/trainer/phases',
-                            queryParameters: {
-                              'id': routine['id'].toString()
-                            }).toString()),
+                      child: Row(children: [
+                    Expanded(
+                        child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.fitness_center,
+                          color: AppColors.red),
+                      title: Text(routine['name'].toString(),
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text(
+                          '${routine['goal']} · ${routine['days_per_week']} días · ${routine['assigned_clients']} socios'),
+                      onTap: () => context.push(Uri(
+                              path: '/trainer/phases',
+                              queryParameters: {'id': routine['id'].toString()})
+                          .toString()),
+                    )),
+                    if (routine['phase_status'] != 'published')
+                      IconButton.filledTonal(
+                        tooltip: 'Publicar rutina',
+                        onPressed: () => _publish(routine),
+                        icon: const Icon(Icons.publish),
+                      )
+                    else
+                      IconButton.filledTonal(
+                        tooltip: 'Asignar a cliente',
+                        onPressed: () => _assign(routine),
+                        icon: const Icon(Icons.person_add_alt_1),
                       ),
-                      Wrap(spacing: 8, children: [
-                        if (routine['phase_status'] != 'published')
-                          OutlinedButton.icon(
-                              onPressed: () => _publish(routine),
-                              icon: const Icon(Icons.publish),
-                              label: const Text('Publicar')),
-                        if (routine['phase_status'] == 'published')
-                          FilledButton.tonalIcon(
-                              onPressed: () => _assign(routine),
-                              icon: const Icon(Icons.person_add_alt_1),
-                              label: const Text('Asignar a cliente')),
-                      ]),
-                    ],
-                  )),
+                  ])),
                 ),
               ],
               if (routines.isEmpty)
@@ -2442,31 +2658,14 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
     );
     searchController.dispose();
     if (selected != null && mounted) {
-      final values = await _editFields(
-          context,
-          'CONFIGURAR EJERCICIO',
-          ['Series', 'Repeticiones', 'Descanso (segundos)'],
-          ['4', '8-12', '60']);
+      final values = await _routineExerciseValues(context);
       if (values == null || !mounted) return;
-      final sets = int.tryParse(values[0]);
-      final rest = int.tryParse(values[2]);
-      if (sets == null ||
-          sets < 1 ||
-          sets > 20 ||
-          rest == null ||
-          rest < 0 ||
-          rest > 3600 ||
-          values[1].trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Revisa series, repeticiones y descanso.')));
-        return;
-      }
       setState(() {
         exercisesByDay.putIfAbsent(activeDay, () => []).add({
           ...selected,
-          'sets': sets,
-          'reps': values[1].trim(),
-          'rest_seconds': rest
+          'sets': values['sets'],
+          'reps': values['reps'],
+          'rest_seconds': values['rest_seconds']
         });
         error = null;
       });
@@ -2505,25 +2704,32 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                   .toList()),
         ],
         if (loadingPhaseTemplate) const LinearProgressIndicator(),
-        _section('Días por semana'),
+        if (widget.routineId != null)
+          const MusklCard(
+              child: Text(
+                  'Esta fase conserva los días semanales de la rutina. Agrega los ejercicios por día y guarda para crearla.')),
+        _section(
+            widget.routineId == null ? 'Días por semana' : 'Días de la fase'),
         Wrap(
             spacing: 6,
             children: ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM']
                 .map((d) => FilterChip(
                     label: Text(d),
                     selected: selectedDays.contains(d),
-                    onSelected: (selected) => setState(() {
-                          if (selected) {
-                            selectedDays.add(d);
-                            activeDay = d;
-                          } else {
-                            selectedDays.remove(d);
-                            exercisesByDay.remove(d);
-                            if (activeDay == d && selectedDays.isNotEmpty) {
-                              activeDay = selectedDays.first;
-                            }
-                          }
-                        })))
+                    onSelected: widget.routineId != null
+                        ? null
+                        : (selected) => setState(() {
+                              if (selected) {
+                                selectedDays.add(d);
+                                activeDay = d;
+                              } else {
+                                selectedDays.remove(d);
+                                exercisesByDay.remove(d);
+                                if (activeDay == d && selectedDays.isNotEmpty) {
+                                  activeDay = selectedDays.first;
+                                }
+                              }
+                            })))
                 .toList()),
         if (selectedDays.isNotEmpty) ...[
           _section('Día que estás editando'),
@@ -2911,37 +3117,77 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
   }
 
   Future<void> _editPersonal() async {
-    final result = await _editFields(context, 'DATOS PERSONALES', [
-      'Nombre',
-      'Apellidos',
-      'Correo electrónico',
-      'Teléfono'
-    ], [
-      _value('first_name'),
-      _value('last_name'),
-      _value('email'),
-      _value('phone')
-    ]);
-    if (result == null) return;
-    if (result[2].toLowerCase() != _value('email').toLowerCase()) {
-      if (!await _verifyEmailChange(context, result[2])) return;
-    }
-    await _save(
-        firstName: result[0],
-        lastName: result[1],
-        email: result[2],
-        phone: result[3]);
-  }
-
-  Future<void> _editCredentials() async {
     final result = await _editFields(
         context,
-        'PERFIL PROFESIONAL',
-        ['Especialidad', 'Biografía profesional'],
-        [_value('specialty'), _value('bio')],
-        multiline: const {1});
+        'EDITAR PERFIL',
+        ['Nombre', 'Apellidos', 'Biografía'],
+        [_value('first_name'), _value('last_name'), _value('bio')],
+        multiline: const {2});
     if (result == null) return;
-    await _save(specialty: result[0], bio: result[1]);
+    await _save(firstName: result[0], lastName: result[1], bio: result[2]);
+  }
+
+  Future<void> _editTrainerContact(String field) async {
+    final emailField = field == 'email';
+    final label = emailField ? 'Correo electrónico' : 'Teléfono';
+    final oldValue = _value(field);
+    final result =
+        await _editFields(context, 'EDITAR $label', [label], [oldValue]);
+    if (result == null) return;
+    if (emailField) {
+      if (result[0].toLowerCase() == oldValue.toLowerCase()) return;
+      if (!await _verifyEmailChange(context, result[0])) return;
+      await _save(email: result[0]);
+    } else {
+      await _save(phone: result[0]);
+    }
+  }
+
+  Future<void> _editSpecialties() async {
+    const options = [
+      'Fuerza',
+      'Hipertrofia',
+      'Pérdida de peso',
+      'Resistencia',
+      'Entrenamiento funcional',
+      'Movilidad',
+      'Acondicionamiento físico'
+    ];
+    final selected = _value('specialty')
+        .split(',')
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    final result = await showModalBottomSheet<Set<String>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+          builder: (context, setSheetState) => SafeArea(
+                child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('ESPECIALIDADES',
+                          style: TextStyle(fontWeight: FontWeight.w900)),
+                      for (final option in options)
+                        CheckboxListTile(
+                            title: Text(option),
+                            value: selected.contains(option),
+                            onChanged: (value) => setSheetState(() {
+                                  if (value == true) {
+                                    selected.add(option);
+                                  } else {
+                                    selected.remove(option);
+                                  }
+                                })),
+                      FilledButton(
+                          onPressed: () =>
+                              Navigator.pop(sheetContext, selected),
+                          child: const Text('Guardar')),
+                    ])),
+              )),
+    );
+    if (result == null) return;
+    await _save(specialty: options.where(result.contains).join(', '));
   }
 
   Future<void> _viewOwnCertification(Map certificate) async {
@@ -3053,9 +3299,11 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                             style:
                                 const TextStyle(fontWeight: FontWeight.bold)),
                         Text(
-                            _value('specialty').isEmpty
+                            _value('bio').isEmpty
                                 ? 'Entrenador'
-                                : _value('specialty'),
+                                : _value('bio'),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(color: AppColors.textMuted)),
                       ])),
                   IconButton(
@@ -3063,30 +3311,52 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                       onPressed: _saving ? null : _editPersonal,
                       icon: const Icon(Icons.edit_outlined)),
                 ]),
-                if (_value('bio').isNotEmpty) ...[
-                  const Divider(height: 22),
-                  Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(_value('bio'))),
-                ],
-                Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: _saving ? null : _editCredentials,
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      label: const Text('Editar perfil profesional'),
-                    )),
               ])),
-              _setting(
-                  'Datos personales',
-                  '${_value('email')} · ${_value('phone')}',
-                  Icons.person_outline,
-                  onTap: _editPersonal),
-              _setting(
-                  'Perfil profesional',
-                  '${_value('specialty')} · ${(_profile['certifications'] as List? ?? []).length} certificaciones registradas',
-                  Icons.workspace_premium_outlined,
-                  onTap: _editCredentials),
+              MusklCard(
+                  child: Column(children: [
+                ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.mail_outline),
+                    title: const Text('Correo'),
+                    subtitle: Text(_value('email')),
+                    trailing: IconButton(
+                        onPressed:
+                            _saving ? null : () => _editTrainerContact('email'),
+                        icon: const Icon(Icons.edit_outlined))),
+                const Divider(height: 1),
+                ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.phone_outlined),
+                    title: const Text('Teléfono'),
+                    subtitle: Text(_value('phone').isEmpty
+                        ? 'Agregar teléfono'
+                        : _value('phone')),
+                    trailing: IconButton(
+                        onPressed:
+                            _saving ? null : () => _editTrainerContact('phone'),
+                        icon: const Icon(Icons.edit_outlined))),
+              ])),
+              MusklCard(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Row(children: [
+                      const Expanded(
+                          child: Text('ESPECIALIDADES',
+                              style: TextStyle(fontWeight: FontWeight.w800))),
+                      IconButton(
+                          onPressed: _saving ? null : _editSpecialties,
+                          icon: const Icon(Icons.edit_outlined))
+                    ]),
+                    Wrap(
+                        spacing: 6,
+                        children: _value('specialty')
+                            .split(',')
+                            .map((item) => item.trim())
+                            .where((item) => item.isNotEmpty)
+                            .map((item) => Chip(label: Text(item)))
+                            .toList()),
+                  ])),
               for (final certificate
                   in (_profile['certifications'] as List? ?? []))
                 MusklCard(
@@ -3178,6 +3448,182 @@ Future<bool> _verifyEmailChange(BuildContext context, String newEmail) async {
     codeController.dispose();
     passwordController.dispose();
   }
+}
+
+Future<Map<String, dynamic>?> _routineExerciseValues(BuildContext context) {
+  var sets = 4;
+  var rest = const Duration(minutes: 1);
+  final reps = TextEditingController(text: '8-12');
+  final manualSets = TextEditingController(text: '4');
+  final manualRest = TextEditingController(text: '1:00');
+  var useManual = false;
+  var useManualSets = false;
+  var useManualReps = false;
+  var repsWheelIndex = 6;
+  const repsOptions = ['6', '8', '10', '12', '15', '20', '8-12', '10-15'];
+  return showModalBottomSheet<Map<String, dynamic>>(
+    context: context,
+    isScrollControlled: true,
+    builder: (sheetContext) =>
+        StatefulBuilder(builder: (context, setSheetState) {
+      return SafeArea(
+          child: Padding(
+        padding: EdgeInsets.fromLTRB(
+            20, 16, 20, 16 + MediaQuery.viewInsetsOf(context).bottom),
+        child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('CONFIGURAR EJERCICIO',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 14),
+              Row(children: [
+                Expanded(
+                    child: Column(children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    const Text('Series'),
+                    IconButton(
+                        tooltip:
+                            useManualSets ? 'Usar selector' : 'Escribir número',
+                        onPressed: () =>
+                            setSheetState(() => useManualSets = !useManualSets),
+                        icon: const Icon(Icons.edit_outlined, size: 17))
+                  ]),
+                  if (useManualSets)
+                    TextField(
+                        controller: manualSets,
+                        keyboardType: TextInputType.number,
+                        textAlign: TextAlign.center,
+                        decoration:
+                            const InputDecoration(border: OutlineInputBorder()))
+                  else
+                    SizedBox(
+                        height: 115,
+                        child: CupertinoPicker(
+                            itemExtent: 38,
+                            scrollController: FixedExtentScrollController(
+                                initialItem: sets - 1),
+                            onSelectedItemChanged: (i) => setSheetState(() {
+                                  sets = i + 1;
+                                  manualSets.text = '$sets';
+                                }),
+                            children: [
+                              for (var i = 1; i <= 20; i++)
+                                Center(child: Text('$i'))
+                            ]))
+                ])),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: Column(children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    const Text('Repeticiones'),
+                    IconButton(
+                        tooltip: useManualReps
+                            ? 'Usar selector'
+                            : 'Escribir repeticiones',
+                        onPressed: () =>
+                            setSheetState(() => useManualReps = !useManualReps),
+                        icon: const Icon(Icons.edit_outlined, size: 17))
+                  ]),
+                  if (useManualReps)
+                    SizedBox(
+                        height: 62,
+                        child: TextField(
+                            controller: reps,
+                            textAlign: TextAlign.center,
+                            decoration: const InputDecoration(
+                                hintText: 'Ej. 8-12',
+                                border: OutlineInputBorder())))
+                  else
+                    SizedBox(
+                        height: 115,
+                        child: CupertinoPicker(
+                          itemExtent: 38,
+                          scrollController: FixedExtentScrollController(
+                              initialItem: repsWheelIndex),
+                          onSelectedItemChanged: (index) => setSheetState(() {
+                            repsWheelIndex = index;
+                            reps.text = repsOptions[index];
+                          }),
+                          children: [
+                            for (final option in repsOptions)
+                              Center(child: Text(option))
+                          ],
+                        ))
+                ])),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                const Expanded(child: Text('Descanso · minutos y segundos')),
+                TextButton(
+                    onPressed: () =>
+                        setSheetState(() => useManual = !useManual),
+                    child: Text(useManual ? 'Usar reloj' : 'Escribir'))
+              ]),
+              if (useManual)
+                TextField(
+                    controller: manualRest,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    decoration: const InputDecoration(
+                        labelText: 'm:ss (ej. 1:30)',
+                        border: OutlineInputBorder()))
+              else
+                SizedBox(
+                    height: 120,
+                    child: CupertinoTimerPicker(
+                        mode: CupertinoTimerPickerMode.ms,
+                        initialTimerDuration: rest,
+                        minuteInterval: 1,
+                        secondInterval: 5,
+                        onTimerDurationChanged: (value) => setSheetState(() {
+                              rest = value;
+                              manualRest.text =
+                                  '${value.inMinutes}:${(value.inSeconds % 60).toString().padLeft(2, '0')}';
+                            }))),
+              const SizedBox(height: 10),
+              FilledButton(
+                  onPressed: () {
+                    final repsValue = reps.text.trim();
+                    final restParts = manualRest.text.trim().split(':');
+                    var restSeconds = rest.inSeconds;
+                    if (useManual) {
+                      if (restParts.length == 2) {
+                        final min = int.tryParse(restParts[0]);
+                        final sec = int.tryParse(restParts[1]);
+                        if (min == null || sec == null || sec > 59 || sec < 0)
+                          return;
+                        restSeconds = min * 60 + sec;
+                      } else {
+                        final parsed = int.tryParse(manualRest.text.trim());
+                        if (parsed == null) return;
+                        restSeconds = parsed;
+                      }
+                    }
+                    final series = useManualSets
+                        ? int.tryParse(manualSets.text.trim())
+                        : sets;
+                    if (series == null ||
+                        series < 1 ||
+                        series > 20 ||
+                        repsValue.isEmpty ||
+                        restSeconds < 0 ||
+                        restSeconds > 3600) return;
+                    Navigator.pop(sheetContext, {
+                      'sets': series,
+                      'reps': repsValue,
+                      'rest_seconds': restSeconds
+                    });
+                  },
+                  child: const Text('Guardar ejercicio')),
+            ]),
+      ));
+    }),
+  ).whenComplete(() {
+    reps.dispose();
+    manualSets.dispose();
+    manualRest.dispose();
+  });
 }
 
 Future<List<String>?> _editFields(BuildContext context, String title,
@@ -4762,12 +5208,19 @@ class _AdminRequestsScreenState extends State<AdminRequestsScreen> {
                                   title: Text(notification['title'].toString()),
                                   subtitle:
                                       Text(notification['body'].toString()),
+                                  isThreeLine: notification['kind'] ==
+                                      'account_deletion_requested',
                                   trailing: IconButton(
                                       tooltip: 'Marcar como leído',
                                       onPressed: () =>
                                           _markAdminNotificationRead(
                                               notification['id'].toString()),
-                                      icon: const Icon(Icons.done))))),
+                                      icon: const Icon(Icons.done)),
+                                  onTap: notification['kind'] ==
+                                          'account_deletion_requested'
+                                      ? () =>
+                                          setState(() => _showDeletions = true)
+                                      : null))),
                   ]);
             }),
         Wrap(spacing: 8, children: [

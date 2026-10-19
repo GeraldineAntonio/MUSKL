@@ -27,8 +27,8 @@ abstract class AuthRepository {
       String? phone,
       required String password,
       required String specialty,
-      required String certificationName,
-      required Uint8List certificationBytes,
+      String? certificationName,
+      Uint8List? certificationBytes,
       Uint8List? profilePhotoBytes,
       String? profilePhotoMime});
   Future<void> registerAdmin(
@@ -298,8 +298,8 @@ class FakeAuthRepository implements AuthRepository {
       String? phone,
       required String password,
       required String specialty,
-      required String certificationName,
-      required Uint8List certificationBytes,
+      String? certificationName,
+      Uint8List? certificationBytes,
       Uint8List? profilePhotoBytes,
       String? profilePhotoMime}) async {}
 

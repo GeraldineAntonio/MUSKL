@@ -16,6 +16,15 @@ import '../main.dart';
 import 'auth/auth_models.dart';
 
 const _goals = ['Bajar de peso', 'Masa muscular', 'Resistencia', 'Fuerza'];
+const _trainerSpecialties = [
+  'Fuerza',
+  'Hipertrofia',
+  'Pérdida de peso',
+  'Resistencia',
+  'Entrenamiento funcional',
+  'Movilidad',
+  'Acondicionamiento físico',
+];
 const _goalImages = {
   'Bajar de peso': 'assets/images/goals/bajar_de_peso.jpeg',
   'Masa muscular': 'assets/images/goals/masa_muscular.jpg',
@@ -141,12 +150,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _memberNumber = TextEditingController();
   final _password = TextEditingController();
   final _confirmPassword = TextEditingController();
-  final _specialty = TextEditingController();
   final _invite = TextEditingController();
   String? _certName;
   Uint8List? _certBytes;
   Uint8List? _profilePhotoBytes;
   String? _profilePhotoMime;
+  final Set<String> _selectedSpecialties = {};
   bool _loading = false;
   String? _error;
   DateTime? _birthDate;
@@ -173,7 +182,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _memberNumber.dispose();
     _password.dispose();
     _confirmPassword.dispose();
-    _specialty.dispose();
     _invite.dispose();
     super.dispose();
   }
@@ -354,10 +362,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       setState(() => _error = 'Busca tu número de socio antes de continuar.');
       return;
     }
-    if (_role == 'Entrenador' &&
-        (_specialty.text.trim().isEmpty || _certBytes == null)) {
-      setState(
-          () => _error = 'Indica tu especialidad y adjunta la certificación.');
+    if (_role == 'Entrenador' && _selectedSpecialties.isEmpty) {
+      setState(() => _error = 'Selecciona al menos una especialidad.');
       return;
     }
     if (_role == 'Admin' && _invite.text.trim().isEmpty) {
@@ -393,9 +399,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             email: normalizedEmail,
             phone: phone,
             password: _password.text,
-            specialty: _specialty.text.trim(),
-            certificationName: _certName!,
-            certificationBytes: _certBytes!,
+            specialty: _selectedSpecialties.join(' · '),
+            certificationName: _certName,
+            certificationBytes: _certBytes,
             profilePhotoBytes: _profilePhotoBytes,
             profilePhotoMime: _profilePhotoMime);
       } else {
@@ -455,6 +461,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     selected: _role == v,
                     onSelected: (_) => setState(() => _role = v)))
                 .toList()),
+        const SizedBox(height: 14),
+        MusklCard(
+            child: Column(children: [
+          ProfilePhotoAvatar(
+              image: _profilePhotoBytes == null
+                  ? null
+                  : MemoryImage(_profilePhotoBytes!),
+              onEdit: _loading ? () {} : _pickProfilePhoto,
+              radius: 42,
+              name: '${_name.text} ${_lastName.text}'),
+          const SizedBox(height: 8),
+          const Text('Foto de perfil · opcional'),
+        ])),
         const SizedBox(height: 14),
         if (_role == 'Cliente') ...[
           MusklTextField(
@@ -538,27 +557,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   : _pickBirthDate),
         ],
         const SizedBox(height: 14),
-        MusklCard(
-            child: Column(children: [
-          ProfilePhotoAvatar(
-              image: _profilePhotoBytes == null
-                  ? null
-                  : MemoryImage(_profilePhotoBytes!),
-              onEdit: _loading ? () {} : _pickProfilePhoto,
-              radius: 42,
-              name: '${_name.text} ${_lastName.text}'),
-        ])),
-        const SizedBox(height: 14),
         if (_role == 'Entrenador') ...[
-          MusklTextField(
-              label: 'Especialidad',
-              controller: _specialty,
-              icon: Icons.fitness_center),
+          MusklCard(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                const Text('ESPECIALIDADES',
+                    style: TextStyle(fontWeight: FontWeight.w800)),
+                const Text('Selecciona una o varias'),
+                const Divider(),
+                for (final specialty in _trainerSpecialties)
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(specialty),
+                    value: _selectedSpecialties.contains(specialty),
+                    onChanged: _loading
+                        ? null
+                        : (selected) => setState(() {
+                              if (selected == true) {
+                                _selectedSpecialties.add(specialty);
+                              } else {
+                                _selectedSpecialties.remove(specialty);
+                              }
+                            }),
+                  ),
+              ])),
           const SizedBox(height: 14),
           OutlinedButton.icon(
               onPressed: _loading ? null : _pickCertification,
               icon: const Icon(Icons.upload_file),
-              label: Text(_certName ?? 'Adjuntar certificación PDF o imagen')),
+              label: Text(_certName ?? 'Adjuntar certificación (opcional)')),
           const SizedBox(height: 14),
         ],
         if (_role == 'Admin') ...[
@@ -1058,16 +1087,6 @@ class _TrainerPhasesScreenState extends State<TrainerPhasesScreen> {
           return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                MusklCard(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                      Text((data['name'] ?? 'Rutina').toString().toUpperCase(),
-                          style: const TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.w900)),
-                      Text(
-                          '${data['goal']} · ${data['days_per_week']} días por semana'),
-                    ])),
                 for (final phase in phases)
                   Padding(
                       padding: const EdgeInsets.only(bottom: 10),
@@ -1075,12 +1094,11 @@ class _TrainerPhasesScreenState extends State<TrainerPhasesScreen> {
                           child: ExpansionTile(
                         tilePadding: EdgeInsets.zero,
                         childrenPadding: EdgeInsets.zero,
-                        title: Text(
-                            '${phase['name']} · ${phase['duration_weeks']} sem.',
+                        title: Text('FASE ${phase['phase_number']}',
                             style:
                                 const TextStyle(fontWeight: FontWeight.bold)),
                         subtitle: Text(
-                            '${phase['status'] == 'published' ? 'PUBLICADA' : 'BORRADOR'} · ${phase['exercise_count']} ejercicios'),
+                            '${phase['status'] == 'published' ? 'Publicada' : 'Borrador'} · Plan semanal'),
                         children: [
                           for (final dayGroup in _groupExercises(exercises
                                   .where((exercise) =>
@@ -1090,15 +1108,12 @@ class _TrainerPhasesScreenState extends State<TrainerPhasesScreen> {
                               .entries)
                             ExpansionTile(
                               tilePadding: EdgeInsets.zero,
-                              title: Text(
-                                  '${_weekdayName(dayGroup.key)} · ${dayGroup.value.length} ejercicios'),
+                              title: Text(_weekdayName(dayGroup.key)),
                               children: [
                                 for (final exercise in dayGroup.value)
                                   ListTile(
                                     dense: true,
                                     title: Text(exercise['name'].toString()),
-                                    subtitle: Text(
-                                        '${exercise['sets']} × ${exercise['reps']} · ${exercise['rest_seconds']} s'),
                                   )
                               ],
                             ),
@@ -1570,6 +1585,21 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
       final key = _draftKey;
       if (key != null) await _draftStorage.delete(key: key);
       if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Registro completado'),
+          content: const Text(
+              'Inicia sesión para continuar. Tu entrenador recibirá la solicitud y podrá asignarte una rutina cuando te acepte.'),
+          actions: [
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Ir a iniciar sesión'))
+          ],
+        ),
+      );
+      if (!mounted) return;
       await authController.signOut();
       if (mounted) context.go('/login');
     } on AuthException catch (e) {
@@ -1951,7 +1981,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                     label: _saving
                         ? 'Guardando...'
                         : _step == 3
-                            ? 'Finalizar registro e iniciar sesión'
+                            ? 'Finalizar'
                             : _step == 0 && _editingGroupMembers
                                 ? 'Crear cuentas y continuar'
                                 : _step == 0 &&

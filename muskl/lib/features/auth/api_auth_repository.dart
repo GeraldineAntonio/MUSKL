@@ -209,8 +209,8 @@ class ApiAuthRepository implements AuthRepository {
       String? phone,
       required String password,
       required String specialty,
-      required String certificationName,
-      required Uint8List certificationBytes,
+      String? certificationName,
+      Uint8List? certificationBytes,
       Uint8List? profilePhotoBytes,
       String? profilePhotoMime}) async {
     final boundary = 'muskl-${DateTime.now().microsecondsSinceEpoch}';
@@ -233,17 +233,20 @@ class ApiAuthRepository implements AuthRepository {
       field('photo_data', base64Encode(profilePhotoBytes));
       field('photo_mime', profilePhotoMime);
     }
-    final extension = certificationName.split('.').last.toLowerCase();
-    final mime = switch (extension) {
-      'pdf' => 'application/pdf',
-      'png' => 'image/png',
-      'jpg' || 'jpeg' => 'image/jpeg',
-      _ => 'application/octet-stream',
-    };
-    request.write(
-        '--$boundary\r\nContent-Disposition: form-data; name="certification"; filename="$certificationName"\r\nContent-Type: $mime\r\n\r\n');
-    request.add(certificationBytes);
-    request.write('\r\n--$boundary--\r\n');
+    if (certificationName != null && certificationBytes != null) {
+      final extension = certificationName.split('.').last.toLowerCase();
+      final mime = switch (extension) {
+        'pdf' => 'application/pdf',
+        'png' => 'image/png',
+        'jpg' || 'jpeg' => 'image/jpeg',
+        _ => 'application/octet-stream',
+      };
+      request.write(
+          '--$boundary\r\nContent-Disposition: form-data; name="certification"; filename="$certificationName"\r\nContent-Type: $mime\r\n\r\n');
+      request.add(certificationBytes);
+      request.write('\r\n');
+    }
+    request.write('--$boundary--\r\n');
     final response = await request.close().timeout(const Duration(seconds: 30));
     final text = await response.transform(utf8.decoder).join();
     if (response.statusCode >= 400) {

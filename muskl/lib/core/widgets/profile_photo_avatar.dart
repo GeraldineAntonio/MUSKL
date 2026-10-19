@@ -21,7 +21,8 @@ Future<ProfilePhotoSelection?> pickProfilePhoto(BuildContext context) async {
               ListTile(
                   leading: const Icon(Icons.photo_library_outlined),
                   title: const Text('Elegir de galería'),
-                  onTap: () => Navigator.pop(sheetContext, ImageSource.gallery)),
+                  onTap: () =>
+                      Navigator.pop(sheetContext, ImageSource.gallery)),
               ListTile(
                   leading: const Icon(Icons.camera_alt_outlined),
                   title: const Text('Tomar foto'),
@@ -55,12 +56,14 @@ class ProfilePhotoAvatar extends StatelessWidget {
     required this.onEdit,
     this.radius = 38,
     this.name = '',
+    this.allowEdit = true,
   });
 
   final ImageProvider? image;
   final VoidCallback onEdit;
   final double radius;
   final String name;
+  final bool allowEdit;
 
   void _showPreview(BuildContext context) {
     showDialog<void>(
@@ -79,18 +82,19 @@ class ProfilePhotoAvatar extends StatelessWidget {
                         size: 104, color: AppColors.accent)
                     : null,
               ),
-              Positioned(
-                right: -4,
-                bottom: -2,
-                child: IconButton.filled(
-                  tooltip: 'Editar foto',
-                  onPressed: () {
-                    Navigator.pop(dialogContext);
-                    onEdit();
-                  },
-                  icon: const Icon(Icons.edit_outlined),
+              if (allowEdit)
+                Positioned(
+                  right: -4,
+                  bottom: -2,
+                  child: IconButton.filled(
+                    tooltip: 'Editar foto',
+                    onPressed: () {
+                      Navigator.pop(dialogContext);
+                      onEdit();
+                    },
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
                 ),
-              ),
             ]),
             if (name.trim().isNotEmpty) ...[
               const SizedBox(height: 18),
@@ -130,23 +134,24 @@ class ProfilePhotoAvatar extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(
-            right: 0,
-            bottom: 0,
-            child: Material(
-              color: AppColors.red,
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: onEdit,
-                child: const Padding(
-                  padding: EdgeInsets.all(7),
-                  child: Icon(Icons.edit_outlined,
-                      size: 17, color: Colors.white),
+          if (allowEdit)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Material(
+                color: AppColors.red,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: onEdit,
+                  child: const Padding(
+                    padding: EdgeInsets.all(7),
+                    child: Icon(Icons.edit_outlined,
+                        size: 17, color: Colors.white),
+                  ),
                 ),
               ),
             ),
-          ),
         ]),
       );
 }

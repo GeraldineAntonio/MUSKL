@@ -1,8 +1,9 @@
-"""Preview and remove unused active routines left without their trainer.
+"""Preview and remove unused routines from the protected admin's gym.
 
 Run from backend with a Neon DATABASE_URL. By default the script only previews.
-It removes routines only when they have no client assignments and no workout
-history, so deleting them cannot erase a client's training record.
+Run account cleanup first. It removes all routines (active or inactive) only
+when they have no client assignments and no workout history. Deleting a routine
+also deletes its phases and exercises through the database's cascade rules.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ ADMIN_EMAIL = 'antonioeimy1@gmail.com'
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute', action='store_true',
-                        help='Delete the previewed unused orphan routines.')
+                        help='Delete the previewed unused routines.')
     args = parser.parse_args()
 
     database_url = getpass('DATABASE_URL de Neon (entrada oculta): ').strip()
@@ -37,18 +38,18 @@ def main() -> None:
         if admin is None:
             raise SystemExit('Se canceló: no se encontró el administrador protegido.')
 
-        routines = conn.execute("""SELECT r.id, r.name, r.goal, r.created_at,
+        routines = conn.execute("""SELECT r.id, r.name, r.goal, r.created_at, r.active,
                 (SELECT count(*) FROM client_routine_assignments a
                     WHERE a.routine_id = r.id) AS assignments,
                 (SELECT count(*) FROM workout_completions wc
                     JOIN routine_phases rp ON rp.id = wc.phase_id
                     WHERE rp.routine_id = r.id) AS workout_records
             FROM routines r
-            WHERE r.gym_id = %s AND r.active AND r.trainer_id IS NULL
+            WHERE r.gym_id = %s
             ORDER BY r.created_at, r.name""", (admin['gym_id'],)).fetchall()
 
         print(f'Administrador protegido: {ADMIN_EMAIL}')
-        print('Rutinas activas sin entrenador:')
+        print('Rutinas del gimnasio:')
         if not routines:
             print('  Ninguna.')
             return
@@ -56,6 +57,7 @@ def main() -> None:
         blocked = False
         for routine in routines:
             print(f"  {routine['name']} | {routine['goal']} | id={routine['id']} | "
+                  f"estado={'activa' if routine['active'] else 'inactiva'} | "
                   f"asignaciones={routine['assignments']} | "
                   f"sesiones_guardadas={routine['workout_records']}")
             blocked |= bool(routine['assignments'] or routine['workout_records'])
@@ -75,7 +77,7 @@ def main() -> None:
         routine_ids = [row['id'] for row in routines]
         with conn.transaction():
             locked = conn.execute("""SELECT id FROM routines
-                WHERE id = ANY(%s) AND gym_id = %s AND active AND trainer_id IS NULL
+                WHERE id = ANY(%s) AND gym_id = %s
                 FOR UPDATE""", (routine_ids, admin['gym_id'])).fetchall()
             locked_ids = [row['id'] for row in locked]
             remaining = conn.execute("""SELECT
@@ -88,9 +90,9 @@ def main() -> None:
             if remaining['has_assignments'] or remaining['has_workouts']:
                 raise SystemExit('Se canceló: apareció una asignación o sesión guardada; no se borró nada.')
             deleted = conn.execute("""DELETE FROM routines
-                WHERE id = ANY(%s) AND gym_id = %s AND active AND trainer_id IS NULL
+                WHERE id = ANY(%s) AND gym_id = %s
                 RETURNING id""", (locked_ids, admin['gym_id'])).fetchall()
-        print(f'Borradas {len(deleted)} rutinas huérfanas sin asignaciones ni historial.')
+        print(f'Borradas {len(deleted)} rutinas; sus fases y ejercicios asociados también se eliminaron.')
 
 
 if __name__ == '__main__':

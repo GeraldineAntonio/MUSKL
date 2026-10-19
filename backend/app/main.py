@@ -1096,32 +1096,35 @@ def register_trainer(
     last_name: Annotated[str, Form(min_length=1, max_length=100)],
     email: Annotated[EmailStr, Form()],
     password: Annotated[str, Form(min_length=8, max_length=128)],
-    specialty: Annotated[str, Form(min_length=1, max_length=120)],
+    specialty: Annotated[str | None, Form(max_length=120)] = None,
     phone: Annotated[str | None, Form(max_length=30)] = None,
     photo_data: Annotated[str | None, Form(max_length=2_800_000)] = None,
     photo_mime: Annotated[Literal['image/jpeg', 'image/png'] | None, Form()] = None,
-    certification: UploadFile = File(...),
+    certification: UploadFile | None = File(None),
 ) -> dict:
     try:
         _validate_strong_password(password)
     except ValueError as exc:
         raise _problem(422, 'WEAK_PASSWORD', str(exc))
     photo = _decode_profile_photo(photo_data, photo_mime)
-    ext = Path(certification.filename or '').suffix.lower()
+    ext = None
+    data = None
     allowed = {'.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
-    if ext not in allowed or certification.content_type != allowed[ext]:
-        raise _problem(415, 'INVALID_CERTIFICATION', 'Adjunta una certificación PDF, PNG o JPG.')
-    data = certification.file.read(10 * 1024 * 1024 + 1)
-    if not data or len(data) > 10 * 1024 * 1024:
-        raise _problem(413, 'CERTIFICATION_SIZE', 'El archivo debe pesar hasta 10 MB.')
-    signatures = {
-        '.pdf': data.startswith(b'%PDF-'),
-        '.png': data.startswith(b'\x89PNG\r\n\x1a\n'),
-        '.jpg': data.startswith(b'\xff\xd8\xff'),
-        '.jpeg': data.startswith(b'\xff\xd8\xff'),
-    }
-    if not signatures[ext]:
-        raise _problem(415, 'INVALID_CERTIFICATION', 'El contenido del archivo no coincide con su formato.')
+    if certification is not None and certification.filename:
+        ext = Path(certification.filename).suffix.lower()
+        if ext not in allowed or certification.content_type != allowed[ext]:
+            raise _problem(415, 'INVALID_CERTIFICATION', 'Adjunta una certificación PDF, PNG o JPG.')
+        data = certification.file.read(10 * 1024 * 1024 + 1)
+        if not data or len(data) > 10 * 1024 * 1024:
+            raise _problem(413, 'CERTIFICATION_SIZE', 'El archivo debe pesar hasta 10 MB.')
+        signatures = {
+            '.pdf': data.startswith(b'%PDF-'),
+            '.png': data.startswith(b'\x89PNG\r\n\x1a\n'),
+            '.jpg': data.startswith(b'\xff\xd8\xff'),
+            '.jpeg': data.startswith(b'\xff\xd8\xff'),
+        }
+        if not signatures[ext]:
+            raise _problem(415, 'INVALID_CERTIFICATION', 'El contenido del archivo no coincide con su formato.')
     storage_key = None
     profile_photo_key = None
     verification_code = None
@@ -1140,13 +1143,13 @@ def register_trainer(
                     cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
                         profile_photo_mime = %s WHERE id = %s""",
                         (profile_photo_key, photo[1], user['id']))
-                key = f'certifications/{GYM_ID}/{user["id"]}/{uuid.uuid4()}{ext}'
-                storage_key = put_certificate(
-                    key, data, allowed[ext], UPLOAD_DIR)
                 cur.execute('INSERT INTO trainer_profiles (user_id, specialty) VALUES (%s, %s)',
-                            (user['id'], specialty.strip()))
-                cur.execute('INSERT INTO trainer_certifications (trainer_id, title, storage_key) VALUES (%s, %s, %s)',
-                            (user['id'], certification.filename or 'Certificación', storage_key))
+                            (user['id'], specialty.strip() if specialty and specialty.strip() else None))
+                if certification is not None and ext and data:
+                    key = f'certifications/{GYM_ID}/{user["id"]}/{uuid.uuid4()}{ext}'
+                    storage_key = put_certificate(key, data, allowed[ext], UPLOAD_DIR)
+                    cur.execute('INSERT INTO trainer_certifications (trainer_id, title, storage_key) VALUES (%s, %s, %s)',
+                                (user['id'], Path(certification.filename or 'Certificación').name, storage_key))
                 cur.execute('INSERT INTO account_audit_events (gym_id, subject_id, event_type) VALUES (%s, %s, %s)',
                             (GYM_ID, user['id'], 'trainer_registration_submitted'))
                 _notify_admins_of_staff_request(cur, GYM_ID, user)
@@ -2632,7 +2635,7 @@ def client_dashboard(client: dict = Depends(active_client)) -> dict:
             ON CONFLICT (client_id, local_date) DO NOTHING""",
             (client['id'], client['gym_id']))
         row = conn.execute("""SELECT u.first_name, u.last_name, u.member_number, u.email, u.phone, u.bio,
-                cp.goal, cp.weight_kg, cp.height_cm,
+                cp.goal, cp.birth_date, cp.weight_kg, cp.height_cm,
                 cp.trainer_reassignment_required,
                 u.profile_photo_storage_key, u.profile_photo_mime,
                 cp.profile_photo, cp.profile_photo_mime AS legacy_profile_photo_mime,
@@ -2641,6 +2644,7 @@ def client_dashboard(client: dict = Depends(active_client)) -> dict:
                 p.name AS plan_name, m.ends_on AS membership_ends_on,
                 registry.payment_due_on,
                 concat_ws(' ', t.first_name, t.last_name) AS trainer_name,
+                t.profile_photo_storage_key AS trainer_profile_photo_storage_key,
                 ptr.trainer_id AS pending_trainer_id,
                 concat_ws(' ', pending_trainer.first_name, pending_trainer.last_name) AS pending_trainer_name,
                 r.name AS routine_name, cra.current_phase_id, rp.phase_number,
@@ -2679,15 +2683,19 @@ def client_dashboard(client: dict = Depends(active_client)) -> dict:
             ORDER BY created_at DESC LIMIT 1""", (client['id'],)).fetchone()
     attendance_days = {d['local_date'].isoformat() for d in attendance}
     profile_photo_url = _signed_profile_photo(row['profile_photo_storage_key'])
+    trainer_profile_photo_url = _signed_profile_photo(row['trainer_profile_photo_storage_key'])
     dashboard = dict(row)
     dashboard.pop('profile_photo', None)
     dashboard.pop('profile_photo_storage_key', None)
+    dashboard.pop('trainer_profile_photo_storage_key', None)
     dashboard.pop('legacy_profile_photo_mime', None)
     return {**dashboard, 'today': row['today'].isoformat(),
+            'birth_date': row['birth_date'].isoformat() if row['birth_date'] else None,
             # Legacy photos remain readable until migrate_profile_photos_to_r2 runs.
             'profile_photo_data': (base64.b64encode(bytes(row['profile_photo'])).decode('ascii')
                                    if row['profile_photo'] else None),
             'profile_photo_url': profile_photo_url,
+            'trainer_profile_photo_url': trainer_profile_photo_url,
             'profile_photo_mime': row['profile_photo_mime'] or row['legacy_profile_photo_mime'],
             'membership_ends_on': row['membership_ends_on'].isoformat() if row['membership_ends_on'] else None,
             'pending_trainer_id': str(row['pending_trainer_id']) if row['pending_trainer_id'] else None,
@@ -3014,6 +3022,7 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_c
                                    if (completed or due_session) else None),
             'today': today.isoformat(),
             'phase_started_at': assignment['phase_started_at'].isoformat(), 'completed_today': completed is not None,
+            'can_complete_today': due_session is not None and completed is None,
             'completed_exercise_ids': [str(row['exercise_id']) for row in completed_exercises],
             'exercise_sets_completed': {str(row['exercise_id']): row['sets_completed'] for row in set_progress},
             'exercises': [{**exercise, 'id': str(exercise['id'])} for exercise in exercises]}
@@ -3057,12 +3066,14 @@ def complete_client_exercise(exercise_id: uuid.UUID, payload: WorkoutSetProgress
                     (client_id, phase_id, exercise_id, workout_date, sets_completed)
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (client_id, phase_id, exercise_id, workout_date)
-                DO UPDATE SET sets_completed = EXCLUDED.sets_completed, completed_at = now()
-                RETURNING exercise_id""",
+                DO UPDATE SET sets_completed = GREATEST(
+                    workout_exercise_completions.sets_completed, EXCLUDED.sets_completed
+                ), completed_at = now()
+                RETURNING exercise_id, sets_completed""",
                 (client['id'], assignment['current_phase_id'], exercise_id,
                  assignment['today'], payload.sets_completed)).fetchone()
-    return {'exercise_id': str(exercise_id), 'sets_completed': payload.sets_completed,
-            'completed': payload.sets_completed == exercise['sets'],
+    return {'exercise_id': str(exercise_id), 'sets_completed': saved['sets_completed'],
+            'completed': saved['sets_completed'] >= exercise['sets'],
             'created': saved is not None}
 
 
@@ -3153,6 +3164,13 @@ def request_account_deletion(client: dict = Depends(active_client)) -> dict:
                                   (client['id'],)).fetchone()
             cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, subject_id, event_type) VALUES (%s, %s, %s, %s)",
                         (client['gym_id'], client['id'], client['id'], 'account_deletion_requested'))
+            cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                SELECT id, 'account_deletion_requested', 'Solicitud de baja recibida',
+                    %s, %s FROM users
+                WHERE gym_id = %s AND role = 'admin' AND status = 'active'""",
+                (f"{client['first_name']} {client['last_name']} solicitó eliminar su cuenta.",
+                 Jsonb({'request_id': str(request['id']), 'client_id': str(client['id'])}),
+                 client['gym_id']))
     return {'id': str(request['id']), 'status': 'pending', 'requested_at': request['requested_at'].isoformat()}
 
 
@@ -3637,7 +3655,7 @@ def admin_trainer_certification_download(
 def admin_notifications(admin: dict = Depends(active_admin)) -> list[dict]:
     with pool.connection() as conn:
         rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
-            FROM notifications WHERE user_id = %s AND kind IN ('staff_request', 'profile_updated')
+            FROM notifications WHERE user_id = %s AND kind IN ('staff_request', 'profile_updated', 'account_deletion_requested')
               AND read_at IS NULL ORDER BY created_at DESC LIMIT 20""",
             (admin['id'],)).fetchall()
     return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()}
@@ -3649,7 +3667,7 @@ def mark_admin_notification_read(notification_id: uuid.UUID,
                                 admin: dict = Depends(active_admin)) -> None:
     with pool.connection() as conn:
         conn.execute("""UPDATE notifications SET read_at = now()
-            WHERE id = %s AND user_id = %s AND kind IN ('staff_request', 'profile_updated')
+            WHERE id = %s AND user_id = %s AND kind IN ('staff_request', 'profile_updated', 'account_deletion_requested')
               AND read_at IS NULL""", (notification_id, admin['id']))
 
 

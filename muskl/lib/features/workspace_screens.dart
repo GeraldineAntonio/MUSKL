@@ -1038,6 +1038,11 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                                   data['completed_today'] != true)
                               .toString(),
                           'already_completed': isCompleted.toString(),
+                          'sets_completed':
+                              ((data['exercise_sets_completed'] as Map? ??
+                                          {})[exerciseId] ??
+                                      0)
+                                  .toString(),
                         }).toString());
                         if (finished == true && mounted) {
                           setState(() => _completedExerciseIds.add(exerciseId));
@@ -1077,6 +1082,7 @@ class ExerciseDetailScreen extends StatefulWidget {
     this.restSeconds = '60',
     this.canMarkComplete = false,
     this.alreadyCompleted = false,
+    this.setsCompleted = 0,
   });
   final String id;
   final String name;
@@ -1088,6 +1094,7 @@ class ExerciseDetailScreen extends StatefulWidget {
   final String restSeconds;
   final bool canMarkComplete;
   final bool alreadyCompleted;
+  final int setsCompleted;
 
   @override
   State<ExerciseDetailScreen> createState() => _ExerciseDetailScreenState();
@@ -1095,13 +1102,20 @@ class ExerciseDetailScreen extends StatefulWidget {
 
 class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
   bool _saving = false;
+  late int _setsCompleted = widget.setsCompleted;
 
   Future<void> _finishExercise() async {
-    if (!widget.canMarkComplete || widget.alreadyCompleted || _saving) return;
+    final totalSets = int.tryParse(widget.sets) ?? 1;
+    if (!widget.canMarkComplete || _setsCompleted >= totalSets || _saving)
+      return;
     setState(() => _saving = true);
     try {
-      await authController.completeClientExercise(exerciseId: widget.id);
-      if (mounted) context.pop(true);
+      final result = await authController.completeClientExercise(
+          exerciseId: widget.id, setsCompleted: _setsCompleted + 1);
+      if (!mounted) return;
+      setState(() => _setsCompleted =
+          result['sets_completed'] as int? ?? _setsCompleted + 1);
+      if (_setsCompleted >= totalSets) context.pop(true);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -1158,15 +1172,30 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
                 ? 'Tu entrenador todavía no agregó instrucciones para este ejercicio.'
                 : widget.instructions)),
         const SizedBox(height: 20),
+        if (widget.canMarkComplete) ...[
+          _section(
+              'Progreso de series · $_setsCompleted de ${int.tryParse(widget.sets) ?? 1}'),
+          Wrap(spacing: 8, children: [
+            for (var i = 0; i < (int.tryParse(widget.sets) ?? 1); i++)
+              Chip(
+                  avatar: Icon(
+                      i < _setsCompleted
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      size: 18),
+                  label: Text('Serie ${i + 1}')),
+          ]),
+        ],
         MusklButton(
-            label: widget.alreadyCompleted
+            label: _setsCompleted >= (int.tryParse(widget.sets) ?? 1)
                 ? 'Ejercicio finalizado'
                 : widget.canMarkComplete
-                    ? 'Marcar ejercicio finalizado'
+                    ? 'Finalizar serie ${_setsCompleted + 1}'
                     : 'Disponible en su día programado',
             icon: Icons.check,
             loading: _saving,
-            onPressed: widget.canMarkComplete && !widget.alreadyCompleted
+            onPressed: widget.canMarkComplete &&
+                    _setsCompleted < (int.tryParse(widget.sets) ?? 1)
                 ? _finishExercise
                 : null),
       ]));
@@ -1489,15 +1518,22 @@ class _ClientProfileWorkspaceScreenState
   }
 
   Future<void> _editContact(String field, String current) async {
-    final label = field == 'email' ? 'Correo electrónico' : 'Teléfono';
-    final values =
-        await _editFields(context, 'EDITAR $label', [label], [current]);
+    final label = switch (field) {
+      'email' => 'Correo electrónico',
+      'bio' => 'Biografía',
+      _ => 'Teléfono',
+    };
+    final values = await _editFields(
+        context, 'EDITAR $label', [label], [current],
+        multiline: field == 'bio' ? const {0} : const {});
     if (!mounted || values == null) return;
     if (field == 'email') {
       final email = values.first.trim();
       if (email.toLowerCase() != current.toLowerCase() &&
           !await _verifyEmailChange(context, email)) return;
       await _saveClientProfile(email: email);
+    } else if (field == 'bio') {
+      await _saveClientProfile(bio: values.first.trim());
     } else {
       await _saveClientProfile(phone: values.first.trim());
     }
@@ -1520,6 +1556,7 @@ class _ClientProfileWorkspaceScreenState
       String? lastName,
       String? email,
       String? phone,
+      String? bio,
       String? photoData,
       String? photoMime,
       bool removePhoto = false}) async {
@@ -1530,6 +1567,7 @@ class _ClientProfileWorkspaceScreenState
           lastName: lastName,
           email: email,
           phone: phone,
+          bio: bio,
           photoData: photoData,
           photoMime: photoMime,
           removePhoto: removePhoto);
@@ -1623,6 +1661,14 @@ class _ClientProfileWorkspaceScreenState
             return Text('No se pudo cargar tu perfil: ${snapshot.error}',
                 style: const TextStyle(color: AppColors.red));
           final data = snapshot.data ?? {};
+          final membershipEnds = data['membership_ends_on']?.toString();
+          final todayDate = DateTime.tryParse(data['today']?.toString() ?? '');
+          final endDate = DateTime.tryParse(membershipEnds ?? '');
+          final membershipCurrent =
+              (data['plan_name'] ?? '').toString().isNotEmpty &&
+                  endDate != null &&
+                  todayDate != null &&
+                  !endDate.isBefore(todayDate);
           final photo = data['profile_photo_data'];
           final photoBytes =
               photo is String && photo.isNotEmpty ? base64Decode(photo) : null;
@@ -1651,6 +1697,14 @@ class _ClientProfileWorkspaceScreenState
                   style: const TextStyle(color: AppColors.textMuted)),
             ])),
             _section('Datos personales'),
+            _record('Biografía',
+                (data['bio'] ?? 'Agrega una descripción').toString(),
+                icon: Icons.notes_outlined,
+                editable: true,
+                onTap: _savingProfile
+                    ? null
+                    : () =>
+                        _editContact('bio', (data['bio'] ?? '').toString())),
             _record('Correo', (data['email'] ?? '').toString(),
                 icon: Icons.mail_outline,
                 editable: true,
@@ -1692,10 +1746,12 @@ class _ClientProfileWorkspaceScreenState
                     Text(
                         'PLAN ${(data['plan_name'] ?? 'PENDIENTE').toString().toUpperCase()}',
                         style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text('Vigente hasta ${data['membership_ends_on'] ?? '—'}',
+                    Text(membershipCurrent ? 'VIGENTE' : 'PENDIENTE',
+                        style: const TextStyle(
+                            color: AppColors.red, fontWeight: FontWeight.w800)),
+                    Text('Paga el ${data['payment_due_on'] ?? 'pendiente'}',
                         style: const TextStyle(color: AppColors.textMuted)),
-                    Text(
-                        'Fecha de pago ${data['payment_due_on'] ?? 'pendiente'}',
+                    Text('Membresía hasta ${membershipEnds ?? '—'}',
                         style: const TextStyle(color: AppColors.textMuted)),
                   ])),
               const Text('ACTIVO', style: TextStyle(color: AppColors.red)),
@@ -1757,8 +1813,11 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
     _assignmentRequests = authController.trainerAssignmentRequests();
     _assignmentRequestTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) {
-        setState(() =>
-            _assignmentRequests = authController.trainerAssignmentRequests());
+        setState(() {
+          _assignmentRequests = authController.trainerAssignmentRequests();
+          _notifications = authController.trainerNotifications();
+          _loadClients();
+        });
       }
     });
   }
@@ -1774,46 +1833,8 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
 
   Future<void> _reviewAssignment(String requestId, bool accept) async {
     try {
-      Map<String, dynamic>? selectedRoutine;
-      if (accept) {
-        final routines = await authController.trainerRoutines();
-        final published = routines
-            .where((routine) =>
-                routine['phase_status'] == 'published' &&
-                routine['phase_id'] != null)
-            .toList();
-        if (!mounted) return;
-        if (published.isNotEmpty) {
-          selectedRoutine = await showModalBottomSheet<Map<String, dynamic>>(
-            context: context,
-            builder: (context) => SafeArea(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  const ListTile(
-                      title: Text('ELIGE LA RUTINA PARA ESTE SOCIO'),
-                      subtitle: Text(
-                          'Se asignará junto con la aceptación de la solicitud.')),
-                  for (final routine in published)
-                    ListTile(
-                      leading: const Icon(Icons.fitness_center),
-                      title: Text(routine['name'].toString()),
-                      subtitle: Text(
-                          '${routine['goal']} · ${routine['days_per_week']} días'),
-                      onTap: () => Navigator.pop(context, routine),
-                    ),
-                ],
-              ),
-            ),
-          );
-          if (selectedRoutine == null || !mounted) return;
-        }
-      }
       await authController.reviewTrainerAssignmentRequest(
-          requestId: requestId,
-          accept: accept,
-          routineId: selectedRoutine?['id']?.toString(),
-          phaseId: selectedRoutine?['phase_id']?.toString());
+          requestId: requestId, accept: accept);
       if (!mounted) return;
       setState(() {
         _loadClients();
@@ -1822,9 +1843,7 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(accept
-              ? selectedRoutine == null
-                  ? 'Aceptaste al socio. Puedes asignarle una rutina publicada desde Mis rutinas.'
-                  : 'Aceptaste al socio y le asignaste ${selectedRoutine['name']}.'
+              ? 'Socio aceptado. Puedes asignarle una rutina desde Mis rutinas.'
               : 'Solicitud rechazada.')));
     } catch (error) {
       if (mounted) {
@@ -2217,27 +2236,41 @@ class _TrainerRoutinesScreenState extends State<TrainerRoutinesScreen> {
             final routines = snapshot.data ?? [];
             return Column(children: [
               for (final routine in routines) ...[
-                _record(routine['name'].toString(),
-                    '${routine['goal']} · ${routine['days_per_week']} días · ${routine['assigned_clients']} socios',
-                    icon: Icons.fitness_center,
-                    onTap: () => context.push(
-                            Uri(path: '/trainer/phases', queryParameters: {
-                          'id': routine['id'].toString(),
-                        }).toString())),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: Wrap(spacing: 8, children: [
-                    if (routine['phase_status'] != 'published')
-                      OutlinedButton.icon(
-                          onPressed: () => _publish(routine),
-                          icon: const Icon(Icons.publish),
-                          label: const Text('Publicar')),
-                    if (routine['phase_status'] == 'published')
-                      FilledButton.tonalIcon(
-                          onPressed: () => _assign(routine),
-                          icon: const Icon(Icons.person_add_alt_1),
-                          label: const Text('Asignar a cliente')),
-                  ]),
+                  child: MusklCard(
+                      child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.fitness_center,
+                            color: AppColors.red),
+                        title: Text(routine['name'].toString(),
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text(
+                            '${routine['goal']} · ${routine['days_per_week']} días · ${routine['assigned_clients']} socios'),
+                        onTap: () => context.push(Uri(
+                            path: '/trainer/phases',
+                            queryParameters: {
+                              'id': routine['id'].toString()
+                            }).toString()),
+                      ),
+                      Wrap(spacing: 8, children: [
+                        if (routine['phase_status'] != 'published')
+                          OutlinedButton.icon(
+                              onPressed: () => _publish(routine),
+                              icon: const Icon(Icons.publish),
+                              label: const Text('Publicar')),
+                        if (routine['phase_status'] == 'published')
+                          FilledButton.tonalIcon(
+                              onPressed: () => _assign(routine),
+                              icon: const Icon(Icons.person_add_alt_1),
+                              label: const Text('Asignar a cliente')),
+                      ]),
+                    ],
+                  )),
                 ),
               ],
               if (routines.isEmpty)
@@ -2253,7 +2286,8 @@ class _TrainerRoutinesScreenState extends State<TrainerRoutinesScreen> {
 }
 
 class CreateRoutineScreen extends StatefulWidget {
-  const CreateRoutineScreen({super.key});
+  const CreateRoutineScreen({super.key, this.routineId});
+  final String? routineId;
   @override
   State<CreateRoutineScreen> createState() => _CreateRoutineScreenState();
 }
@@ -2265,11 +2299,69 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
   final Map<String, List<Map<String, dynamic>>> exercisesByDay = {};
   String activeDay = 'LUN';
   bool saving = false;
+  bool loadingPhaseTemplate = false;
   String? error;
   @override
   void dispose() {
     name.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.routineId != null) _loadPhaseTemplate();
+  }
+
+  Future<void> _loadPhaseTemplate() async {
+    setState(() => loadingPhaseTemplate = true);
+    try {
+      final routine =
+          await authController.trainerRoutine(routineId: widget.routineId!);
+      final phases = (routine['phases'] as List? ?? [])
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+      final exercises = (routine['exercises'] as List? ?? [])
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+      if (!mounted) return;
+      if (phases.isEmpty) throw StateError('No encontramos fases anteriores.');
+      final latestNumber =
+          int.tryParse(phases.last['phase_number'].toString()) ?? 1;
+      final activeDays = exercises
+          .where((exercise) =>
+              int.tryParse(exercise['phase_number'].toString()) == latestNumber)
+          .map((exercise) => int.tryParse(exercise['day_number'].toString()))
+          .whereType<int>()
+          .toSet()
+          .toList()
+        ..sort();
+      const dayLabels = {
+        1: 'LUN',
+        2: 'MAR',
+        3: 'MIÉ',
+        4: 'JUE',
+        5: 'VIE',
+        6: 'SÁB',
+        7: 'DOM'
+      };
+      setState(() {
+        selectedDays
+          ..clear()
+          ..addAll(
+              activeDays.map((day) => dayLabels[day]!).whereType<String>());
+        if (selectedDays.isEmpty) selectedDays.addAll(['LUN', 'MIÉ', 'VIE']);
+        activeDay = selectedDays.first;
+        name.text = 'Fase ${latestNumber + 1}';
+        loadingPhaseTemplate = false;
+      });
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          loadingPhaseTemplate = false;
+          error = 'No se pudo preparar la fase: $e';
+        });
+    }
   }
 
   Future<void> _addExercise() async {
@@ -2350,8 +2442,32 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
     );
     searchController.dispose();
     if (selected != null && mounted) {
+      final values = await _editFields(
+          context,
+          'CONFIGURAR EJERCICIO',
+          ['Series', 'Repeticiones', 'Descanso (segundos)'],
+          ['4', '8-12', '60']);
+      if (values == null || !mounted) return;
+      final sets = int.tryParse(values[0]);
+      final rest = int.tryParse(values[2]);
+      if (sets == null ||
+          sets < 1 ||
+          sets > 20 ||
+          rest == null ||
+          rest < 0 ||
+          rest > 3600 ||
+          values[1].trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Revisa series, repeticiones y descanso.')));
+        return;
+      }
       setState(() {
-        exercisesByDay.putIfAbsent(activeDay, () => []).add(selected);
+        exercisesByDay.putIfAbsent(activeDay, () => []).add({
+          ...selected,
+          'sets': sets,
+          'reps': values[1].trim(),
+          'rest_seconds': rest
+        });
         error = null;
       });
     }
@@ -2359,31 +2475,36 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
 
   @override
   Widget build(BuildContext context) => WorkspacePage(
-      title: 'Nueva rutina',
+      title: widget.routineId == null ? 'Nueva rutina' : 'Nueva fase',
       items: _trainerNav,
       selected: 2,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         MusklTextField(
-          label: 'Nombre de la rutina',
+          label: widget.routineId == null
+              ? 'Nombre de la rutina'
+              : 'Nombre de la fase',
           controller: name,
           icon: Icons.edit,
           onChanged: (_) => setState(() {}),
         ),
-        _section('Objetivo'),
-        Wrap(
-            spacing: 7,
-            runSpacing: 7,
-            children: [
-              'Bajar de peso',
-              'Masa muscular',
-              'Resistencia',
-              'Fuerza'
-            ]
-                .map((v) => ChoiceChip(
-                    label: Text(v),
-                    selected: goal == v,
-                    onSelected: (_) => setState(() => goal = v)))
-                .toList()),
+        if (widget.routineId == null) ...[
+          _section('Objetivo'),
+          Wrap(
+              spacing: 7,
+              runSpacing: 7,
+              children: [
+                'Bajar de peso',
+                'Masa muscular',
+                'Resistencia',
+                'Fuerza'
+              ]
+                  .map((v) => ChoiceChip(
+                      label: Text(v),
+                      selected: goal == v,
+                      onSelected: (_) => setState(() => goal = v)))
+                  .toList()),
+        ],
+        if (loadingPhaseTemplate) const LinearProgressIndicator(),
         _section('Días por semana'),
         Wrap(
             spacing: 6,
@@ -2445,7 +2566,7 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
         if (error != null)
           Text(error!, style: const TextStyle(color: AppColors.red)),
         MusklButton(
-            label: 'Guardar rutina',
+            label: widget.routineId == null ? 'Guardar rutina' : 'Guardar fase',
             icon: Icons.save_outlined,
             loading: saving,
             onPressed: selectedDays.length < 3 ||
@@ -2455,7 +2576,8 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                         (exercise) =>
                             exercise['name'].toString().trim().isEmpty) ||
                     name.text.trim().isEmpty ||
-                    saving
+                    saving ||
+                    loadingPhaseTemplate
                 ? null
                 : () async {
                     setState(() {
@@ -2472,19 +2594,37 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                         'SÁB': 6,
                         'DOM': 7
                       };
-                      await authController.createTrainerRoutine(
-                        name: name.text.trim(),
-                        goal: goal,
-                        days:
-                            selectedDays.map((day) => dayNumber[day]!).toList()
-                              ..sort(),
-                        exercises: [
-                          for (final day in selectedDays)
-                            for (final exercise in exercisesByDay[day] ?? [])
-                              {...exercise, 'day_number': dayNumber[day]},
-                        ],
-                      );
-                      if (mounted) context.go('/trainer/routines');
+                      final phaseDays = selectedDays
+                          .map((day) => dayNumber[day]!)
+                          .toList()
+                        ..sort();
+                      final List<Map<String, dynamic>> phaseExercises = [
+                        for (final day in selectedDays)
+                          for (final exercise in exercisesByDay[day] ?? [])
+                            <String, dynamic>{
+                              ...exercise,
+                              'day_number': dayNumber[day]
+                            },
+                      ];
+                      if (widget.routineId == null) {
+                        await authController.createTrainerRoutine(
+                            name: name.text.trim(),
+                            goal: goal,
+                            days: phaseDays,
+                            exercises: phaseExercises);
+                        if (mounted) context.go('/trainer/routines');
+                      } else {
+                        await authController.createTrainerPhase(
+                            routineId: widget.routineId!,
+                            name: name.text.trim(),
+                            days: phaseDays,
+                            exercises: phaseExercises);
+                        if (mounted)
+                          context.go(Uri(
+                                  path: '/trainer/phases',
+                                  queryParameters: {'id': widget.routineId!})
+                              .toString());
+                      }
                     } catch (e) {
                       if (mounted)
                         setState(
@@ -2896,22 +3036,46 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
           : Column(children: [
               if (_saving) const LinearProgressIndicator(),
               MusklCard(
-                  child: Row(children: [
-                ProfilePhotoAvatar(
-                    image: _value('profile_photo_url').isEmpty
-                        ? null
-                        : NetworkImage(_value('profile_photo_url')),
-                    name: '${_value('first_name')} ${_value('last_name')}',
-                    onEdit: _saving ? () {} : _changeProfilePhoto),
-                const SizedBox(width: 14),
-                Expanded(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                      Text('${_value('first_name')} ${_value('last_name')}',
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text('Entrenador · ${_value('specialty')}'),
-                    ])),
+                  child: Column(children: [
+                Row(children: [
+                  ProfilePhotoAvatar(
+                      image: _value('profile_photo_url').isEmpty
+                          ? null
+                          : NetworkImage(_value('profile_photo_url')),
+                      name: '${_value('first_name')} ${_value('last_name')}',
+                      onEdit: _saving ? () {} : _changeProfilePhoto),
+                  const SizedBox(width: 14),
+                  Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text('${_value('first_name')} ${_value('last_name')}',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold)),
+                        Text(
+                            _value('specialty').isEmpty
+                                ? 'Entrenador'
+                                : _value('specialty'),
+                            style: const TextStyle(color: AppColors.textMuted)),
+                      ])),
+                  IconButton(
+                      tooltip: 'Editar datos personales',
+                      onPressed: _saving ? null : _editPersonal,
+                      icon: const Icon(Icons.edit_outlined)),
+                ]),
+                if (_value('bio').isNotEmpty) ...[
+                  const Divider(height: 22),
+                  Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(_value('bio'))),
+                ],
+                Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: _saving ? null : _editCredentials,
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('Editar perfil profesional'),
+                    )),
               ])),
               _setting(
                   'Datos personales',
@@ -3094,6 +3258,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
   final _confirmation = TextEditingController();
   int _furthestStep = 0;
   bool _loading = false;
+  bool _showCurrentPassword = false;
+  bool _showNewPassword = false;
+  bool _showConfirmation = false;
   String? _error;
   String? _deliveryMessage;
 
@@ -3184,7 +3351,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
           code: _code.text.trim());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Contraseña actualizada. Las demás sesiones se cerraron.')));
+          content:
+              Text('Contraseña actualizada. Las demás sesiones se cerraron.')));
       context.pop();
     } catch (error) {
       if (mounted) {
@@ -3244,6 +3412,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
                               'La verificaremos antes de enviar el código de seguridad.',
                           controller: _currentPassword,
                           label: 'Contraseña actual',
+                          visible: _showCurrentPassword,
+                          onVisibilityChanged: (visible) =>
+                              setState(() => _showCurrentPassword = visible),
                         ),
                         _passwordStep(
                           title: 'Verifica tu identidad',
@@ -3259,20 +3430,25 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Text('Elige una contraseña nueva',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleLarge),
+                                  style:
+                                      Theme.of(context).textTheme.titleLarge),
                               const SizedBox(height: 8),
                               const Text(
                                   'Debe incluir mayúscula, minúscula, número y carácter especial.'),
                               const SizedBox(height: 24),
                               _passwordField(_newPassword, 'Nueva contraseña',
+                                  visible: _showNewPassword,
+                                  onVisibilityChanged: (visible) => setState(
+                                      () => _showNewPassword = visible),
                                   onChanged: (_) => setState(() {})),
                               const SizedBox(height: 12),
                               PasswordStrength(password: _newPassword.text),
                               const SizedBox(height: 20),
-                              _passwordField(_confirmation,
-                                  'Confirmar contraseña',
+                              _passwordField(
+                                  _confirmation, 'Confirmar contraseña',
+                                  visible: _showConfirmation,
+                                  onVisibilityChanged: (visible) => setState(
+                                      () => _showConfirmation = visible),
                                   onChanged: (_) => setState(() {})),
                             ],
                           ),
@@ -3309,7 +3485,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
     required String label,
     TextInputType? keyboardType,
     int? maxLength,
-  }) => SingleChildScrollView(
+    bool visible = false,
+    ValueChanged<bool>? onVisibilityChanged,
+  }) =>
+      SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -3318,7 +3497,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
             Text(description),
             const SizedBox(height: 24),
             _passwordField(controller, label,
-                keyboardType: keyboardType, maxLength: maxLength),
+                keyboardType: keyboardType,
+                maxLength: maxLength,
+                visible: visible,
+                onVisibilityChanged: onVisibilityChanged),
           ],
         ),
       );
@@ -3326,10 +3508,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
   Widget _passwordField(TextEditingController controller, String label,
           {TextInputType? keyboardType,
           int? maxLength,
+          bool visible = false,
+          ValueChanged<bool>? onVisibilityChanged,
           ValueChanged<String>? onChanged}) =>
       TextField(
         controller: controller,
-        obscureText: keyboardType != TextInputType.number,
+        obscureText: keyboardType != TextInputType.number && !visible,
         keyboardType: keyboardType,
         maxLength: maxLength,
         onChanged: onChanged,
@@ -3337,6 +3521,16 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
           labelText: label,
           border: const OutlineInputBorder(),
           counterText: maxLength == null ? null : '',
+          suffixIcon: keyboardType == TextInputType.number
+              ? null
+              : IconButton(
+                  tooltip:
+                      visible ? 'Ocultar contraseña' : 'Mostrar contraseña',
+                  onPressed: onVisibilityChanged == null
+                      ? null
+                      : () => onVisibilityChanged(!visible),
+                  icon: Icon(visible ? Icons.visibility_off : Icons.visibility),
+                ),
         ),
       );
 }
@@ -3852,6 +4046,11 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
               .map((client) => Map<String, dynamic>.from(client as Map));
           final exercises = (data['exercises'] as List? ?? [])
               .map((exercise) => Map<String, dynamic>.from(exercise as Map));
+          final exercisesByDay = <String, List<Map<String, dynamic>>>{};
+          for (final exercise in exercises) {
+            final key = '${exercise['phase_number']}-${exercise['day_number']}';
+            exercisesByDay.putIfAbsent(key, () => []).add(exercise);
+          }
           return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -3894,14 +4093,22 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
                       ),
                     ),
                 ],
-                _section('Ejercicios'),
-                for (final exercise in exercises)
-                  _record(exercise['name'].toString(),
-                      'Fase ${exercise['phase_number']} · Día ${exercise['day_number']} · ${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s',
-                      editable: true,
-                      onTap: _savingExercise
-                          ? null
-                          : () => _editExercise(exercise)),
+                _section('Ejercicios por fase y día'),
+                for (final entry in exercisesByDay.entries)
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: Text(
+                        'Fase ${entry.key.split('-').first} · ${_weekDays[(int.tryParse(entry.key.split('-').last) ?? 1) - 1]} · ${entry.value.length} ejercicios'),
+                    children: [
+                      for (final exercise in entry.value)
+                        _record(exercise['name'].toString(),
+                            '${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s',
+                            editable: true,
+                            onTap: _savingExercise
+                                ? null
+                                : () => _editExercise(exercise))
+                    ],
+                  ),
                 _section('Clientes asignados'),
                 for (final client in clients)
                   _record('${client['first_name']} ${client['last_name']}',
@@ -3965,6 +4172,46 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       _showLocalMessage('No se pudo guardar la foto: $e');
     } finally {
       if (mounted) setState(() => _savingPhoto = false);
+    }
+  }
+
+  Future<void> _editAdminProfile() async {
+    final values = await _editFields(context, 'DATOS PERSONALES', [
+      'Nombre',
+      'Apellidos',
+      'Correo electrónico',
+      'Teléfono',
+      'Biografía'
+    ], [
+      (_ownProfile['first_name'] ?? '').toString(),
+      (_ownProfile['last_name'] ?? '').toString(),
+      (_ownProfile['email'] ?? '').toString(),
+      (_ownProfile['phone'] ?? '').toString(),
+      (_ownProfile['bio'] ?? '').toString(),
+    ], multiline: const {
+      4
+    });
+    if (!mounted || values == null) return;
+    final nextEmail = values[2].trim();
+    final currentEmail = (_ownProfile['email'] ?? '').toString();
+    if (nextEmail.toLowerCase() != currentEmail.toLowerCase() &&
+        !await _verifyEmailChange(context, nextEmail)) return;
+    try {
+      final profile = await authController.updateOwnProfile(
+          firstName: values[0],
+          lastName: values[1],
+          phone: values[3],
+          bio: values[4]);
+      if (mounted) {
+        setState(() => _ownProfile = {
+              ...profile,
+              'email': nextEmail,
+              'profile_photo_url': _ownProfile['profile_photo_url']
+            });
+        _showLocalMessage('Perfil actualizado.');
+      }
+    } catch (e) {
+      _showLocalMessage('No se pudo actualizar el perfil: $e');
     }
   }
 
@@ -4333,9 +4580,22 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                   '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}',
               onEdit: _savingPhoto ? () {} : _changeAdminPhoto),
           const SizedBox(width: 14),
-          const Expanded(
-              child: Text('Administrador',
-                  style: TextStyle(fontWeight: FontWeight.bold))),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(
+                    '${_ownProfile['first_name'] ?? 'Administrador'} ${_ownProfile['last_name'] ?? ''}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(
+                    (_ownProfile['bio'] ?? 'Administrador del gimnasio')
+                        .toString(),
+                    style: const TextStyle(color: AppColors.textMuted)),
+              ])),
+          IconButton(
+              tooltip: 'Editar perfil',
+              onPressed: _editAdminProfile,
+              icon: const Icon(Icons.edit_outlined)),
         ])),
         _SwitchSetting(
             label: 'Notificaciones de nuevas solicitudes',

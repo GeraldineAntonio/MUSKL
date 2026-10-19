@@ -507,6 +507,21 @@ class ApiAuthRepository implements AuthRepository {
           await _request('GET', '/api/v1/profile', authenticated: true) as Map);
 
   @override
+  Future<Map<String, dynamic>> updateOwnProfile(
+          {required String firstName,
+          required String lastName,
+          required String phone,
+          required String bio}) async =>
+      Map<String, dynamic>.from(await _request('PATCH', '/api/v1/profile',
+          authenticated: true,
+          body: {
+            'first_name': firstName,
+            'last_name': lastName,
+            'phone': phone,
+            'bio': bio,
+          }) as Map);
+
+  @override
   Future<Map<String, dynamic>> updateOwnProfilePhoto(
       {String? photoData, String? photoMime, bool removePhoto = false}) async {
     final body = <String, dynamic>{
@@ -661,7 +676,7 @@ class ApiAuthRepository implements AuthRepository {
       {required String routineId,
       required String name,
       required List<int> days,
-      required List<String> exercises}) async {
+      required List<Map<String, dynamic>> exercises}) async {
     await _request('POST',
         '/api/v1/trainer/routines/${Uri.encodeComponent(routineId)}/phases',
         authenticated: true,
@@ -670,10 +685,12 @@ class ApiAuthRepository implements AuthRepository {
           'days': days,
           'exercises': exercises
               .map((exercise) => {
-                    'name': exercise,
-                    'sets': 4,
-                    'reps': '8-12',
-                    'rest_seconds': 60,
+                    'catalog_id': exercise['catalog_id'] ?? exercise['id'],
+                    'name': exercise['name'],
+                    'sets': exercise['sets'] ?? 4,
+                    'reps': exercise['reps'] ?? '8-12',
+                    'rest_seconds': exercise['rest_seconds'] ?? 60,
+                    'day_number': exercise['day_number'],
                   })
               .toList(),
         });
@@ -703,9 +720,9 @@ class ApiAuthRepository implements AuthRepository {
               .map((exercise) => {
                     'catalog_id': exercise['id'],
                     'name': exercise['name'],
-                    'sets': 4,
-                    'reps': '8-12',
-                    'rest_seconds': 60,
+                    'sets': exercise['sets'] ?? 4,
+                    'reps': exercise['reps'] ?? '8-12',
+                    'rest_seconds': exercise['rest_seconds'] ?? 60,
                     'day_number': exercise['day_number'],
                   })
               .toList(),
@@ -1118,6 +1135,7 @@ class ApiAuthRepository implements AuthRepository {
       String? lastName,
       String? email,
       String? phone,
+      String? bio,
       String? photoData,
       String? photoMime,
       bool removePhoto = false}) async {
@@ -1126,6 +1144,7 @@ class ApiAuthRepository implements AuthRepository {
       if (lastName != null) 'last_name': lastName,
       if (email != null) 'email': email,
       if (phone != null) 'phone': phone,
+      if (bio != null) 'bio': bio,
       if (photoData != null) 'photo_data': photoData,
       if (photoMime != null) 'photo_mime': photoMime,
       if (removePhoto) 'remove_photo': true,
@@ -1162,11 +1181,12 @@ class ApiAuthRepository implements AuthRepository {
 
   @override
   Future<Map<String, dynamic>> completeClientExercise(
-      {required String exerciseId}) async {
+      {required String exerciseId, required int setsCompleted}) async {
     final result = await _request(
       'POST',
       '/api/v1/client/routine/exercises/${Uri.encodeComponent(exerciseId)}/complete',
       authenticated: true,
+      body: {'sets_completed': setsCompleted},
     );
     return Map<String, dynamic>.from(result as Map);
   }

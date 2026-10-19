@@ -97,6 +97,12 @@ abstract class AuthRepository {
   Future<void> revokeAdminInvite({required String inviteId});
   Future<Map<String, dynamic>> getTrainerProfile();
   Future<Map<String, dynamic>> getOwnProfile();
+  Future<Map<String, dynamic>> updateOwnProfile({
+    required String firstName,
+    required String lastName,
+    required String phone,
+    required String bio,
+  });
   Future<Map<String, dynamic>> updateOwnProfilePhoto(
       {String? photoData, String? photoMime, bool removePhoto = false});
   Future<Map<String, dynamic>> updateTrainerProfile(
@@ -127,7 +133,7 @@ abstract class AuthRepository {
       {required String routineId,
       required String name,
       required List<int> days,
-      required List<String> exercises});
+      required List<Map<String, dynamic>> exercises});
   Future<void> publishTrainerPhase(
       {required String routineId, required String phaseId});
   Future<void> createTrainerRoutine(
@@ -154,6 +160,7 @@ abstract class AuthRepository {
       String? lastName,
       String? email,
       String? phone,
+      String? bio,
       String? photoData,
       String? photoMime,
       bool removePhoto = false});
@@ -162,7 +169,7 @@ abstract class AuthRepository {
   Future<Map<String, dynamic>> checkInClientAttendance();
   Future<Map<String, dynamic>> getClientRoutine({required int day});
   Future<Map<String, dynamic>> completeClientExercise(
-      {required String exerciseId});
+      {required String exerciseId, required int setsCompleted});
   Future<List<Map<String, dynamic>>> getClientNotifications();
   Future<void> markClientNotificationRead({required String notificationId});
   Future<List<Map<String, dynamic>>> getTrainerNotifications();
@@ -667,6 +674,22 @@ class FakeAuthRepository implements AuthRepository {
       };
 
   @override
+  Future<Map<String, dynamic>> updateOwnProfile(
+          {required String firstName,
+          required String lastName,
+          required String phone,
+          required String bio}) async =>
+      {
+        'first_name': firstName,
+        'last_name': lastName,
+        'email': 'demo@muskl.app',
+        'phone': phone,
+        'bio': bio,
+        'role': 'admin',
+        'profile_photo_url': null,
+      };
+
+  @override
   Future<Map<String, dynamic>> updateOwnProfilePhoto(
           {String? photoData,
           String? photoMime,
@@ -837,7 +860,7 @@ class FakeAuthRepository implements AuthRepository {
       {required String routineId,
       required String name,
       required List<int> days,
-      required List<String> exercises}) async {}
+      required List<Map<String, dynamic>> exercises}) async {}
 
   @override
   Future<void> publishTrainerPhase(
@@ -905,6 +928,7 @@ class FakeAuthRepository implements AuthRepository {
           String? lastName,
           String? email,
           String? phone,
+          String? bio,
           String? photoData,
           String? photoMime,
           bool removePhoto = false}) async =>
@@ -914,6 +938,7 @@ class FakeAuthRepository implements AuthRepository {
         if (lastName != null) 'last_name': lastName,
         if (email != null) 'email': email,
         if (phone != null) 'phone': phone,
+        if (bio != null) 'bio': bio,
         if (photoData != null) 'profile_photo_data': photoData,
         if (photoMime != null) 'profile_photo_mime': photoMime,
         if (removePhoto) 'profile_photo_data': null,
@@ -985,7 +1010,7 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<Map<String, dynamic>> completeClientExercise(
-          {required String exerciseId}) async =>
+          {required String exerciseId, required int setsCompleted}) async =>
       {'exercise_id': exerciseId, 'completed': true, 'created': true};
 
   @override

@@ -131,7 +131,10 @@ GoRouter buildRouter(AuthController auth) {
               canMarkComplete:
                   state.uri.queryParameters['can_complete'] == 'true',
               alreadyCompleted:
-                  state.uri.queryParameters['already_completed'] == 'true')),
+                  state.uri.queryParameters['already_completed'] == 'true',
+              setsCompleted: int.tryParse(
+                      state.uri.queryParameters['sets_completed'] ?? '0') ??
+                  0)),
       GoRoute(
           path: '/home/complete',
           builder: (_, state) => RoutineCompleteScreen(
@@ -174,7 +177,8 @@ GoRouter buildRouter(AuthController auth) {
           builder: (_, __) => const TrainerRoutinesScreen()),
       GoRoute(
           path: '/trainer/routine/new',
-          builder: (_, __) => const CreateRoutineScreen()),
+          builder: (_, state) => CreateRoutineScreen(
+              routineId: state.uri.queryParameters['routine_id'])),
       GoRoute(
           path: '/trainer/settings',
           builder: (_, __) => const TrainerSettingsScreen()),

@@ -338,6 +338,7 @@ class ClientProfileUpdate(BaseModel):
     last_name: str | None = Field(default=None, min_length=1, max_length=100)
     email: EmailStr | None = None
     phone: str | None = Field(default=None, max_length=30)
+    bio: str | None = Field(default=None, max_length=1000)
     photo_data: str | None = Field(default=None, max_length=2_800_000)
     photo_mime: Literal['image/jpeg', 'image/png'] | None = None
     remove_photo: bool = False
@@ -347,6 +348,13 @@ class ProfilePhotoUpdate(BaseModel):
     photo_data: str | None = Field(default=None, max_length=2_800_000)
     photo_mime: Literal['image/jpeg', 'image/png'] | None = None
     remove_photo: bool = False
+
+
+class OwnProfileUpdate(BaseModel):
+    first_name: str = Field(min_length=1, max_length=80)
+    last_name: str = Field(min_length=1, max_length=100)
+    phone: str | None = Field(default=None, max_length=30)
+    bio: str | None = Field(default=None, max_length=1000)
 
 
 class RoutineExerciseInput(BaseModel):
@@ -392,9 +400,21 @@ class RoutinePhaseCreateRequest(BaseModel):
             raise ValueError('Los días deben ser únicos y estar entre 1 y 7.')
         return value
 
+    @field_validator('exercises')
+    @classmethod
+    def validate_phase_exercise_days(cls, value: list[RoutineExerciseInput], info):
+        days = set(info.data.get('days', []))
+        if any(ex.day_number is not None and ex.day_number not in days for ex in value):
+            raise ValueError('Cada ejercicio debe pertenecer a uno de los días seleccionados.')
+        return value
+
 
 class WorkoutCompletionRequest(BaseModel):
     duration_seconds: int | None = Field(default=None, ge=1, le=86400)
+
+
+class WorkoutSetProgressRequest(BaseModel):
+    sets_completed: int = Field(ge=0, le=20)
 
 
 class AdminRoutineExerciseUpdate(BaseModel):
@@ -1407,10 +1427,45 @@ def own_profile(user: dict = Depends(current_user)) -> dict:
         'last_name': user['last_name'],
         'email': user['email'],
         'phone': user['phone'],
+        'bio': user.get('bio'),
         'role': user['role'],
         'profile_photo_url': _signed_profile_photo(user.get('profile_photo_storage_key')),
         'profile_photo_mime': user.get('profile_photo_mime'),
     }
+
+
+@app.patch('/api/v1/profile')
+def update_own_profile(payload: OwnProfileUpdate,
+                       user: dict = Depends(current_user)) -> dict:
+    if user['role'] != 'admin':
+        raise _problem(403, 'PROFILE_ROUTE_ROLE', 'Usa el apartado de perfil de tu cuenta.')
+    first_name = _normalize_person_name(payload.first_name, 'nombre')
+    last_name = _normalize_person_name(payload.last_name, 'apellido')
+    phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
+    bio = payload.bio.strip() if payload.bio and payload.bio.strip() else None
+    changed = (first_name != user['first_name'] or last_name != user['last_name']
+               or phone != user.get('phone') or bio != user.get('bio'))
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            if changed:
+                _ensure_profile_edit_window(cur, user['id'])
+            _ensure_unique_person_name(cur, user['gym_id'], first_name, last_name, user['id'])
+            cur.execute("""UPDATE users SET first_name = %s, last_name = %s,
+                phone = %s, bio = %s,
+                profile_details_updated_at = CASE WHEN %s THEN now() ELSE profile_details_updated_at END,
+                updated_at = now() WHERE id = %s""",
+                (first_name, last_name, phone, bio, changed, user['id']))
+            if changed:
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, subject_id, event_type)
+                    VALUES (%s, %s, %s, 'admin_profile_updated')""",
+                    (user['gym_id'], user['id'], user['id']))
+                cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                    VALUES (%s, 'profile_updated', 'Perfil actualizado',
+                        'Se guardaron cambios en tus datos personales.', %s)""",
+                    (user['id'], Jsonb({'event': 'admin_profile_updated'})))
+    return own_profile({**user, 'first_name': first_name, 'last_name': last_name,
+                        'phone': phone, 'bio': bio})
 
 
 @app.patch('/api/v1/profile/photo')
@@ -1672,19 +1727,37 @@ def update_trainer_profile(payload: TrainerProfileUpdate,
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
+                before = cur.execute("""SELECT u.first_name, u.last_name, u.phone,
+                        tp.specialty, tp.bio
+                    FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id
+                    WHERE u.id = %s FOR UPDATE OF u""", (trainer['id'],)).fetchone()
+                details_changed = bool(before and (
+                    before['first_name'] != first_name or before['last_name'] != last_name
+                    or before['phone'] != (payload.phone.strip() if payload.phone else None)
+                    or before['specialty'] != (payload.specialty.strip() if payload.specialty else None)
+                    or before['bio'] != (payload.bio.strip() if payload.bio else None)))
+                if details_changed:
+                    _ensure_profile_edit_window(cur, trainer['id'])
                 _ensure_unique_person_name(cur, trainer['gym_id'], first_name,
                                            last_name, trainer['id'])
                 cur.execute("""UPDATE users SET first_name = %s, last_name = %s,
-                    email = %s, phone = %s, updated_at = now() WHERE id = %s""",
+                    email = %s, phone = %s,
+                    profile_details_updated_at = CASE WHEN %s THEN now() ELSE profile_details_updated_at END,
+                    updated_at = now() WHERE id = %s""",
                     (first_name, last_name,
                      str(payload.email).lower(), payload.phone.strip() if payload.phone else None,
-                     trainer['id']))
+                     details_changed, trainer['id']))
                 cur.execute("""UPDATE trainer_profiles SET specialty = %s, bio = %s,
                     notification_preferences = %s, updated_at = now() WHERE user_id = %s""",
                     (payload.specialty.strip() if payload.specialty else None,
                      payload.bio.strip() if payload.bio else None, Jsonb(preferences), trainer['id']))
                 cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, 'trainer_profile_updated', %s)",
                     (trainer['gym_id'], trainer['id'], Jsonb({'email': str(payload.email)})))
+                if details_changed:
+                    cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                        VALUES (%s, 'profile_updated', 'Perfil actualizado',
+                            'Se guardaron cambios en tus datos personales o profesionales.', %s)""",
+                        (trainer['id'], Jsonb({'event': 'trainer_profile_updated'})))
     except Exception as exc:
         constraint = getattr(getattr(exc, 'diag', None), 'constraint_name', '')
         if constraint == 'users_email_per_gym_uq':
@@ -1763,6 +1836,10 @@ def confirm_email_change(payload: EmailChangeConfirmRequest,
                 changed_email = pending['new_email']
                 cur.execute('UPDATE users SET email = %s, updated_at = now() WHERE id = %s',
                             (changed_email, user['id']))
+                cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                    VALUES (%s, 'profile_updated', 'Correo actualizado',
+                        'Tu correo electrónico se verificó y actualizó correctamente.', %s)""",
+                    (user['id'], Jsonb({'event': 'email_updated'})))
                 cur.execute('UPDATE email_change_codes SET consumed_at = now() WHERE id = %s',
                             (pending['id'],))
                 cur.execute("""UPDATE auth_sessions SET revoked_at = now()
@@ -2252,14 +2329,17 @@ def create_routine_phase(routine_id: uuid.UUID, payload: RoutinePhaseCreateReque
             phase = cur.execute("""INSERT INTO routine_phases (routine_id, phase_number, name, duration_weeks)
                 VALUES (%s, %s, %s, 8) RETURNING id, phase_number, name, duration_weeks, status""",
                 (routine_id, number, payload.name.strip())).fetchone()
-            for day in payload.days:
-                for position, exercise in enumerate(payload.exercises, 1):
+            positions: dict[int, int] = {}
+            for exercise in payload.exercises:
+                target_days = [exercise.day_number] if exercise.day_number is not None else payload.days
+                for day in target_days:
+                    positions[day] = positions.get(day, 0) + 1
                     catalog_id, exercise_name, media_url, instructions = _resolve_catalog_exercise(cur, exercise)
                     cur.execute("""INSERT INTO routine_exercises
                         (phase_id, day_number, position, exercise_catalog_id, name, sets, reps,
                          rest_seconds, media_url, instructions)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                        (phase['id'], day, position, catalog_id, exercise_name, exercise.sets,
+                        (phase['id'], day, positions[day], catalog_id, exercise_name, exercise.sets,
                          exercise.reps, exercise.rest_seconds, media_url, instructions))
             cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, 'routine_phase_created', %s)",
                 (trainer['gym_id'], trainer['id'], Jsonb({'routine_id': str(routine_id), 'phase_id': str(phase['id']), 'phase_number': number})))
@@ -2533,11 +2613,25 @@ def _date_streak(values: set[date], today: date) -> int:
     return count
 
 
+def _ensure_profile_edit_window(cur, user_id: uuid.UUID) -> None:
+    row = cur.execute("""SELECT profile_details_updated_at,
+            profile_details_updated_at + interval '10 days' AS editable_at
+        FROM users WHERE id = %s FOR UPDATE""", (user_id,)).fetchone()
+    if row and row['editable_at'] and row['editable_at'] > datetime.now(UTC):
+        raise _problem(409, 'PROFILE_EDIT_COOLDOWN',
+                       f"Los datos personales se pueden volver a editar el {row['editable_at'].astimezone().strftime('%d/%m/%Y') }.")
+
+
 @app.get('/api/v1/client/dashboard')
 def client_dashboard(client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
         _advance_due_client_phase(conn, client['id'])
-        row = conn.execute("""SELECT u.first_name, u.last_name, u.member_number, u.email, u.phone,
+        conn.execute("""INSERT INTO client_app_open_days (client_id, local_date)
+            SELECT %s, (now() AT TIME ZONE g.timezone)::date
+            FROM gyms g WHERE g.id = %s
+            ON CONFLICT (client_id, local_date) DO NOTHING""",
+            (client['id'], client['gym_id']))
+        row = conn.execute("""SELECT u.first_name, u.last_name, u.member_number, u.email, u.phone, u.bio,
                 cp.goal, cp.weight_kg, cp.height_cm,
                 cp.trainer_reassignment_required,
                 u.profile_photo_storage_key, u.profile_photo_mime,
@@ -2573,9 +2667,9 @@ def client_dashboard(client: dict = Depends(active_client)) -> dict:
             WHERE u.id = %s""", (client['id'],)).fetchone()
         attendance = conn.execute("SELECT local_date FROM attendance WHERE client_id = %s AND local_date >= %s - 6 AND local_date <= %s ORDER BY local_date",
                                   (client['id'], row['today'], row['today'])).fetchall()
-        access_dates = conn.execute("""SELECT DISTINCT (created_at AT TIME ZONE %s)::date AS d
-            FROM auth_sessions WHERE user_id = %s""",
-            (row['timezone'], client['id'])).fetchall()
+        access_dates = conn.execute("""SELECT local_date AS d
+            FROM client_app_open_days WHERE client_id = %s""",
+            (client['id'],)).fetchall()
         all_attendance_dates = conn.execute("SELECT DISTINCT local_date AS d FROM attendance WHERE client_id = %s",
                                             (client['id'],)).fetchall()
         full_routine_dates = conn.execute("""SELECT DISTINCT workout_date AS d FROM workout_completions
@@ -2611,7 +2705,7 @@ def client_dashboard(client: dict = Depends(active_client)) -> dict:
 def update_client_profile(payload: ClientProfileUpdate,
                           client: dict = Depends(active_client)) -> dict:
     fields = payload.model_fields_set
-    if not (fields & {'first_name', 'last_name', 'email', 'phone', 'photo_data', 'photo_mime'}) \
+    if not (fields & {'first_name', 'last_name', 'email', 'phone', 'bio', 'photo_data', 'photo_mime'}) \
             and not payload.remove_photo:
         raise _problem(422, 'EMPTY_PROFILE_UPDATE', 'Incluye al menos un cambio de perfil.')
     if payload.photo_data is not None and payload.remove_photo:
@@ -2649,6 +2743,7 @@ def update_client_profile(payload: ClientProfileUpdate,
     phone = client['phone']
     if 'phone' in fields:
         phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
+    bio = (payload.bio.strip() if payload.bio and payload.bio.strip() else None) if 'bio' in fields else client.get('bio')
 
     new_storage_key = None
     if photo_bytes is not None:
@@ -2665,6 +2760,12 @@ def update_client_profile(payload: ClientProfileUpdate,
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
+                details_changed = (first_name != client['first_name']
+                                   or last_name != client['last_name']
+                                   or phone != client.get('phone')
+                                   or bio != client.get('bio'))
+                if details_changed:
+                    _ensure_profile_edit_window(cur, client['id'])
                 if fields & {'first_name', 'last_name'}:
                     identity_row = cur.execute('SELECT birth_date, member_registry_id FROM client_profiles WHERE user_id = %s',
                                                (client['id'],)).fetchone()
@@ -2694,8 +2795,10 @@ def update_client_profile(payload: ClientProfileUpdate,
                     (client['id'],)).fetchone()
                 old_storage_key = old_profile['profile_photo_storage_key'] if old_profile else None
                 cur.execute("""UPDATE users SET first_name = %s, last_name = %s,
-                    email = %s, phone = %s, updated_at = now() WHERE id = %s""",
-                    (first_name, last_name, email, phone, client['id']))
+                    email = %s, phone = %s, bio = %s,
+                    profile_details_updated_at = CASE WHEN %s THEN now() ELSE profile_details_updated_at END,
+                    updated_at = now() WHERE id = %s""",
+                    (first_name, last_name, email, phone, bio, details_changed, client['id']))
                 if fields & {'first_name', 'last_name'}:
                     cur.execute("""UPDATE client_member_registry SET first_name = %s,
                         last_name = %s, updated_at = now() WHERE linked_user_id = %s""",
@@ -2719,6 +2822,11 @@ def update_client_profile(payload: ClientProfileUpdate,
                     VALUES (%s, %s, %s, 'client_profile_updated', %s)""",
                     (client['gym_id'], client['id'], client['id'],
                      Jsonb({'email': email, 'photo_changed': photo_bytes is not None or payload.remove_photo})))
+                if details_changed:
+                    cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                        VALUES (%s, 'profile_updated', 'Perfil actualizado',
+                            'Se guardaron cambios en tus datos personales.', %s)""",
+                        (client['id'], Jsonb({'event': 'client_profile_updated'})))
     except Exception as exc:
         if new_storage_key:
             try:
@@ -2741,7 +2849,7 @@ def update_client_profile(payload: ClientProfileUpdate,
 def client_notifications(client: dict = Depends(active_client)) -> list[dict]:
     with pool.connection() as conn:
         rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
-            FROM notifications WHERE user_id = %s AND kind = 'new_phase_available'
+            FROM notifications WHERE user_id = %s AND kind IN ('new_phase_available', 'profile_updated')
               AND read_at IS NULL ORDER BY created_at DESC LIMIT 10""",
             (client['id'],)).fetchall()
     return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()} for row in rows]
@@ -2760,7 +2868,7 @@ def trainer_notifications(trainer: dict = Depends(active_trainer)) -> list[dict]
     with pool.connection() as conn:
         rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
             FROM notifications WHERE user_id = %s
-              AND kind IN ('routine_phase_due', 'client_activity', 'daily_reminder', 'trainer_request')
+              AND kind IN ('routine_phase_due', 'client_activity', 'daily_reminder', 'trainer_request', 'profile_updated')
               AND read_at IS NULL ORDER BY created_at DESC LIMIT 20""",
             (trainer['id'],)).fetchall()
     return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()} for row in rows]
@@ -2887,7 +2995,13 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_c
             LEFT JOIN exercise_catalog ec ON ec.id = re.exercise_catalog_id
             WHERE re.phase_id = %s AND re.day_number = %s ORDER BY re.position""",
             (assignment['current_phase_id'], display_day)).fetchall()
-        completed_exercises = conn.execute("""SELECT exercise_id
+        completed_exercises = conn.execute("""SELECT c.exercise_id
+            FROM workout_exercise_completions c
+            JOIN routine_exercises re ON re.id = c.exercise_id
+            WHERE c.client_id = %s AND c.phase_id = %s AND c.workout_date = %s
+              AND c.sets_completed >= re.sets""",
+            (client['id'], assignment['current_phase_id'], today)).fetchall()
+        set_progress = conn.execute("""SELECT exercise_id, sets_completed
             FROM workout_exercise_completions
             WHERE client_id = %s AND phase_id = %s AND workout_date = %s""",
             (client['id'], assignment['current_phase_id'], today)).fetchall()
@@ -2901,11 +3015,12 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_c
             'today': today.isoformat(),
             'phase_started_at': assignment['phase_started_at'].isoformat(), 'completed_today': completed is not None,
             'completed_exercise_ids': [str(row['exercise_id']) for row in completed_exercises],
+            'exercise_sets_completed': {str(row['exercise_id']): row['sets_completed'] for row in set_progress},
             'exercises': [{**exercise, 'id': str(exercise['id'])} for exercise in exercises]}
 
 
 @app.post('/api/v1/client/routine/exercises/{exercise_id}/complete')
-def complete_client_exercise(exercise_id: uuid.UUID,
+def complete_client_exercise(exercise_id: uuid.UUID, payload: WorkoutSetProgressRequest,
                              client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
         with conn.cursor() as cur:
@@ -2924,25 +3039,30 @@ def complete_client_exercise(exercise_id: uuid.UUID,
                 assignment['started_on'], assignment['today'])
             if due_session is None:
                 raise _problem(409, 'NO_DUE_WORKOUT', 'No tienes una sesión pendiente para hoy.')
-            exercise = cur.execute("""SELECT id FROM routine_exercises
+            exercise = cur.execute("""SELECT id, sets FROM routine_exercises
                 WHERE id = %s AND phase_id = %s
                   AND day_number = %s""",
                 (exercise_id, assignment['current_phase_id'], due_session['day_number'])).fetchone()
             if exercise is None:
                 raise _problem(409, 'EXERCISE_NOT_SCHEDULED_TODAY',
                                'Este ejercicio no está programado para hoy.')
+            if payload.sets_completed > exercise['sets']:
+                raise _problem(422, 'INVALID_SET_PROGRESS', 'La cantidad de series supera la indicada para el ejercicio.')
             if cur.execute("""SELECT 1 FROM workout_completions
                 WHERE client_id = %s AND phase_id = %s AND workout_date = %s""",
                 (client['id'], assignment['current_phase_id'], assignment['today'])).fetchone():
                 raise _problem(409, 'WORKOUT_ALREADY_COMPLETED',
                                'La rutina de hoy ya fue completada.')
             saved = cur.execute("""INSERT INTO workout_exercise_completions
-                    (client_id, phase_id, exercise_id, workout_date)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT DO NOTHING RETURNING exercise_id""",
+                    (client_id, phase_id, exercise_id, workout_date, sets_completed)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (client_id, phase_id, exercise_id, workout_date)
+                DO UPDATE SET sets_completed = EXCLUDED.sets_completed, completed_at = now()
+                RETURNING exercise_id""",
                 (client['id'], assignment['current_phase_id'], exercise_id,
-                 assignment['today'])).fetchone()
-    return {'exercise_id': str(exercise_id), 'completed': True,
+                 assignment['today'], payload.sets_completed)).fetchone()
+    return {'exercise_id': str(exercise_id), 'sets_completed': payload.sets_completed,
+            'completed': payload.sets_completed == exercise['sets'],
             'created': saved is not None}
 
 
@@ -2971,9 +3091,11 @@ def complete_client_workout(payload: WorkoutCompletionRequest,
             scheduled_ids = {exercise['id'] for exercise in cur.execute("""SELECT id
                 FROM routine_exercises WHERE phase_id = %s AND day_number = %s""",
                 (row['current_phase_id'], due_session['day_number'])).fetchall()}
-            completed_ids = {exercise['exercise_id'] for exercise in cur.execute("""SELECT exercise_id
-                FROM workout_exercise_completions
-                WHERE client_id = %s AND phase_id = %s AND workout_date = %s""",
+            completed_ids = {exercise['exercise_id'] for exercise in cur.execute("""SELECT c.exercise_id
+                FROM workout_exercise_completions c
+                JOIN routine_exercises re ON re.id = c.exercise_id
+                WHERE c.client_id = %s AND c.phase_id = %s AND c.workout_date = %s
+                  AND c.sets_completed >= re.sets""",
                 (client['id'], row['current_phase_id'], row['today'])).fetchall()}
             completed_today = completed_ids.intersection(scheduled_ids)
             fully_completed = completed_today == scheduled_ids
@@ -3515,7 +3637,7 @@ def admin_trainer_certification_download(
 def admin_notifications(admin: dict = Depends(active_admin)) -> list[dict]:
     with pool.connection() as conn:
         rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
-            FROM notifications WHERE user_id = %s AND kind = 'staff_request'
+            FROM notifications WHERE user_id = %s AND kind IN ('staff_request', 'profile_updated')
               AND read_at IS NULL ORDER BY created_at DESC LIMIT 20""",
             (admin['id'],)).fetchall()
     return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()}
@@ -3527,7 +3649,7 @@ def mark_admin_notification_read(notification_id: uuid.UUID,
                                 admin: dict = Depends(active_admin)) -> None:
     with pool.connection() as conn:
         conn.execute("""UPDATE notifications SET read_at = now()
-            WHERE id = %s AND user_id = %s AND kind = 'staff_request'
+            WHERE id = %s AND user_id = %s AND kind IN ('staff_request', 'profile_updated')
               AND read_at IS NULL""", (notification_id, admin['id']))
 
 

@@ -180,6 +180,15 @@ class AuthController extends ChangeNotifier {
 
   Future<Map<String, dynamic>> ownProfile() => repository.getOwnProfile();
 
+  Future<Map<String, dynamic>> updateOwnProfile({
+    required String firstName,
+    required String lastName,
+    required String phone,
+    required String bio,
+  }) =>
+      repository.updateOwnProfile(
+          firstName: firstName, lastName: lastName, phone: phone, bio: bio);
+
   Future<Map<String, dynamic>> updateOwnProfilePhoto(
           {String? photoData, String? photoMime, bool removePhoto = false}) =>
       repository.updateOwnProfilePhoto(
@@ -247,7 +256,7 @@ class AuthController extends ChangeNotifier {
           {required String routineId,
           required String name,
           required List<int> days,
-          required List<String> exercises}) =>
+          required List<Map<String, dynamic>> exercises}) =>
       repository.createTrainerPhase(
           routineId: routineId, name: name, days: days, exercises: exercises);
 
@@ -301,6 +310,7 @@ class AuthController extends ChangeNotifier {
           String? lastName,
           String? email,
           String? phone,
+          String? bio,
           String? photoData,
           String? photoMime,
           bool removePhoto = false}) =>
@@ -309,6 +319,7 @@ class AuthController extends ChangeNotifier {
           lastName: lastName,
           email: email,
           phone: phone,
+          bio: bio,
           photoData: photoData,
           photoMime: photoMime,
           removePhoto: removePhoto);
@@ -324,8 +335,9 @@ class AuthController extends ChangeNotifier {
       repository.getClientRoutine(day: day);
 
   Future<Map<String, dynamic>> completeClientExercise(
-          {required String exerciseId}) =>
-      repository.completeClientExercise(exerciseId: exerciseId);
+          {required String exerciseId, required int setsCompleted}) =>
+      repository.completeClientExercise(
+          exerciseId: exerciseId, setsCompleted: setsCompleted);
 
   Future<List<Map<String, dynamic>>> clientNotifications() =>
       repository.getClientNotifications();

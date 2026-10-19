@@ -23,6 +23,26 @@ const _goalImages = {
   'Fuerza': 'assets/images/goals/fuerza.jpeg',
 };
 
+Map<int, List<Map<String, dynamic>>> _groupExercises(
+    List<Map<String, dynamic>> exercises) {
+  final grouped = <int, List<Map<String, dynamic>>>{};
+  for (final exercise in exercises) {
+    final day = int.tryParse(exercise['day_number'].toString()) ?? 1;
+    grouped.putIfAbsent(day, () => []).add(exercise);
+  }
+  return grouped;
+}
+
+String _weekdayName(int day) => [
+      'Lunes',
+      'Martes',
+      'Miércoles',
+      'Jueves',
+      'Viernes',
+      'Sábado',
+      'Domingo'
+    ][day - 1];
+
 class _GroupMemberFields {
   final firstName = TextEditingController();
   final lastName = TextEditingController();
@@ -987,95 +1007,21 @@ class _TrainerPhasesScreenState extends State<TrainerPhasesScreen> {
       _routine = authController.trainerRoutine(routineId: widget.routineId);
 
   Future<void> _createPhase(Map<String, dynamic> data) async {
-    final phases = (data['phases'] as List? ?? [])
-        .map((phase) => Map<String, dynamic>.from(phase as Map))
-        .toList();
-    final latestNumber =
-        phases.isEmpty ? 0 : phases.last['phase_number'] as int;
-    final latestExercises = (data['exercises'] as List? ?? [])
-        .map((exercise) => Map<String, dynamic>.from(exercise as Map))
-        .where((exercise) => exercise['phase_number'] == latestNumber)
-        .map((exercise) => exercise['name'].toString())
-        .toSet()
-        .join('\n');
-    final exercises = TextEditingController(text: latestExercises);
-    try {
-      final values = await showDialog<List<String>>(
-        context: context,
-        builder: (dialogContext) {
-          final name = TextEditingController(text: 'Fase ${latestNumber + 1}');
-          return AlertDialog(
-            title: const Text('CREAR FASE'),
-            content: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(
-                  controller: name,
-                  decoration:
-                      const InputDecoration(labelText: 'Nombre de la fase')),
-              const SizedBox(height: 10),
-              TextField(
-                  controller: exercises,
-                  minLines: 4,
-                  maxLines: 8,
-                  decoration: const InputDecoration(
-                      labelText: 'Un ejercicio por línea')),
-            ]),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancelar')),
-              FilledButton(
-                  onPressed: () =>
-                      Navigator.pop(dialogContext, [name.text, exercises.text]),
-                  child: const Text('Guardar borrador')),
-            ],
-          );
-        },
-      );
-      if (values == null || !mounted) return;
-      final names = values[1]
-          .split('\n')
-          .map((value) => value.trim())
-          .where((value) => value.isNotEmpty)
-          .toList();
-      if (values[0].trim().isEmpty || names.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content:
-                Text('Indica el nombre de la fase y al menos un ejercicio.')));
-        return;
-      }
-      final activeDays = (data['exercises'] as List? ?? [])
-          .map((exercise) => Map<String, dynamic>.from(exercise as Map))
-          .where((exercise) => exercise['phase_number'] == latestNumber)
-          .map((exercise) => exercise['day_number'] as int)
-          .toSet()
-          .toList()
-        ..sort();
-      setState(() => _saving = true);
-      await authController.createTrainerPhase(
-          routineId: widget.routineId,
-          name: values[0].trim(),
-          days: activeDays,
-          exercises: names);
-      if (mounted) {
-        setState(_reload);
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Fase guardada como borrador.')));
-      }
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No se pudo guardar la fase: $e')));
-    } finally {
-      if (mounted) setState(() => _saving = false);
-      exercises.dispose();
-    }
+    if (data['phases'] is! List || (data['phases'] as List).isEmpty) return;
+    context.go(Uri(path: '/trainer/routine/new', queryParameters: {
+      'routine_id': widget.routineId,
+    }).toString());
   }
 
   Future<void> _publish(Map<String, dynamic> phase) async {
     setState(() => _saving = true);
     try {
-      await authController.publishTrainerPhase(
-          routineId: widget.routineId, phaseId: phase['id'].toString());
+      if (phase['phase_number'] == 1) {
+        await authController.publishTrainerRoutine(routineId: widget.routineId);
+      } else {
+        await authController.publishTrainerPhase(
+            routineId: widget.routineId, phaseId: phase['id'].toString());
+      }
       if (mounted) {
         setState(_reload);
         ScaffoldMessenger.of(context)
@@ -1126,25 +1072,44 @@ class _TrainerPhasesScreenState extends State<TrainerPhasesScreen> {
                   Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: MusklCard(
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                          child: ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: EdgeInsets.zero,
+                        title: Text(
+                            '${phase['name']} · ${phase['duration_weeks']} sem.',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text(
+                            '${phase['status'] == 'published' ? 'PUBLICADA' : 'BORRADOR'} · ${phase['exercise_count']} ejercicios'),
+                        children: [
+                          for (final dayGroup in _groupExercises(exercises
+                                  .where((exercise) =>
+                                      exercise['phase_number'] ==
+                                      phase['phase_number'])
+                                  .toList())
+                              .entries)
+                            ExpansionTile(
+                              tilePadding: EdgeInsets.zero,
+                              title: Text(
+                                  '${_weekdayName(dayGroup.key)} · ${dayGroup.value.length} ejercicios'),
                               children: [
-                            Text(
-                                '${phase['name']} · ${phase['duration_weeks']} semanas',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold)),
-                            Text(
-                                '${phase['status'] == 'published' ? 'PUBLICADA' : 'BORRADOR'} · ${phase['exercise_count']} ejercicios'),
-                            for (final exercise in exercises.where((exercise) =>
-                                exercise['phase_number'] ==
-                                phase['phase_number']))
-                              Text(
-                                  'Día ${exercise['day_number']} · ${exercise['name']} · ${exercise['sets']}×${exercise['reps']}'),
-                          ]))),
+                                for (final exercise in dayGroup.value)
+                                  ListTile(
+                                    dense: true,
+                                    title: Text(exercise['name'].toString()),
+                                    subtitle: Text(
+                                        '${exercise['sets']} × ${exercise['reps']} · ${exercise['rest_seconds']} s'),
+                                  )
+                              ],
+                            ),
+                        ],
+                      ))),
                 if (_saving) const LinearProgressIndicator(),
                 if (latest != null && latest['status'] != 'published')
                   MusklButton(
-                      label: 'Publicar fase siguiente',
+                      label: latest['phase_number'] == 1
+                          ? 'Publicar rutina'
+                          : 'Publicar fase',
                       icon: Icons.publish,
                       loading: _saving,
                       onPressed: _saving ? null : () => _publish(latest)),

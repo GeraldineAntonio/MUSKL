@@ -94,6 +94,13 @@ class AuthController extends ChangeNotifier {
   Future<Map<String, dynamic>> adminRoutine({required String routineId}) =>
       repository.getAdminRoutine(routineId: routineId);
 
+  Future<void> assignAdminRoutine(
+          {required String routineId,
+          required String phaseId,
+          required String clientId}) =>
+      repository.assignAdminRoutine(
+          routineId: routineId, phaseId: phaseId, clientId: clientId);
+
   Future<Map<String, dynamic>> adminDashboard() =>
       repository.getAdminDashboard();
 
@@ -262,9 +269,15 @@ class AuthController extends ChangeNotifier {
       repository.getTrainerAssignmentRequests();
 
   Future<void> reviewTrainerAssignmentRequest(
-          {required String requestId, required bool accept}) =>
+          {required String requestId,
+          required bool accept,
+          String? routineId,
+          String? phaseId}) =>
       repository.reviewTrainerAssignmentRequest(
-          requestId: requestId, accept: accept);
+          requestId: requestId,
+          accept: accept,
+          routineId: routineId,
+          phaseId: phaseId);
 
   Future<Map<String, dynamic>> updateClientProfile(
           {String? firstName,
@@ -354,24 +367,21 @@ class AuthController extends ChangeNotifier {
   Future<void> saveClientOnboarding(
       {required String planId,
       String? trainerId,
-      String? routineId,
       required String goal,
       required String experienceLevel,
       required int daysPerWeek,
       required double weightKg,
       double? heightCm,
       String? limitations}) async {
-    _session = await repository.completeClientOnboarding(
+    await repository.completeClientOnboarding(
         planId: planId,
         trainerId: trainerId,
-        routineId: routineId,
         goal: goal,
         experienceLevel: experienceLevel,
         daysPerWeek: daysPerWeek,
         weightKg: weightKg,
         heightCm: heightCm,
         limitations: limitations);
-    notifyListeners();
   }
 
   Future<void> signIn(String identifier, String password) async {

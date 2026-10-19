@@ -46,7 +46,6 @@ abstract class AuthRepository {
   Future<Session> completeClientOnboarding(
       {required String planId,
       String? trainerId,
-      String? routineId,
       required String goal,
       required String experienceLevel,
       required int daysPerWeek,
@@ -60,6 +59,10 @@ abstract class AuthRepository {
   Future<List<Map<String, dynamic>>> getAdminRoutines(
       {String search = '', String? goal});
   Future<Map<String, dynamic>> getAdminRoutine({required String routineId});
+  Future<void> assignAdminRoutine(
+      {required String routineId,
+      required String phaseId,
+      required String clientId});
   Future<Map<String, dynamic>> getAdminDashboard();
   Future<Map<String, dynamic>> getAdminGym();
   Future<Map<String, dynamic>> updateAdminGym(
@@ -134,7 +137,10 @@ abstract class AuthRepository {
   Future<void> requestClientTrainer({required String trainerId});
   Future<List<Map<String, dynamic>>> getTrainerAssignmentRequests();
   Future<void> reviewTrainerAssignmentRequest(
-      {required String requestId, required bool accept});
+      {required String requestId,
+      required bool accept,
+      String? routineId,
+      String? phaseId});
   Future<Map<String, dynamic>> updateClientProfile(
       {String? firstName,
       String? lastName,
@@ -322,7 +328,6 @@ class FakeAuthRepository implements AuthRepository {
   Future<Session> completeClientOnboarding(
           {required String planId,
           String? trainerId,
-          String? routineId,
           required String goal,
           required String experienceLevel,
           required int daysPerWeek,
@@ -467,6 +472,12 @@ class FakeAuthRepository implements AuthRepository {
           }
         ],
       };
+
+  @override
+  Future<void> assignAdminRoutine(
+      {required String routineId,
+      required String phaseId,
+      required String clientId}) async {}
 
   @override
   Future<Map<String, dynamic>> getAdminDashboard() async => {
@@ -865,7 +876,10 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<void> reviewTrainerAssignmentRequest(
-      {required String requestId, required bool accept}) async {}
+      {required String requestId,
+      required bool accept,
+      String? routineId,
+      String? phaseId}) async {}
 
   @override
   Future<Map<String, dynamic>> updateClientProfile(

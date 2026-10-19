@@ -905,7 +905,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
             if (data['assigned'] != true)
               return const MusklCard(
                   child: Text(
-                      'Tu entrenador todavía no te ha asignado una rutina.'));
+                      'Tu entrenador o el administrador todavía no te han asignado una rutina.'));
             final exercises = (data['exercises'] as List? ?? [])
                 .map((e) => Map<String, dynamic>.from(e as Map))
                 .toList();
@@ -1800,8 +1800,46 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
 
   Future<void> _reviewAssignment(String requestId, bool accept) async {
     try {
+      Map<String, dynamic>? selectedRoutine;
+      if (accept) {
+        final routines = await authController.trainerRoutines();
+        final published = routines
+            .where((routine) =>
+                routine['phase_status'] == 'published' &&
+                routine['phase_id'] != null)
+            .toList();
+        if (!mounted) return;
+        if (published.isNotEmpty) {
+          selectedRoutine = await showModalBottomSheet<Map<String, dynamic>>(
+            context: context,
+            builder: (context) => SafeArea(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  const ListTile(
+                      title: Text('ELIGE LA RUTINA PARA ESTE SOCIO'),
+                      subtitle: Text(
+                          'Se asignará junto con la aceptación de la solicitud.')),
+                  for (final routine in published)
+                    ListTile(
+                      leading: const Icon(Icons.fitness_center),
+                      title: Text(routine['name'].toString()),
+                      subtitle: Text(
+                          '${routine['goal']} · ${routine['days_per_week']} días'),
+                      onTap: () => Navigator.pop(context, routine),
+                    ),
+                ],
+              ),
+            ),
+          );
+          if (selectedRoutine == null || !mounted) return;
+        }
+      }
       await authController.reviewTrainerAssignmentRequest(
-          requestId: requestId, accept: accept);
+          requestId: requestId,
+          accept: accept,
+          routineId: selectedRoutine?['id']?.toString(),
+          phaseId: selectedRoutine?['phase_id']?.toString());
       if (!mounted) return;
       setState(() {
         _loadClients();
@@ -1810,7 +1848,9 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(accept
-              ? 'Aceptaste al socio. Ahora puedes asignarle una rutina.'
+              ? selectedRoutine == null
+                  ? 'Aceptaste al socio. Puedes asignarle una rutina publicada desde Mis rutinas.'
+                  : 'Aceptaste al socio y le asignaste ${selectedRoutine['name']}.'
               : 'Solicitud rechazada.')));
     } catch (error) {
       if (mounted) {
@@ -3561,6 +3601,52 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
     _routine = authController.adminRoutine(routineId: widget.routineId);
   }
 
+  Future<void> _assignToClient(Map<String, dynamic> phase) async {
+    try {
+      final clients =
+          await authController.adminUsers(role: 'client', status: 'active');
+      if (!mounted) return;
+      if (clients.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('No hay socios activos para asignar.')));
+        return;
+      }
+      final client = await showModalBottomSheet<Map<String, dynamic>>(
+        context: context,
+        builder: (context) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const ListTile(title: Text('ASIGNAR RUTINA A SOCIO')),
+              for (final item in clients)
+                ListTile(
+                  title: Text('${item['first_name']} ${item['last_name']}'),
+                  subtitle: Text('Socio ${item['member_number'] ?? ''}'),
+                  onTap: () => Navigator.pop(context, item),
+                ),
+            ],
+          ),
+        ),
+      );
+      if (client == null || !mounted) return;
+      await authController.assignAdminRoutine(
+          routineId: widget.routineId,
+          phaseId: phase['id'].toString(),
+          clientId: client['id'].toString());
+      if (!mounted) return;
+      setState(() =>
+          _routine = authController.adminRoutine(routineId: widget.routineId));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Rutina asignada a ${client['first_name']}. Ya puede verla en su panel.')));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No se pudo asignar la rutina: $error')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => WorkspacePage(
       title: 'Detalle de rutina',
@@ -3606,12 +3692,25 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
                                   const TextStyle(color: AppColors.textMuted))
                         ])),
                 _section('Fases'),
-                for (final phase in phases)
+                for (final phase in phases) ...[
                   _record('${phase['name']} · Fase ${phase['phase_number']}',
                       '${phase['status'] == 'published' ? 'Publicada' : 'Borrador'} · ${phase['duration_weeks']} semanas · ${phase['exercise_count']} ejercicios',
                       icon: phase['status'] == 'published'
                           ? Icons.check_circle_outline
                           : Icons.edit_outlined),
+                  if (phase['status'] == 'published')
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: OutlinedButton.icon(
+                          onPressed: () => _assignToClient(phase),
+                          icon: const Icon(Icons.person_add_alt_1),
+                          label: const Text('Asignar esta fase a un socio'),
+                        ),
+                      ),
+                    ),
+                ],
                 _section('Ejercicios'),
                 for (final exercise in exercises)
                   _record(exercise['name'].toString(),

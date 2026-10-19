@@ -1321,9 +1321,6 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
   String? _error;
   List<Map<String, dynamic>> _plans = [];
   List<Map<String, dynamic>> _trainers = [];
-  List<Map<String, dynamic>> _routines = [];
-  bool _loadingRoutines = false;
-  String? _routineId;
   String? _planId;
   String? _trainerId;
   String? _goal;
@@ -1358,10 +1355,11 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
       if (encoded == null || !mounted) return;
       final draft = Map<String, dynamic>.from(jsonDecode(encoded) as Map);
       setState(() {
-        _step = (draft['step'] as num?)?.toInt().clamp(0, 4).toInt() ?? 0;
+        // Step 4 belonged to the old flow where clients chose their own
+        // routine. Resume at the final profile step after upgrading.
+        _step = (draft['step'] as num?)?.toInt().clamp(0, 3).toInt() ?? 0;
         _planId = draft['plan_id']?.toString();
         _trainerId = draft['trainer_id']?.toString();
-        _routineId = draft['routine_id']?.toString();
         _goal = draft['goal']?.toString();
         _level = draft['level']?.toString();
         _days = (draft['days'] as num?)?.toInt();
@@ -1385,7 +1383,6 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         'step': _step,
         'plan_id': _planId,
         'trainer_id': _trainerId,
-        'routine_id': _routineId,
         'goal': _goal,
         'level': _level,
         'days': _days,
@@ -1462,15 +1459,6 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
               'El gimnasio todavía no tiene membresías activas. Contacta al administrador.';
         }
       });
-      if (_step == 4 && _goal != null && _days != null) {
-        try {
-          final routines = await authController.clientOnboardingRoutines(
-              goal: _goal!, daysPerWeek: _days!, trainerId: _trainerId);
-          if (mounted) setState(() => _routines = routines);
-        } catch (_) {
-          if (mounted) setState(() => _step = 3);
-        }
-      }
     } on AuthException catch (e) {
       if (mounted)
         setState(() {
@@ -1511,7 +1499,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         : double.tryParse(_heightCm.text.replaceAll(',', '.'));
     final valid = switch (_step) {
       0 => _planId != null,
-      1 => true,
+      1 => _trainerId != null,
       2 => _goal != null,
       3 => _level != null &&
           _days != null &&
@@ -1520,12 +1508,14 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
           weightKg <= 350 &&
           (_heightCm.text.trim().isEmpty ||
               (heightCm != null && heightCm >= 100 && heightCm <= 250)),
-      _ => _routines.isEmpty || _routineId != null,
+      _ => false,
     };
     if (!valid) {
       setState(() => _error = _step == 3
           ? 'Indica tu peso (20–350 kg) y, si agregas estatura, usa 100–250 cm.'
-          : 'Selecciona una opción para continuar.');
+          : _step == 1 && _trainers.isEmpty
+              ? 'No hay entrenadores disponibles. Contacta al gimnasio para continuar.'
+              : 'Selecciona una opción para continuar.');
       return;
     }
     await _saveDraft();
@@ -1596,32 +1586,6 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
       await _saveDraft();
       return;
     }
-    if (_step == 3) {
-      setState(() {
-        _loadingRoutines = true;
-        _error = null;
-      });
-      try {
-        _routines = await authController.clientOnboardingRoutines(
-            goal: _goal!, daysPerWeek: _days!, trainerId: _trainerId);
-        if (!mounted) return;
-        setState(() {
-          _step = 4;
-          _routineId = null;
-        });
-        await _saveDraft();
-      } on AuthException catch (e) {
-        if (mounted) setState(() => _error = e.message);
-      } catch (_) {
-        if (mounted) {
-          setState(
-              () => _error = 'No se pudieron cargar las rutinas disponibles.');
-        }
-      } finally {
-        if (mounted) setState(() => _loadingRoutines = false);
-      }
-      return;
-    }
     setState(() {
       _saving = true;
       _error = null;
@@ -1630,7 +1594,6 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
       await authController.saveClientOnboarding(
         planId: _planId!,
         trainerId: _trainerId,
-        routineId: _routineId,
         goal: _goal!,
         experienceLevel: _level!,
         daysPerWeek: _days!,
@@ -1641,7 +1604,9 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
       );
       final key = _draftKey;
       if (key != null) await _draftStorage.delete(key: key);
-      if (mounted) context.go('/home');
+      if (!mounted) return;
+      await authController.signOut();
+      if (mounted) context.go('/login');
     } on AuthException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
@@ -1768,12 +1733,12 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
             ],
           ]),
         1 => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            const Text('Elige entrenador (opcional)'),
+            const Text('Elige el entrenador al que enviarás tu solicitud'),
             const SizedBox(height: 14),
-            _option('Sin preferencia',
-                subtitle: 'El gimnasio puede asignarte después',
-                selected: _trainerId == null,
-                onTap: () => setState(() => _trainerId = null)),
+            if (_trainers.isEmpty)
+              const MusklCard(
+                  child: Text(
+                      'No hay entrenadores activos disponibles en este momento.')),
             for (final trainer in _trainers)
               _option('${trainer['first_name']} ${trainer['last_name']}',
                   subtitle: trainer['specialty']?.toString(),
@@ -1917,23 +1882,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                 controller: _limitations,
                 icon: Icons.health_and_safety_outlined),
           ]),
-        _ => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            const Text('Opciones disponibles para tu objetivo y horario.'),
-            const SizedBox(height: 12),
-            if (_routines.isEmpty)
-              const MusklCard(
-                  child: Text(
-                      'Todavía no hay una rutina publicada que coincida. Puedes continuar y tu entrenador te asignará una después.')),
-            for (final routine in _routines)
-              _option(
-                routine['name'].toString(),
-                subtitle:
-                    '${routine['days_per_week']} días · ${routine['duration_weeks']} semanas · Fase 1 · ${routine['trainer_name']}',
-                selected: _routineId == routine['id'].toString(),
-                onTap: () =>
-                    setState(() => _routineId = routine['id'].toString()),
-              ),
-          ]),
+        _ => const SizedBox.shrink(),
       };
 
   Widget _groupMemberForm(int index) {
@@ -2005,7 +1954,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
   @override
   Widget build(BuildContext context) => PrototypePage(
         title: 'Completa tu perfil',
-        step: _step < 4 ? 'PASO ${_step + 1} DE 4' : 'OPCIONES DE RUTINA',
+        step: 'PASO ${_step + 1} DE 4',
         backWithinFlow: true,
         onBack: _saving ? null : _goBack,
         child: _loading
@@ -2036,25 +1985,21 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                 MusklButton(
                     label: _saving
                         ? 'Guardando...'
-                        : _step == 4
-                            ? 'Empezar fase 1'
-                            : _step == 3
-                                ? 'Ver opciones de rutina'
-                                : _step == 0 && _editingGroupMembers
-                                    ? 'Crear cuentas y continuar'
-                                    : _step == 0 &&
-                                            _planId != null &&
-                                            !_groupRegistered &&
-                                            _selectedGroupSize > 1
-                                        ? 'Agregar integrantes'
-                                        : 'Continuar',
-                    loading: _saving || _loadingRoutines,
-                    onPressed: _plans.isEmpty ||
-                            (_step == 4 &&
-                                _routines.isNotEmpty &&
-                                _routineId == null)
-                        ? null
-                        : _continue),
+                        : _step == 3
+                            ? 'Finalizar registro e iniciar sesión'
+                            : _step == 0 && _editingGroupMembers
+                                ? 'Crear cuentas y continuar'
+                                : _step == 0 &&
+                                        _planId != null &&
+                                        !_groupRegistered &&
+                                        _selectedGroupSize > 1
+                                    ? 'Agregar integrantes'
+                                    : 'Continuar',
+                    loading: _saving,
+                    onPressed:
+                        _plans.isEmpty || (_step == 1 && _trainers.isEmpty)
+                            ? null
+                            : _continue),
               ]),
       );
 }

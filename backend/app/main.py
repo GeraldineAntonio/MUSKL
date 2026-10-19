@@ -322,11 +322,15 @@ class ClientOnboardingRequest(BaseModel):
     weight_kg: float = Field(ge=20, le=350)
     height_cm: float | None = Field(default=None, ge=100, le=250)
     limitations: str | None = Field(default=None, max_length=2000)
-    routine_id: uuid.UUID | None = None
 
 
 class TrainerRequestCreate(BaseModel):
     trainer_id: uuid.UUID
+
+
+class TrainerRequestAcceptance(BaseModel):
+    routine_id: uuid.UUID | None = None
+    phase_id: uuid.UUID | None = None
 
 
 class ClientProfileUpdate(BaseModel):
@@ -1989,7 +1993,11 @@ def trainer_assignment_requests(trainer: dict = Depends(active_trainer)) -> list
 
 @app.post('/api/v1/trainer/assignment-requests/{request_id}/accept')
 def accept_trainer_assignment_request(request_id: uuid.UUID,
+                                      payload: TrainerRequestAcceptance,
                                       trainer: dict = Depends(active_trainer)) -> dict:
+    if (payload.routine_id is None) != (payload.phase_id is None):
+        raise _problem(422, 'INVALID_ROUTINE_SELECTION',
+                       'Selecciona la rutina y la fase publicada.')
     with pool.connection() as conn:
         with conn.cursor() as cur:
             request = cur.execute("""SELECT id, client_id FROM client_trainer_requests
@@ -2011,6 +2019,34 @@ def accept_trainer_assignment_request(request_id: uuid.UUID,
             cur.execute("""INSERT INTO trainer_client_assignments
                 (trainer_id, client_id, assigned_by) VALUES (%s, %s, %s)""",
                 (trainer['id'], client['id'], trainer['id']))
+            assigned_routine = None
+            if payload.routine_id is not None:
+                assigned_routine = cur.execute("""SELECT r.id, rp.id AS phase_id
+                    FROM routines r JOIN routine_phases rp ON rp.routine_id = r.id
+                    WHERE r.id = %s AND r.trainer_id = %s AND r.gym_id = %s
+                      AND r.active AND rp.id = %s AND rp.status = 'published'""",
+                    (payload.routine_id, trainer['id'], trainer['gym_id'],
+                     payload.phase_id)).fetchone()
+                if assigned_routine is None:
+                    raise _problem(404, 'ROUTINE_NOT_AVAILABLE',
+                                   'La rutina publicada ya no está disponible.')
+                cur.execute("""UPDATE client_routine_assignments SET ended_at = now()
+                    WHERE client_id = %s AND ended_at IS NULL""", (client['id'],))
+                assignment = cur.execute("""INSERT INTO client_routine_assignments
+                    (client_id, routine_id, current_phase_id, assigned_by)
+                    VALUES (%s, %s, %s, %s) RETURNING id""",
+                    (client['id'], assigned_routine['id'], assigned_routine['phase_id'],
+                     trainer['id'])).fetchone()
+                cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                    VALUES (%s, 'routine_assigned', 'Tu rutina está lista', %s, %s)""",
+                    (client['id'], 'Tu entrenador te aceptó y te asignó una rutina. Ya puedes consultarla en Inicio.',
+                     Jsonb({'routine_id': str(assigned_routine['id'])})))
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, subject_id, event_type, details)
+                    VALUES (%s, %s, %s, 'routine_assigned', %s)""",
+                    (trainer['gym_id'], trainer['id'], client['id'],
+                     Jsonb({'routine_id': str(assigned_routine['id']),
+                            'assignment_id': str(assignment['id'])})))
             cur.execute("UPDATE client_trainer_requests SET status = 'accepted', reviewed_at = now() WHERE id = %s",
                         (request_id,))
             cur.execute("""UPDATE client_trainer_requests SET status = 'cancelled', reviewed_at = now()
@@ -2018,9 +2054,12 @@ def accept_trainer_assignment_request(request_id: uuid.UUID,
                 (client['id'], request_id))
             cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
                 VALUES (%s, 'trainer_accepted', 'Entrenador asignado', %s, %s)""",
-                (client['id'], f"{trainer['first_name']} {trainer['last_name']} aceptó acompañarte. Ahora falta que te asigne una rutina.",
-                 Jsonb({'trainer_id': str(trainer['id'])})))
-    return {'request_id': str(request_id), 'client_id': str(client['id']), 'status': 'accepted'}
+                (client['id'], f"{trainer['first_name']} {trainer['last_name']} aceptó tu solicitud.",
+                 Jsonb({'trainer_id': str(trainer['id']),
+                        'routine_id': str(assigned_routine['id']) if assigned_routine else None})))
+    return {'request_id': str(request_id), 'client_id': str(client['id']),
+            'status': 'accepted',
+            'routine_id': str(assigned_routine['id']) if assigned_routine else None}
 
 
 @app.post('/api/v1/trainer/assignment-requests/{request_id}/reject')
@@ -2286,9 +2325,6 @@ def assign_trainer_routine(routine_id: uuid.UUID, payload: RoutineAssignmentRequ
 @app.post('/api/v1/client/onboarding')
 def complete_client_onboarding(payload: ClientOnboardingRequest,
                                client: dict = Depends(active_client)) -> dict:
-    if payload.trainer_id is not None or payload.routine_id is not None:
-        raise _problem(422, 'TRAINER_ACCEPTANCE_REQUIRED',
-                       'Solicita un entrenador desde tu panel. Solo el entrenador puede aceptarte y asignarte rutina.')
     with pool.connection() as conn:
         with conn.cursor() as cur:
             locked = cur.execute("""SELECT u.id, u.role, u.status,
@@ -2309,6 +2345,17 @@ def complete_client_onboarding(payload: ClientOnboardingRequest,
             current_assignment = cur.execute("""SELECT trainer_id FROM trainer_client_assignments
                 WHERE client_id = %s AND ends_at IS NULL FOR UPDATE""",
                 (client['id'],)).fetchone()
+            selected_trainer_id = payload.trainer_id or (
+                current_assignment['trainer_id'] if current_assignment else None)
+            if selected_trainer_id is None:
+                raise _problem(422, 'TRAINER_REQUIRED',
+                               'Elige un entrenador para completar tu registro.')
+            trainer = cur.execute("""SELECT id FROM users WHERE id = %s AND gym_id = %s
+                AND role = 'trainer' AND status = 'active'""",
+                (selected_trainer_id, client['gym_id'])).fetchone()
+            if trainer is None:
+                raise _problem(404, 'TRAINER_NOT_AVAILABLE',
+                               'El entrenador seleccionado ya no está disponible.')
             chosen_plan_id = group['plan_id'] if group and group['plan_id'] else payload.plan_id
             if group and group['plan_id'] and payload.plan_id != group['plan_id']:
                 raise _problem(409, 'GROUP_PLAN_LOCKED', 'Todos los integrantes deben conservar el plan del grupo.')
@@ -2318,25 +2365,6 @@ def complete_client_onboarding(payload: ClientOnboardingRequest,
                 raise _problem(404, 'PLAN_NOT_FOUND', 'Elige un plan de membresía disponible.')
             if plan['duration_days'] is None:
                 raise _problem(409, 'PLAN_NOT_CONFIGURED', 'Este plan todavía no tiene una duración configurada.')
-            selected_trainer_id = payload.trainer_id or (
-                current_assignment['trainer_id'] if current_assignment else None)
-            selected_routine = None
-            if payload.routine_id is not None:
-                selected_routine = cur.execute("""SELECT r.id, r.trainer_id, rp.id AS phase_id
-                    FROM routines r JOIN users t ON t.id = r.trainer_id AND t.status = 'active'
-                    JOIN routine_phases rp ON rp.routine_id = r.id AND rp.phase_number = 1 AND rp.status = 'published'
-                    WHERE r.id = %s AND r.gym_id = %s AND r.active AND r.goal = %s
-                      AND r.days_per_week = %s AND (%s::uuid IS NULL OR r.trainer_id = %s)""",
-                    (payload.routine_id, client['gym_id'], payload.goal, payload.days_per_week,
-                     selected_trainer_id, selected_trainer_id)).fetchone()
-                if selected_routine is None:
-                    raise _problem(409, 'ROUTINE_NOT_AVAILABLE', 'La rutina ya no está disponible para tus preferencias.')
-                selected_trainer_id = selected_routine['trainer_id']
-            if selected_trainer_id is not None:
-                trainer = cur.execute("SELECT id FROM users WHERE id = %s AND gym_id = %s AND role = 'trainer' AND status = 'active'",
-                                      (selected_trainer_id, client['gym_id'])).fetchone()
-                if trainer is None:
-                    raise _problem(404, 'TRAINER_NOT_AVAILABLE', 'El entrenador seleccionado ya no está disponible.')
             starts = cur.execute("SELECT (now() AT TIME ZONE timezone)::date AS date FROM gyms WHERE id = %s",
                                  (client['gym_id'],)).fetchone()['date']
             cur.execute("INSERT INTO memberships (client_id, plan_id, starts_on, ends_on, registered_by) VALUES (%s, %s, %s, %s, %s)",
@@ -2344,20 +2372,24 @@ def complete_client_onboarding(payload: ClientOnboardingRequest,
             if group and group['plan_id'] is None:
                 cur.execute('UPDATE client_groups SET plan_id = %s WHERE id = %s',
                             (plan['id'], group['id']))
-            if selected_trainer_id is not None:
-                if (current_assignment is not None
-                        and current_assignment['trainer_id'] != selected_trainer_id):
-                    cur.execute("UPDATE trainer_client_assignments SET ends_at = now() WHERE client_id = %s AND ends_at IS NULL",
-                                (client['id'],))
-                    current_assignment = None
-                if current_assignment is None:
-                    cur.execute("INSERT INTO trainer_client_assignments (trainer_id, client_id, assigned_by) VALUES (%s, %s, %s)",
-                                (selected_trainer_id, client['id'], client['id']))
-            if selected_routine is not None:
-                cur.execute("""INSERT INTO client_routine_assignments
-                    (client_id, routine_id, current_phase_id, assigned_by)
-                    VALUES (%s, %s, %s, %s)""",
-                    (client['id'], selected_routine['id'], selected_routine['phase_id'], client['id']))
+            if current_assignment is None:
+                pending_request = cur.execute("""SELECT id FROM client_trainer_requests
+                    WHERE client_id = %s AND status = 'pending' FOR UPDATE""",
+                    (client['id'],)).fetchone()
+                if pending_request:
+                    cur.execute("""UPDATE client_trainer_requests SET trainer_id = %s,
+                        requested_at = now() WHERE id = %s""",
+                        (selected_trainer_id, pending_request['id']))
+                    request_id = pending_request['id']
+                else:
+                    request_id = cur.execute("""INSERT INTO client_trainer_requests
+                        (gym_id, client_id, trainer_id) VALUES (%s, %s, %s) RETURNING id""",
+                        (client['gym_id'], client['id'], selected_trainer_id)).fetchone()['id']
+                cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                    VALUES (%s, 'trainer_request', 'Nueva solicitud de entrenador', %s, %s)""",
+                    (selected_trainer_id,
+                     f"{client['first_name']} {client['last_name']} quiere que seas su entrenador.",
+                     Jsonb({'request_id': str(request_id), 'client_id': str(client['id'])})))
             cur.execute("""UPDATE client_profiles SET goal = %s, experience_level = %s,
                 days_per_week = %s, weight_kg = %s, height_cm = %s, limitations = %s,
                 onboarding_completed_at = now(), updated_at = now() WHERE user_id = %s""",
@@ -2365,7 +2397,7 @@ def complete_client_onboarding(payload: ClientOnboardingRequest,
                  payload.weight_kg, payload.height_cm, payload.limitations, client['id']))
             updated = cur.execute("UPDATE users SET status = 'active' WHERE id = %s RETURNING *", (client['id'],)).fetchone()
             cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, subject_id, event_type, details) VALUES (%s, %s, %s, %s, %s)",
-                        (client['gym_id'], client['id'], client['id'], 'client_onboarding_completed', Jsonb({'plan_id': str(plan['id']), 'trainer_id': str(selected_trainer_id) if selected_trainer_id else None, 'routine_id': str(selected_routine['id']) if selected_routine else None})))
+                        (client['gym_id'], client['id'], client['id'], 'client_onboarding_completed', Jsonb({'plan_id': str(plan['id']), 'trainer_id': str(selected_trainer_id), 'trainer_request_created': current_assignment is None})))
     return {'user': _public_user(updated)}
 
 
@@ -3038,7 +3070,8 @@ def admin_dashboard(admin: dict = Depends(active_admin)) -> dict:
         stats = conn.execute("""SELECT
             (SELECT count(*) FROM users WHERE gym_id = %s AND role = 'client' AND status <> 'deactivated') AS clients,
             (SELECT count(*) FROM users WHERE gym_id = %s AND role = 'trainer' AND status = 'active') AS trainers,
-            (SELECT count(*) FROM routines WHERE gym_id = %s AND active) AS routines,
+            (SELECT count(*) FROM routines r JOIN users t ON t.id = r.trainer_id
+              WHERE r.gym_id = %s AND r.active) AS routines,
             (SELECT count(*) FROM users WHERE gym_id = %s AND role IN ('trainer', 'admin') AND status = 'pending') AS pending_requests,
             (SELECT count(*) FROM attendance a JOIN gyms g ON g.id = a.gym_id
               WHERE a.gym_id = %s AND a.local_date = (now() AT TIME ZONE g.timezone)::date) AS attendance_today""",
@@ -3146,7 +3179,7 @@ def admin_routine_detail(routine_id: uuid.UUID,
     with pool.connection() as conn:
         routine = conn.execute("""SELECT r.id, r.name, r.goal, r.days_per_week,
                 concat_ws(' ', u.first_name, u.last_name) AS trainer_name
-            FROM routines r JOIN users u ON u.id = r.trainer_id
+            FROM routines r LEFT JOIN users u ON u.id = r.trainer_id
             WHERE r.id = %s AND r.gym_id = %s AND r.active""",
             (routine_id, admin['gym_id'])).fetchone()
         if routine is None:
@@ -3177,6 +3210,47 @@ def admin_routine_detail(routine_id: uuid.UUID,
         exercise['id'] = str(exercise['id'])
         exercise['phase_id'] = str(exercise['phase_id'])
     return {**routine, 'phases': phases, 'clients': clients, 'exercises': exercises}
+
+
+@app.post('/api/v1/admin/routines/{routine_id}/assign')
+def assign_admin_routine(routine_id: uuid.UUID, payload: RoutineAssignmentRequest,
+                         admin: dict = Depends(active_admin)) -> dict:
+    """Let the gym administrator assign a published routine without a trainer."""
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            row = cur.execute("""SELECT r.id AS routine_id, rp.id AS phase_id,
+                    u.id AS client_id
+                FROM routines r
+                JOIN routine_phases rp ON rp.routine_id = r.id
+                JOIN users u ON u.id = %s AND u.gym_id = r.gym_id
+                    AND u.role = 'client' AND u.status = 'active'
+                WHERE r.id = %s AND r.gym_id = %s AND r.active
+                    AND rp.id = %s AND rp.status = 'published'
+                FOR UPDATE OF u""",
+                (payload.client_id, routine_id, admin['gym_id'], payload.phase_id)).fetchone()
+            if row is None:
+                raise _problem(404, 'assignment_not_allowed',
+                               'La rutina publicada o el socio activo no se encontró en este gimnasio.')
+            cur.execute("""UPDATE client_routine_assignments SET ended_at = now()
+                WHERE client_id = %s AND ended_at IS NULL""", (row['client_id'],))
+            assignment = cur.execute("""INSERT INTO client_routine_assignments
+                (client_id, routine_id, current_phase_id, assigned_by)
+                VALUES (%s, %s, %s, %s) RETURNING id""",
+                (row['client_id'], row['routine_id'], row['phase_id'], admin['id'])).fetchone()
+            cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                VALUES (%s, 'routine_assigned', 'Tu rutina está lista', %s, %s)""",
+                (row['client_id'],
+                 'El administrador del gimnasio te asignó una rutina. Ya puedes consultarla en Inicio.',
+                 Jsonb({'routine_id': str(row['routine_id'])})))
+            cur.execute("""INSERT INTO account_audit_events
+                (gym_id, actor_id, subject_id, event_type, details)
+                VALUES (%s, %s, %s, 'routine_assigned_by_admin', %s)""",
+                (admin['gym_id'], admin['id'], row['client_id'],
+                 Jsonb({'routine_id': str(row['routine_id']),
+                        'assignment_id': str(assignment['id'])})))
+    return {'assignment_id': str(assignment['id']),
+            'client_id': str(row['client_id']),
+            'routine_id': str(row['routine_id'])}
 
 
 @app.get('/api/v1/admin/membership-plans')

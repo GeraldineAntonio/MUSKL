@@ -291,7 +291,6 @@ class ApiAuthRepository implements AuthRepository {
   Future<Session> completeClientOnboarding(
       {required String planId,
       String? trainerId,
-      String? routineId,
       required String goal,
       required String experienceLevel,
       required int daysPerWeek,
@@ -301,7 +300,6 @@ class ApiAuthRepository implements AuthRepository {
     final result = await _request('POST', '/api/v1/client/onboarding', body: {
       'plan_id': planId,
       'trainer_id': trainerId,
-      'routine_id': routineId,
       'goal': goal,
       'experience_level': experienceLevel,
       'days_per_week': daysPerWeek,
@@ -353,6 +351,17 @@ class ApiAuthRepository implements AuthRepository {
       Map<String, dynamic>.from(await _request(
           'GET', '/api/v1/admin/routines/${Uri.encodeComponent(routineId)}',
           authenticated: true) as Map);
+
+  @override
+  Future<void> assignAdminRoutine(
+      {required String routineId,
+      required String phaseId,
+      required String clientId}) async {
+    await _request('POST',
+        '/api/v1/admin/routines/${Uri.encodeComponent(routineId)}/assign',
+        authenticated: true,
+        body: {'phase_id': phaseId, 'client_id': clientId});
+  }
 
   @override
   Future<Map<String, dynamic>> getAdminDashboard() async =>
@@ -575,11 +584,20 @@ class ApiAuthRepository implements AuthRepository {
 
   @override
   Future<void> reviewTrainerAssignmentRequest(
-      {required String requestId, required bool accept}) async {
+      {required String requestId,
+      required bool accept,
+      String? routineId,
+      String? phaseId}) async {
     final action = accept ? 'accept' : 'reject';
     await _request('POST',
         '/api/v1/trainer/assignment-requests/${Uri.encodeComponent(requestId)}/$action',
-        authenticated: true);
+        authenticated: true,
+        body: accept
+            ? {
+                if (routineId != null) 'routine_id': routineId,
+                if (phaseId != null) 'phase_id': phaseId,
+              }
+            : null);
   }
 
   @override

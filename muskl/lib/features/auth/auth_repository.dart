@@ -59,14 +59,6 @@ abstract class AuthRepository {
   Future<List<Map<String, dynamic>>> getAdminRoutines(
       {String search = '', String? goal});
   Future<Map<String, dynamic>> getAdminRoutine({required String routineId});
-  Future<void> updateAdminRoutineExercise(
-      {required String routineId,
-      required String exerciseId,
-      required String name,
-      required int sets,
-      required String reps,
-      required int restSeconds,
-      required int dayNumber});
   Future<void> assignAdminRoutine(
       {required String routineId,
       required String phaseId,
@@ -488,16 +480,6 @@ class FakeAuthRepository implements AuthRepository {
           }
         ],
       };
-
-  @override
-  Future<void> updateAdminRoutineExercise(
-      {required String routineId,
-      required String exerciseId,
-      required String name,
-      required int sets,
-      required String reps,
-      required int restSeconds,
-      required int dayNumber}) async {}
 
   @override
   Future<void> assignAdminRoutine(

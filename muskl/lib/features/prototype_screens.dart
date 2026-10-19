@@ -1039,9 +1039,11 @@ class _TrainerPhasesScreenState extends State<TrainerPhasesScreen> {
 
   Future<void> _createPhase(Map<String, dynamic> data) async {
     if (data['phases'] is! List || (data['phases'] as List).isEmpty) return;
-    context.go(Uri(path: '/trainer/routine/new', queryParameters: {
+    final created = await context.push<bool>(
+        Uri(path: '/trainer/routine/new', queryParameters: {
       'routine_id': widget.routineId,
     }).toString());
+    if (created == true && mounted) setState(_reload);
   }
 
   Future<void> _publish(Map<String, dynamic> phase) async {
@@ -1590,21 +1592,6 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
       );
       final key = _draftKey;
       if (key != null) await _draftStorage.delete(key: key);
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Registro completado'),
-          content: const Text(
-              'Inicia sesión para continuar. Tu entrenador recibirá la solicitud y podrá asignarte una rutina cuando te acepte.'),
-          actions: [
-            FilledButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Ir a iniciar sesión'))
-          ],
-        ),
-      );
       if (!mounted) return;
       await authController.signOut();
       if (mounted) context.go('/login');

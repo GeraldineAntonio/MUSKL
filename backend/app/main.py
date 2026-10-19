@@ -419,14 +419,6 @@ class WorkoutSetProgressRequest(BaseModel):
     sets_completed: int = Field(ge=0, le=20)
 
 
-class AdminRoutineExerciseUpdate(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    sets: int = Field(ge=1, le=20)
-    reps: str = Field(min_length=1, max_length=40)
-    rest_seconds: int = Field(ge=0, le=3600)
-    day_number: int = Field(ge=1, le=7)
-
-
 class RoutineAssignmentRequest(BaseModel):
     client_id: uuid.UUID
     phase_id: uuid.UUID
@@ -3488,36 +3480,6 @@ def admin_routine_detail(routine_id: uuid.UUID,
         exercise['id'] = str(exercise['id'])
         exercise['phase_id'] = str(exercise['phase_id'])
     return {**routine, 'phases': phases, 'clients': clients, 'exercises': exercises}
-
-
-@app.patch('/api/v1/admin/routines/{routine_id}/exercises/{exercise_id}')
-def admin_update_routine_exercise(routine_id: uuid.UUID, exercise_id: uuid.UUID,
-                                  payload: AdminRoutineExerciseUpdate,
-                                  admin: dict = Depends(active_admin)) -> dict:
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            exercise = cur.execute("""SELECT re.id, re.phase_id, re.day_number, re.position
-                FROM routine_exercises re JOIN routine_phases rp ON rp.id = re.phase_id
-                JOIN routines r ON r.id = rp.routine_id
-                WHERE r.id = %s AND r.gym_id = %s AND r.active AND re.id = %s
-                FOR UPDATE OF re""", (routine_id, admin['gym_id'], exercise_id)).fetchone()
-            if exercise is None:
-                raise _problem(404, 'ROUTINE_EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio de la rutina.')
-            position = exercise['position']
-            if payload.day_number != exercise['day_number']:
-                position = cur.execute("""SELECT coalesce(max(position), 0) + 1 AS next_position
-                    FROM routine_exercises WHERE phase_id = %s AND day_number = %s""",
-                    (exercise['phase_id'], payload.day_number)).fetchone()['next_position']
-            updated = cur.execute("""UPDATE routine_exercises SET name = %s, sets = %s,
-                    reps = %s, rest_seconds = %s, day_number = %s, position = %s
-                WHERE id = %s RETURNING id, name, sets, reps, rest_seconds, day_number, position""",
-                (payload.name.strip(), payload.sets, payload.reps.strip(), payload.rest_seconds,
-                 payload.day_number, position, exercise_id)).fetchone()
-            cur.execute("""INSERT INTO account_audit_events (gym_id, actor_id, event_type, details)
-                VALUES (%s, %s, 'admin_routine_exercise_updated', %s)""",
-                (admin['gym_id'], admin['id'], Jsonb({'routine_id': str(routine_id), 'exercise_id': str(exercise_id)})))
-    updated['id'] = str(updated['id'])
-    return updated
 
 
 @app.post('/api/v1/admin/routines/{routine_id}/assign')

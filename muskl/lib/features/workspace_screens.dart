@@ -2864,18 +2864,16 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                             goal: goal,
                             days: phaseDays,
                             exercises: phaseExercises);
-                        if (mounted) context.go('/trainer/routines');
+                        if (!mounted) return;
+                        context.go('/trainer/routines');
                       } else {
                         await authController.createTrainerPhase(
                             routineId: widget.routineId!,
                             name: name.text.trim(),
                             days: phaseDays,
                             exercises: phaseExercises);
-                        if (mounted)
-                          context.go(Uri(
-                                  path: '/trainer/phases',
-                                  queryParameters: {'id': widget.routineId!})
-                              .toString());
+                        if (!mounted) return;
+                        context.pop(true);
                       }
                     } catch (e) {
                       if (mounted)
@@ -4414,7 +4412,6 @@ class AdminRoutineDetailScreen extends StatefulWidget {
 
 class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
   late Future<Map<String, dynamic>> _routine;
-  bool _savingExercise = false;
 
   @override
   void initState() {
@@ -4465,54 +4462,6 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('No se pudo asignar la rutina: $error')));
       }
-    }
-  }
-
-  Future<void> _editExercise(Map<String, dynamic> exercise) async {
-    final values = await _editFields(context, 'EDITAR EJERCICIO', [
-      'Nombre',
-      'Series',
-      'Repeticiones',
-      'Descanso en segundos',
-      'Día (1 lunes, 7 domingo)',
-    ], [
-      exercise['name'].toString(),
-      exercise['sets'].toString(),
-      exercise['reps'].toString(),
-      exercise['rest_seconds'].toString(),
-      exercise['day_number'].toString(),
-    ]);
-    if (!mounted || values == null) return;
-    final sets = int.tryParse(values[1]);
-    final rest = int.tryParse(values[3]);
-    final day = int.tryParse(values[4]);
-    if (sets == null || rest == null || day == null || day < 1 || day > 7) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Series, descanso o día no son válidos.')));
-      return;
-    }
-    setState(() => _savingExercise = true);
-    try {
-      await authController.updateAdminRoutineExercise(
-        routineId: widget.routineId,
-        exerciseId: exercise['id'].toString(),
-        name: values[0].trim(),
-        sets: sets,
-        reps: values[2].trim(),
-        restSeconds: rest,
-        dayNumber: day,
-      );
-      if (!mounted) return;
-      setState(() =>
-          _routine = authController.adminRoutine(routineId: widget.routineId));
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ejercicio de la rutina actualizado.')));
-    } catch (error) {
-      if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('No se pudo editar: $error')));
-    } finally {
-      if (mounted) setState(() => _savingExercise = false);
     }
   }
 
@@ -4594,11 +4543,7 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
                     children: [
                       for (final exercise in entry.value)
                         _record(exercise['name'].toString(),
-                            '${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s',
-                            editable: true,
-                            onTap: _savingExercise
-                                ? null
-                                : () => _editExercise(exercise))
+                            '${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s')
                     ],
                   ),
                 _section('Clientes asignados'),

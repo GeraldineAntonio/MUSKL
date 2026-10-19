@@ -358,29 +358,6 @@ class ApiAuthRepository implements AuthRepository {
           authenticated: true) as Map);
 
   @override
-  Future<void> updateAdminRoutineExercise(
-      {required String routineId,
-      required String exerciseId,
-      required String name,
-      required int sets,
-      required String reps,
-      required int restSeconds,
-      required int dayNumber}) async {
-    await _request(
-      'PATCH',
-      '/api/v1/admin/routines/${Uri.encodeComponent(routineId)}/exercises/${Uri.encodeComponent(exerciseId)}',
-      authenticated: true,
-      body: {
-        'name': name,
-        'sets': sets,
-        'reps': reps,
-        'rest_seconds': restSeconds,
-        'day_number': dayNumber,
-      },
-    );
-  }
-
-  @override
   Future<void> assignAdminRoutine(
       {required String routineId,
       required String phaseId,

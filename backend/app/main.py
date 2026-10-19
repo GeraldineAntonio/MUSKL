@@ -3040,6 +3040,12 @@ def deactivate_user(user_id: uuid.UUID, payload: DeactivationRequest,
                                    'Desde esta acción solo se pueden dar de baja socios y entrenadores.')
                 if user['status'] == 'deactivated':
                     raise _problem(409, 'ALREADY_DEACTIVATED', 'La cuenta ya está dada de baja.')
+                if user['role'] == 'trainer':
+                    # Preserve assignment history, but detach current clients so
+                    # an admin can deactivate a trainer in one operation.
+                    cur.execute("""UPDATE trainer_client_assignments
+                        SET ends_at = now() WHERE trainer_id = %s AND ends_at IS NULL""",
+                        (user_id,))
                 cur.execute("""UPDATE users SET status = 'deactivated', status_reason = %s,
                    deactivation_reason = %s, deactivation_note = %s, deactivated_at = %s,
                    deactivated_by = %s WHERE id = %s""",

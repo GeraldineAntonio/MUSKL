@@ -54,27 +54,33 @@ class PrototypePage extends StatelessWidget {
   final bool backWithinFlow;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-            title: Text(title.toUpperCase()),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: backWithinFlow
-                  ? onBack
-                  : context.canPop()
-                      ? () => context.pop()
-                      : null,
-            )),
-        body: SafeArea(
-            child: ListView(padding: const EdgeInsets.all(20), children: [
-          if (step != null) ...[
-            Text(step!,
-                style: const TextStyle(
-                    color: AppColors.accent, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-          ],
-          child,
-        ])),
+  Widget build(BuildContext context) => PopScope(
+        canPop: !backWithinFlow,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop && backWithinFlow) onBack?.call();
+        },
+        child: Scaffold(
+          appBar: AppBar(
+              title: Text(title.toUpperCase()),
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: backWithinFlow
+                    ? onBack
+                    : context.canPop()
+                        ? () => context.pop()
+                        : null,
+              )),
+          body: SafeArea(
+              child: ListView(padding: const EdgeInsets.all(20), children: [
+            if (step != null) ...[
+              Text(step!,
+                  style: const TextStyle(
+                      color: AppColors.accent, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+            ],
+            child,
+          ])),
+        ),
       );
 }
 
@@ -671,7 +677,7 @@ class _DeactivateMemberScreenState extends State<DeactivateMemberScreen> {
         MusklCard(
             child: Text(
                 widget.role == 'trainer'
-                    ? 'El entrenador perderá acceso de inmediato. Reasigna sus clientes; sus datos y archivos se eliminarán después de 30 días si no se reactiva.'
+                    ? 'El entrenador perderá acceso de inmediato. Sus clientes quedarán sin entrenador asignado para que el administrador pueda reasignarlos. Sus datos se eliminarán después de 30 días si no se reactiva.'
                     : 'El socio perderá acceso de inmediato. La cuenta y sus datos se eliminarán después de 30 días si no se reactiva.',
                 style: TextStyle(color: AppColors.red))),
         MusklButton(
@@ -687,7 +693,7 @@ class _DeactivateMemberScreenState extends State<DeactivateMemberScreen> {
                         title: const Text('¿Confirmas la baja?'),
                         content: Text(
                           'Se desactivará el acceso de ${widget.name} a MUSKL. '
-                          '${widget.role == 'trainer' ? 'Primero debes reasignar sus clientes activos. ' : ''}'
+                          '${widget.role == 'trainer' ? 'Sus clientes activos quedarán sin entrenador y podrán reasignarse después. ' : ''}'
                           'Podrás reactivar la cuenta durante 30 días; después se eliminarán sus datos. '
                           'Se intentará avisar al correo registrado.',
                         ),
@@ -1803,10 +1809,6 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                                 _routineId == null)
                         ? null
                         : _continue),
-                if (_step > 0)
-                  TextButton(
-                      onPressed: _saving ? null : () => setState(() => _step--),
-                      child: const Text('Anterior')),
               ]),
       );
 }

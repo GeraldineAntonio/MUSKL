@@ -111,7 +111,7 @@ class _Box extends StatelessWidget {
       ),
       child: Text(
         char,
-        style: GoogleFonts.barlowCondensed(
+        style: GoogleFonts.nunitoSans(
           fontSize: 30,
           fontWeight: FontWeight.w800,
           color: AppColors.white,

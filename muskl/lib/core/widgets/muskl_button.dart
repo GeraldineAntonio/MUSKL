@@ -6,7 +6,7 @@ import '../theme/app_theme.dart';
 
 enum MusklButtonStyle { primary, secondary, light, accent, ghost }
 
-/// Botón grande de MUSKL: texto condensado en mayúsculas.
+/// Botón principal de MUSKL.
 class MusklButton extends StatelessWidget {
   const MusklButton({
     super.key,
@@ -60,11 +60,11 @@ class MusklButton extends StatelessWidget {
                       ],
                       Text(
                         label.toUpperCase(),
-                        style: GoogleFonts.barlowCondensed(
+                        style: GoogleFonts.nunitoSans(
                           color: fg,
-                          fontSize: 18,
+                          fontSize: 15,
                           fontWeight: FontWeight.w800,
-                          letterSpacing: 0.8,
+                          letterSpacing: 0.25,
                         ),
                       ),
                     ],

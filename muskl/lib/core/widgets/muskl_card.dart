@@ -23,6 +23,12 @@ class MusklCard extends StatelessWidget {
     return Material(
       color: selected ? AppColors.red : AppColors.surface,
       borderRadius: BorderRadius.circular(AppTheme.radius + 4),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppTheme.radius + 4),
+        side: BorderSide(
+          color: selected ? AppColors.red : AppColors.surfaceHigh,
+        ),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppTheme.radius + 4),
         onTap: onTap,

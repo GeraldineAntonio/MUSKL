@@ -10,7 +10,7 @@ class AppTheme {
 
   static ThemeData dark() {
     final base = ThemeData.dark(useMaterial3: true);
-    final text = GoogleFonts.barlowCondensedTextTheme(base.textTheme).apply(
+    final text = GoogleFonts.nunitoSansTextTheme(base.textTheme).apply(
       bodyColor: AppColors.white,
       displayColor: AppColors.white,
     );
@@ -24,22 +24,31 @@ class AppTheme {
         error: AppColors.red,
       ),
       textTheme: text.copyWith(
-        // Títulos de pantalla: condensada, mayúsculas, muy gruesa.
+        // Tipografía redondeada y legible para acercarnos al estilo Nu Sans.
         headlineLarge: text.headlineLarge?.copyWith(
-          fontWeight: FontWeight.w800,
-          fontSize: 40,
-          height: 1.0,
+          fontWeight: FontWeight.w900,
+          fontSize: 38,
+          height: 1.04,
+          letterSpacing: -0.8,
         ),
         headlineMedium: text.headlineMedium?.copyWith(
+          fontWeight: FontWeight.w900,
+          fontSize: 27,
+          height: 1.08,
+          letterSpacing: -0.35,
+        ),
+        titleLarge: text.titleLarge?.copyWith(
           fontWeight: FontWeight.w800,
-          fontSize: 28,
-          height: 1.05,
+          fontSize: 21,
+          letterSpacing: -0.2,
         ),
         titleMedium: text.titleMedium?.copyWith(
           fontWeight: FontWeight.w700,
-          fontSize: 18,
+          fontSize: 17,
         ),
-        bodyMedium: text.bodyMedium?.copyWith(fontSize: 15),
+        bodyLarge: text.bodyLarge?.copyWith(fontSize: 16, height: 1.35),
+        bodyMedium: text.bodyMedium?.copyWith(fontSize: 15, height: 1.35),
+        bodySmall: text.bodySmall?.copyWith(fontSize: 13, height: 1.3),
         labelSmall: text.labelSmall?.copyWith(
           fontWeight: FontWeight.w700,
           fontSize: 12,
@@ -53,7 +62,7 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppColors.surfaceHigh,
-        contentTextStyle: GoogleFonts.barlowCondensed(
+        contentTextStyle: GoogleFonts.nunitoSans(
           color: AppColors.white,
           fontSize: 16,
           fontWeight: FontWeight.w600,

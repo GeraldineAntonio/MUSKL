@@ -9,7 +9,7 @@ class MusklNavItem {
   final IconData icon;
 }
 
-/// Barra inferior: ícono + etiqueta, el activo en rojo.
+/// Barra inferior con una selección visible y animada.
 class MusklBottomNav extends StatelessWidget {
   const MusklBottomNav({
     super.key,
@@ -32,35 +32,53 @@ class MusklBottomNav extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 64,
+          height: 70,
           child: Row(
             children: [
               for (var i = 0; i < items.length; i++)
                 Expanded(
                   child: InkWell(
                     onTap: () => onTap(i),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          items[i].icon,
+                    child: Center(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
                           color: i == currentIndex
-                              ? AppColors.red
-                              : AppColors.textMuted,
+                              ? AppColors.red.withValues(alpha: 0.13)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(16),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          items[i].label.toUpperCase(),
-                          style: GoogleFonts.barlowCondensed(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.8,
-                            color: i == currentIndex
-                                ? AppColors.red
-                                : AppColors.textMuted,
-                          ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              items[i].icon,
+                              size: 21,
+                              color: i == currentIndex
+                                  ? AppColors.red
+                                  : AppColors.textMuted,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              items[i].label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.nunitoSans(
+                                fontSize: 11,
+                                fontWeight: i == currentIndex
+                                    ? FontWeight.w800
+                                    : FontWeight.w600,
+                                color: i == currentIndex
+                                    ? AppColors.red
+                                    : AppColors.textMuted,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),

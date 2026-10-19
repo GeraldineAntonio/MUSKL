@@ -681,6 +681,7 @@ class AdminMemberDetailScreen extends StatefulWidget {
       this.deactivatedBy = '',
       this.trainerId = '',
       this.trainerName = '',
+      this.trainerReassignmentRequired = false,
       this.reactivationUntil = ''});
   final bool deactivated;
   final String? userId;
@@ -695,6 +696,7 @@ class AdminMemberDetailScreen extends StatefulWidget {
       trainerId,
       trainerName,
       reactivationUntil;
+  final bool trainerReassignmentRequired;
 
   @override
   State<AdminMemberDetailScreen> createState() =>
@@ -791,19 +793,13 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
         const SizedBox(height: 16),
         if (!widget.deactivated &&
             (widget.role == 'client' || widget.role == 'trainer')) ...[
-          if (widget.role == 'client' &&
-              (widget.status == 'active' ||
-                  widget.status == 'active_no_onboarding'))
+          if (widget.role == 'client' && widget.trainerReassignmentRequired)
             MusklButton(
-                label: widget.trainerName.isEmpty
-                    ? 'Asignar entrenador'
-                    : 'Cambiar entrenador',
+                label: 'Reasignar entrenador',
                 icon: Icons.fitness_center,
                 loading: _assigningTrainer,
                 onPressed: _assigningTrainer ? null : _assignTrainer),
-          if (widget.role == 'client' &&
-              (widget.status == 'active' ||
-                  widget.status == 'active_no_onboarding'))
+          if (widget.role == 'client' && widget.trainerReassignmentRequired)
             const SizedBox(height: 10),
           MusklButton(
               label:

@@ -325,6 +325,10 @@ class ClientOnboardingRequest(BaseModel):
     routine_id: uuid.UUID | None = None
 
 
+class TrainerRequestCreate(BaseModel):
+    trainer_id: uuid.UUID
+
+
 class ClientProfileUpdate(BaseModel):
     first_name: str | None = Field(default=None, min_length=1, max_length=80)
     last_name: str | None = Field(default=None, min_length=1, max_length=100)
@@ -1351,12 +1355,6 @@ def register_client_group_members(payload: ClientGroupRegistration,
     return {'member_number': group['member_number'], 'member_count': target_size, 'created': True}
 
 
-def onboarded_client(user: dict = Depends(active_client)) -> dict:
-    if user['status'] != 'active':
-        raise _problem(403, 'ONBOARDING_REQUIRED', 'Completa el onboarding antes de usar el módulo de cliente.')
-    return user
-
-
 def active_trainer(user: dict = Depends(current_user)) -> dict:
     if user['role'] != 'trainer' or user['status'] != 'active':
         raise _problem(403, 'TRAINER_REQUIRED', 'Esta opción requiere una cuenta entrenador activa.')
@@ -1873,6 +1871,68 @@ def client_onboarding_options(client: dict = Depends(active_client)) -> dict:
     return result
 
 
+@app.get('/api/v1/client/trainers')
+def client_trainers(client: dict = Depends(active_client)) -> dict:
+    with pool.connection() as conn:
+        trainers = conn.execute("""SELECT u.id, u.first_name, u.last_name, tp.specialty
+            FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id
+            WHERE u.gym_id = %s AND u.role = 'trainer' AND u.status = 'active'
+            ORDER BY u.first_name, u.last_name""", (client['gym_id'],)).fetchall()
+        assigned = conn.execute("""SELECT tca.trainer_id, concat_ws(' ', t.first_name, t.last_name) AS name
+            FROM trainer_client_assignments tca JOIN users t ON t.id = tca.trainer_id
+            WHERE tca.client_id = %s AND tca.ends_at IS NULL LIMIT 1""",
+            (client['id'],)).fetchone()
+        request = conn.execute("""SELECT r.id, r.trainer_id, r.status, r.requested_at,
+                concat_ws(' ', t.first_name, t.last_name) AS trainer_name
+            FROM client_trainer_requests r JOIN users t ON t.id = r.trainer_id
+            WHERE r.client_id = %s AND r.status = 'pending'
+            ORDER BY r.requested_at DESC LIMIT 1""", (client['id'],)).fetchone()
+    return {
+        'trainers': [{**row, 'id': str(row['id'])} for row in trainers],
+        'assigned_trainer_id': str(assigned['trainer_id']) if assigned else None,
+        'assigned_trainer_name': assigned['name'] if assigned else None,
+        'pending_request': ({**request, 'id': str(request['id']),
+                             'trainer_id': str(request['trainer_id']),
+                             'requested_at': request['requested_at'].isoformat()}
+                            if request else None),
+    }
+
+
+@app.post('/api/v1/client/trainer-requests', status_code=201)
+def request_client_trainer(payload: TrainerRequestCreate,
+                           client: dict = Depends(active_client)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            assigned = cur.execute("""SELECT 1 FROM trainer_client_assignments
+                WHERE client_id = %s AND ends_at IS NULL""", (client['id'],)).fetchone()
+            if assigned:
+                raise _problem(409, 'TRAINER_ALREADY_ASSIGNED',
+                               'Ya tienes entrenador asignado. Contacta al gimnasio si necesitas cambiarlo.')
+            trainer = cur.execute("""SELECT id FROM users WHERE id = %s AND gym_id = %s
+                AND role = 'trainer' AND status = 'active'""",
+                (payload.trainer_id, client['gym_id'])).fetchone()
+            if trainer is None:
+                raise _problem(404, 'TRAINER_NOT_AVAILABLE', 'Ese entrenador ya no está disponible.')
+            request = cur.execute("""SELECT id FROM client_trainer_requests
+                WHERE client_id = %s AND status = 'pending' FOR UPDATE""",
+                (client['id'],)).fetchone()
+            if request:
+                cur.execute("""UPDATE client_trainer_requests SET trainer_id = %s,
+                    requested_at = now() WHERE id = %s""",
+                    (payload.trainer_id, request['id']))
+                request_id = request['id']
+            else:
+                request_id = cur.execute("""INSERT INTO client_trainer_requests
+                    (gym_id, client_id, trainer_id) VALUES (%s, %s, %s) RETURNING id""",
+                    (client['gym_id'], client['id'], payload.trainer_id)).fetchone()['id']
+            cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                VALUES (%s, 'trainer_request', 'Nueva solicitud de entrenador', %s, %s)""",
+                (payload.trainer_id,
+                 f"{client['first_name']} {client['last_name']} quiere que seas su entrenador.",
+                 Jsonb({'request_id': str(request_id), 'client_id': str(client['id'])})))
+    return {'id': str(request_id), 'status': 'pending'}
+
+
 @app.get('/api/v1/client/onboarding/routines')
 def client_onboarding_routines(goal: Literal['Bajar de peso', 'Masa muscular', 'Resistencia', 'Fuerza'],
                                days_per_week: int = Query(ge=3, le=6),
@@ -1903,7 +1963,7 @@ def trainer_clients(search: str = Query(default='', max_length=100),
                 r.name AS routine_name, cp.goal, cp.days_per_week,
                 (SELECT count(*) FROM attendance a WHERE a.client_id = u.id AND a.local_date >= (now() AT TIME ZONE g.timezone)::date - 6) AS attendance_7d
             FROM trainer_client_assignments tca
-            JOIN users u ON u.id = tca.client_id AND u.status = 'active'
+            JOIN users u ON u.id = tca.client_id AND u.status IN ('active', 'active_no_onboarding')
             JOIN gyms g ON g.id = u.gym_id
             LEFT JOIN client_profiles cp ON cp.user_id = u.id
             LEFT JOIN LATERAL (SELECT plan_id, ends_on FROM memberships WHERE client_id = u.id AND status = 'active' ORDER BY ends_on DESC LIMIT 1) m ON true
@@ -1913,6 +1973,71 @@ def trainer_clients(search: str = Query(default='', max_length=100),
               AND (concat_ws(' ', u.first_name, u.last_name) ILIKE %s OR u.member_number ILIKE %s)
             ORDER BY u.first_name, u.last_name""", (trainer['id'], term, term)).fetchall()
     return [{**row, 'id': str(row['id']), 'membership_ends_on': row['membership_ends_on'].isoformat() if row['membership_ends_on'] else None} for row in rows]
+
+
+@app.get('/api/v1/trainer/assignment-requests')
+def trainer_assignment_requests(trainer: dict = Depends(active_trainer)) -> list[dict]:
+    with pool.connection() as conn:
+        rows = conn.execute("""SELECT r.id, r.client_id, u.first_name, u.last_name,
+                u.member_number, u.email, r.requested_at
+            FROM client_trainer_requests r JOIN users u ON u.id = r.client_id
+            WHERE r.trainer_id = %s AND r.status = 'pending' AND u.status IN ('active', 'active_no_onboarding')
+            ORDER BY r.requested_at""", (trainer['id'],)).fetchall()
+    return [{**row, 'id': str(row['id']), 'client_id': str(row['client_id']),
+             'requested_at': row['requested_at'].isoformat()} for row in rows]
+
+
+@app.post('/api/v1/trainer/assignment-requests/{request_id}/accept')
+def accept_trainer_assignment_request(request_id: uuid.UUID,
+                                      trainer: dict = Depends(active_trainer)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            request = cur.execute("""SELECT id, client_id FROM client_trainer_requests
+                WHERE id = %s AND trainer_id = %s AND status = 'pending' FOR UPDATE""",
+                (request_id, trainer['id'])).fetchone()
+            if request is None:
+                raise _problem(404, 'TRAINER_REQUEST_NOT_FOUND', 'La solicitud ya fue atendida o no existe.')
+            client = cur.execute("""SELECT id, first_name, last_name FROM users
+                WHERE id = %s AND gym_id = %s AND role = 'client'
+                  AND status IN ('active', 'active_no_onboarding') FOR UPDATE""",
+                (request['client_id'], trainer['gym_id'])).fetchone()
+            if client is None:
+                raise _problem(404, 'CLIENT_NOT_AVAILABLE', 'El socio ya no está disponible.')
+            current = cur.execute("""SELECT id FROM trainer_client_assignments
+                WHERE client_id = %s AND ends_at IS NULL FOR UPDATE""",
+                (client['id'],)).fetchone()
+            if current:
+                raise _problem(409, 'CLIENT_ALREADY_ASSIGNED', 'El socio ya tiene un entrenador asignado.')
+            cur.execute("""INSERT INTO trainer_client_assignments
+                (trainer_id, client_id, assigned_by) VALUES (%s, %s, %s)""",
+                (trainer['id'], client['id'], trainer['id']))
+            cur.execute("UPDATE client_trainer_requests SET status = 'accepted', reviewed_at = now() WHERE id = %s",
+                        (request_id,))
+            cur.execute("""UPDATE client_trainer_requests SET status = 'cancelled', reviewed_at = now()
+                WHERE client_id = %s AND id <> %s AND status = 'pending'""",
+                (client['id'], request_id))
+            cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                VALUES (%s, 'trainer_accepted', 'Entrenador asignado', %s, %s)""",
+                (client['id'], f"{trainer['first_name']} {trainer['last_name']} aceptó acompañarte. Ahora falta que te asigne una rutina.",
+                 Jsonb({'trainer_id': str(trainer['id'])})))
+    return {'request_id': str(request_id), 'client_id': str(client['id']), 'status': 'accepted'}
+
+
+@app.post('/api/v1/trainer/assignment-requests/{request_id}/reject')
+def reject_trainer_assignment_request(request_id: uuid.UUID,
+                                      trainer: dict = Depends(active_trainer)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            request = cur.execute("""UPDATE client_trainer_requests SET status = 'rejected', reviewed_at = now()
+                WHERE id = %s AND trainer_id = %s AND status = 'pending' RETURNING client_id""",
+                (request_id, trainer['id'])).fetchone()
+            if request is None:
+                raise _problem(404, 'TRAINER_REQUEST_NOT_FOUND', 'La solicitud ya fue atendida o no existe.')
+            cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                VALUES (%s, 'trainer_rejected', 'Solicitud de entrenador', %s, %s)""",
+                (request['client_id'], f"{trainer['first_name']} {trainer['last_name']} no pudo aceptar tu solicitud. Puedes elegir otro entrenador.",
+                 Jsonb({'trainer_id': str(trainer['id'])})))
+    return {'request_id': str(request_id), 'status': 'rejected'}
 
 
 @app.get('/api/v1/trainer/clients/{client_id}')
@@ -1942,7 +2067,8 @@ def trainer_client_detail(client_id: uuid.UUID,
                 FROM client_routine_assignments WHERE client_id = u.id AND ended_at IS NULL LIMIT 1) cra ON true
             LEFT JOIN routines r ON r.id = cra.routine_id
             LEFT JOIN routine_phases rp ON rp.id = cra.current_phase_id
-            WHERE u.id = %s AND u.gym_id = %s AND u.role = 'client' AND u.status = 'active'""",
+            WHERE u.id = %s AND u.gym_id = %s AND u.role = 'client'
+              AND u.status IN ('active', 'active_no_onboarding')""",
             (trainer['id'], client_id, trainer['gym_id'])).fetchone()
     if row is None:
         raise _problem(404, 'CLIENT_NOT_FOUND', 'No encontramos un cliente activo asignado a tu cuenta.')
@@ -2135,7 +2261,8 @@ def assign_trainer_routine(routine_id: uuid.UUID, payload: RoutineAssignmentRequ
         with conn.cursor() as cur:
             row = cur.execute("""SELECT r.id AS routine_id, rp.id AS phase_id, u.id AS client_id
                 FROM routines r JOIN routine_phases rp ON rp.routine_id = r.id
-                JOIN users u ON u.id = %s AND u.gym_id = r.gym_id AND u.role = 'client' AND u.status = 'active'
+                JOIN users u ON u.id = %s AND u.gym_id = r.gym_id AND u.role = 'client'
+                  AND u.status IN ('active', 'active_no_onboarding')
                 JOIN trainer_client_assignments tca ON tca.client_id = u.id AND tca.trainer_id = r.trainer_id AND tca.ends_at IS NULL
                 WHERE r.id = %s AND r.trainer_id = %s AND r.active AND rp.id = %s AND rp.status = 'published'
                 FOR UPDATE OF u""", (payload.client_id, routine_id, trainer['id'], payload.phase_id)).fetchone()
@@ -2147,6 +2274,10 @@ def assign_trainer_routine(routine_id: uuid.UUID, payload: RoutineAssignmentRequ
                 (client_id, routine_id, current_phase_id, assigned_by)
                 VALUES (%s, %s, %s, %s) RETURNING id""",
                 (row['client_id'], row['routine_id'], row['phase_id'], trainer['id'])).fetchone()
+            cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                VALUES (%s, 'routine_assigned', 'Tu rutina está lista', %s, %s)""",
+                (row['client_id'], 'Tu entrenador te asignó una rutina. Ya puedes consultarla en Inicio.',
+                 Jsonb({'routine_id': str(row['routine_id'])})))
             cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, 'routine_assigned', %s)",
                         (trainer['gym_id'], trainer['id'], Jsonb({'client_id': str(row['client_id']), 'routine_id': str(row['routine_id']), 'assignment_id': str(assignment['id'])})))
     return {'assignment_id': str(assignment['id']), 'client_id': str(row['client_id']), 'routine_id': str(row['routine_id'])}
@@ -2155,6 +2286,9 @@ def assign_trainer_routine(routine_id: uuid.UUID, payload: RoutineAssignmentRequ
 @app.post('/api/v1/client/onboarding')
 def complete_client_onboarding(payload: ClientOnboardingRequest,
                                client: dict = Depends(active_client)) -> dict:
+    if payload.trainer_id is not None or payload.routine_id is not None:
+        raise _problem(422, 'TRAINER_ACCEPTANCE_REQUIRED',
+                       'Solicita un entrenador desde tu panel. Solo el entrenador puede aceptarte y asignarte rutina.')
     with pool.connection() as conn:
         with conn.cursor() as cur:
             locked = cur.execute("""SELECT u.id, u.role, u.status,
@@ -2284,7 +2418,7 @@ def _process_due_routine_phases() -> int:
     with pool.connection() as conn:
         client_ids = conn.execute("""SELECT DISTINCT cra.client_id
             FROM client_routine_assignments cra
-            JOIN users u ON u.id = cra.client_id AND u.status = 'active'
+            JOIN users u ON u.id = cra.client_id AND u.status IN ('active', 'active_no_onboarding')
             JOIN routine_phases rp ON rp.id = cra.current_phase_id AND rp.status = 'published'
             WHERE cra.ended_at IS NULL
               AND cra.phase_started_at <= now() - interval '8 weeks'
@@ -2339,11 +2473,12 @@ def _deliver_trainer_daily_reminders() -> int:
 
 
 @app.get('/api/v1/client/dashboard')
-def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
+def client_dashboard(client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
         _advance_due_client_phase(conn, client['id'])
         row = conn.execute("""SELECT u.first_name, u.last_name, u.member_number, u.email, u.phone,
                 cp.goal, cp.weight_kg, cp.height_cm,
+                cp.trainer_reassignment_required,
                 u.profile_photo_storage_key, u.profile_photo_mime,
                 cp.profile_photo, cp.profile_photo_mime AS legacy_profile_photo_mime,
                 g.timezone, g.name AS gym_name, g.address AS gym_address,
@@ -2351,6 +2486,8 @@ def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
                 p.name AS plan_name, m.ends_on AS membership_ends_on,
                 registry.payment_due_on,
                 concat_ws(' ', t.first_name, t.last_name) AS trainer_name,
+                ptr.trainer_id AS pending_trainer_id,
+                concat_ws(' ', pending_trainer.first_name, pending_trainer.last_name) AS pending_trainer_name,
                 r.name AS routine_name, cra.current_phase_id, rp.phase_number,
                 cra.phase_started_at, (now() AT TIME ZONE g.timezone)::date AS today,
                 deletion_request.status AS deletion_request_status,
@@ -2364,6 +2501,9 @@ def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
             LEFT JOIN membership_plans p ON p.id = m.plan_id
             LEFT JOIN LATERAL (SELECT trainer_id FROM trainer_client_assignments WHERE client_id = u.id AND ends_at IS NULL LIMIT 1) tca ON true
             LEFT JOIN users t ON t.id = tca.trainer_id
+            LEFT JOIN LATERAL (SELECT trainer_id FROM client_trainer_requests
+                WHERE client_id = u.id AND status = 'pending' LIMIT 1) ptr ON true
+            LEFT JOIN users pending_trainer ON pending_trainer.id = ptr.trainer_id
             LEFT JOIN LATERAL (SELECT routine_id, current_phase_id, phase_started_at FROM client_routine_assignments WHERE client_id = u.id AND ended_at IS NULL LIMIT 1) cra ON true
             LEFT JOIN routines r ON r.id = cra.routine_id
             LEFT JOIN routine_phases rp ON rp.id = cra.current_phase_id
@@ -2388,6 +2528,7 @@ def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
             'profile_photo_url': profile_photo_url,
             'profile_photo_mime': row['profile_photo_mime'] or row['legacy_profile_photo_mime'],
             'membership_ends_on': row['membership_ends_on'].isoformat() if row['membership_ends_on'] else None,
+            'pending_trainer_id': str(row['pending_trainer_id']) if row['pending_trainer_id'] else None,
             'payment_due_on': row['payment_due_on'].isoformat() if row['payment_due_on'] else None,
             'phase_started_at': row['phase_started_at'].isoformat() if row['phase_started_at'] else None,
             'deletion_requested_at': row['deletion_requested_at'].isoformat() if row['deletion_requested_at'] else None,
@@ -2397,7 +2538,7 @@ def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
 
 @app.patch('/api/v1/client/profile')
 def update_client_profile(payload: ClientProfileUpdate,
-                          client: dict = Depends(onboarded_client)) -> dict:
+                          client: dict = Depends(active_client)) -> dict:
     fields = payload.model_fields_set
     if not (fields & {'first_name', 'last_name', 'email', 'phone', 'photo_data', 'photo_mime'}) \
             and not payload.remove_photo:
@@ -2526,7 +2667,7 @@ def update_client_profile(payload: ClientProfileUpdate,
 
 
 @app.get('/api/v1/client/notifications')
-def client_notifications(client: dict = Depends(onboarded_client)) -> list[dict]:
+def client_notifications(client: dict = Depends(active_client)) -> list[dict]:
     with pool.connection() as conn:
         rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
             FROM notifications WHERE user_id = %s AND kind = 'new_phase_available'
@@ -2537,7 +2678,7 @@ def client_notifications(client: dict = Depends(onboarded_client)) -> list[dict]
 
 @app.post('/api/v1/client/notifications/{notification_id}/read', status_code=204)
 def mark_client_notification_read(notification_id: uuid.UUID,
-                                  client: dict = Depends(onboarded_client)) -> None:
+                                  client: dict = Depends(active_client)) -> None:
     with pool.connection() as conn:
         conn.execute("UPDATE notifications SET read_at = now() WHERE id = %s AND user_id = %s AND read_at IS NULL",
                      (notification_id, client['id']))
@@ -2564,7 +2705,7 @@ def mark_trainer_notification_read(notification_id: uuid.UUID,
 
 @app.get('/api/v1/client/attendance')
 def client_attendance(year: int = Query(ge=2000, le=2200), month: int = Query(ge=1, le=12),
-                      client: dict = Depends(onboarded_client)) -> dict:
+                      client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
         rows = conn.execute("""SELECT local_date, checked_in_at, source FROM attendance
             WHERE client_id = %s AND extract(year FROM local_date) = %s AND extract(month FROM local_date) = %s
@@ -2589,7 +2730,7 @@ def client_attendance(year: int = Query(ge=2000, le=2200), month: int = Query(ge
 
 
 @app.post('/api/v1/client/attendance/check-in', status_code=201)
-def client_attendance_check_in(client: dict = Depends(onboarded_client)) -> dict:
+def client_attendance_check_in(client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
         membership = conn.execute("""SELECT (now() AT TIME ZONE g.timezone)::date AS today
             FROM gyms g WHERE g.id = %s AND EXISTS (
@@ -2621,7 +2762,7 @@ def client_attendance_check_in(client: dict = Depends(onboarded_client)) -> dict
 
 
 @app.get('/api/v1/client/routine')
-def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(onboarded_client)) -> dict:
+def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
         _advance_due_client_phase(conn, client['id'])
         assignment = conn.execute("""SELECT cra.id AS assignment_id, cra.current_phase_id, cra.phase_started_at,
@@ -2658,7 +2799,7 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(onboarde
 
 @app.post('/api/v1/client/routine/exercises/{exercise_id}/complete')
 def complete_client_exercise(exercise_id: uuid.UUID,
-                             client: dict = Depends(onboarded_client)) -> dict:
+                             client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             assignment = cur.execute("""SELECT cra.current_phase_id,
@@ -2694,7 +2835,7 @@ def complete_client_exercise(exercise_id: uuid.UUID,
 
 @app.post('/api/v1/client/routine/complete', status_code=201)
 def complete_client_workout(payload: WorkoutCompletionRequest,
-                            client: dict = Depends(onboarded_client)) -> dict:
+                            client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             row = cur.execute("""SELECT cra.current_phase_id, (now() AT TIME ZONE g.timezone)::date AS today
@@ -2752,7 +2893,7 @@ def complete_client_workout(payload: WorkoutCompletionRequest,
 
 
 @app.post('/api/v1/client/account-deletion-request', status_code=201)
-def request_account_deletion(client: dict = Depends(onboarded_client)) -> dict:
+def request_account_deletion(client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             existing = cur.execute("SELECT id FROM account_deletion_requests WHERE user_id = %s AND status = 'pending' FOR UPDATE",
@@ -2932,6 +3073,7 @@ def admin_users(search: str = Query(default='', max_length=100),
         rows = conn.execute(f"""SELECT u.id, u.role, u.status, u.first_name, u.last_name, u.email, u.phone,
                 u.member_number, u.status_reason, u.deactivation_reason, u.deactivation_note,
                 u.deactivated_at, u.reactivation_until,
+                COALESCE(cp.trainer_reassignment_required, false) AS trainer_reassignment_required,
                 concat_ws(' ', a.first_name, a.last_name) AS deactivated_by,
                 p.name AS membership_plan, m.ends_on AS membership_ends_on, tp.specialty,
                 (SELECT count(*) FROM trainer_client_assignments tca WHERE tca.trainer_id = u.id AND tca.ends_at IS NULL) AS assigned_clients,
@@ -2942,6 +3084,7 @@ def admin_users(search: str = Query(default='', max_length=100),
               WHERE client_id = u.id AND status = 'active' ORDER BY ends_on DESC LIMIT 1) m ON true
             LEFT JOIN membership_plans p ON p.id = m.plan_id
             LEFT JOIN trainer_profiles tp ON tp.user_id = u.id
+            LEFT JOIN client_profiles cp ON cp.user_id = u.id
             LEFT JOIN LATERAL (
                 SELECT t.id, concat_ws(' ', t.first_name, t.last_name) AS name
                 FROM trainer_client_assignments tca
@@ -3281,9 +3424,18 @@ def deactivate_user(user_id: uuid.UUID, payload: DeactivationRequest,
                 if user['role'] == 'trainer':
                     # Preserve assignment history, but detach current clients so
                     # an admin can deactivate a trainer in one operation.
+                    cur.execute("""UPDATE client_routine_assignments SET ended_at = now()
+                        WHERE client_id IN (SELECT client_id FROM trainer_client_assignments
+                            WHERE trainer_id = %s AND ends_at IS NULL)
+                          AND ended_at IS NULL""", (user_id,))
+                    cur.execute("""UPDATE client_profiles SET trainer_reassignment_required = true
+                        WHERE user_id IN (SELECT client_id FROM trainer_client_assignments
+                            WHERE trainer_id = %s AND ends_at IS NULL)""", (user_id,))
                     cur.execute("""UPDATE trainer_client_assignments
                         SET ends_at = now() WHERE trainer_id = %s AND ends_at IS NULL""",
                         (user_id,))
+                    cur.execute("""UPDATE client_trainer_requests SET status = 'cancelled', reviewed_at = now()
+                        WHERE trainer_id = %s AND status = 'pending'""", (user_id,))
                 cur.execute("""UPDATE users SET status = 'deactivated', status_reason = %s,
                    deactivation_reason = %s, deactivation_note = %s, deactivated_at = %s,
                    deactivated_by = %s WHERE id = %s""",
@@ -3333,16 +3485,29 @@ def deactivate_member_by_number(member_number: str, payload: DeactivationRequest
 def reassign_client(payload: ReassignTrainerRequest, admin: dict = Depends(active_admin)) -> dict:
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            trainer = cur.execute("SELECT id FROM users WHERE id = %s AND gym_id = %s AND role = 'trainer' AND status = 'active' FOR UPDATE",
+            trainer = cur.execute("SELECT id, first_name, last_name FROM users WHERE id = %s AND gym_id = %s AND role = 'trainer' AND status = 'active' FOR UPDATE",
                                   (payload.new_trainer_id, admin['gym_id'])).fetchone()
-            client = cur.execute("SELECT id FROM users WHERE id = %s AND gym_id = %s AND role = 'client' AND status IN ('active', 'active_no_onboarding') FOR UPDATE",
+            client = cur.execute("""SELECT u.id FROM users u JOIN client_profiles cp ON cp.user_id = u.id
+                WHERE u.id = %s AND u.gym_id = %s AND u.role = 'client'
+                  AND u.status IN ('active', 'active_no_onboarding')
+                  AND cp.trainer_reassignment_required FOR UPDATE OF u, cp""",
                                  (payload.client_id, admin['gym_id'])).fetchone()
             if trainer is None or client is None:
-                raise _problem(404, 'ASSIGNMENT_TARGET_NOT_FOUND', 'El entrenador o socio no está activo.')
+                raise _problem(409, 'REASSIGNMENT_NOT_ALLOWED',
+                               'El administrador solo puede reasignar cuando el entrenador anterior dejó el gimnasio.')
             cur.execute('UPDATE trainer_client_assignments SET ends_at = now() WHERE client_id = %s AND ends_at IS NULL',
                         (payload.client_id,))
             cur.execute('INSERT INTO trainer_client_assignments (trainer_id, client_id, assigned_by) VALUES (%s, %s, %s)',
                         (payload.new_trainer_id, payload.client_id, admin['id']))
+            cur.execute("UPDATE client_profiles SET trainer_reassignment_required = false WHERE user_id = %s",
+                        (payload.client_id,))
+            cur.execute("""UPDATE client_trainer_requests SET status = 'cancelled', reviewed_at = now()
+                WHERE client_id = %s AND status = 'pending'""", (payload.client_id,))
+            cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                VALUES (%s, 'trainer_reassigned', 'Nuevo entrenador asignado', %s, %s)""",
+                (payload.client_id,
+                 f"El gimnasio te reasignó con {trainer['first_name']} {trainer['last_name']}; podrá prepararte una rutina.",
+                 Jsonb({'trainer_id': str(payload.new_trainer_id)})))
     return {'client_id': str(payload.client_id), 'trainer_id': str(payload.new_trainer_id)}
 
 

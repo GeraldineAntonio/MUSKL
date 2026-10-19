@@ -32,7 +32,9 @@ bool _isPublicPath(String path) =>
 
 /// A dónde va cada cuenta al iniciar sesión (tabla 2.3 de la especificación).
 String destinationFor(Session s) => switch (s.status) {
-      AccountStatus.activeNoOnboarding => '/onboarding',
+      // A client account can use the dashboard while waiting for a trainer.
+      // Profile details and trainer assignment must not trap the user in setup.
+      AccountStatus.activeNoOnboarding => '/home',
       AccountStatus.activeOnboarded => switch (s.role) {
           UserRole.client => '/home',
           UserRole.trainer => '/trainer',
@@ -96,6 +98,9 @@ GoRouter buildRouter(AuthController auth) {
           path: '/onboarding',
           builder: (_, __) => const OnboardingStartScreen()),
       GoRoute(path: '/home', builder: (_, __) => const ClientDashboardScreen()),
+      GoRoute(
+          path: '/home/trainers',
+          builder: (_, __) => const ClientTrainerSelectionScreen()),
       GoRoute(
           path: '/home/routine',
           builder: (_, __) => const ClientRoutineScreen()),
@@ -199,6 +204,9 @@ GoRouter buildRouter(AuthController auth) {
               deactivatedBy: state.uri.queryParameters['deactivated_by'] ?? '',
               trainerId: state.uri.queryParameters['trainer_id'] ?? '',
               trainerName: state.uri.queryParameters['trainer_name'] ?? '',
+              trainerReassignmentRequired:
+                  state.uri.queryParameters['trainer_reassignment_required'] ==
+                      'true',
               reactivationUntil:
                   state.uri.queryParameters['reactivation_until'] ?? '')),
       GoRoute(

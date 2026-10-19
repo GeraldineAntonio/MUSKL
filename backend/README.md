@@ -40,6 +40,8 @@ python -m app.migrate
 
 El comando aplica todas las migraciones numeradas de `db/` en orden, guarda las versiones en `muskl_schema_migrations` y omite las ya aplicadas. Usa un bloqueo advisory para que dos despliegues no apliquen migraciones simultáneamente. La primera ejecución supone una base vacía. Si ya tienes datos locales que quieras conservar, primero hay que exportarlos e importarlos; crear la base en la nube no copia esos datos. Render ejecuta este comando al iniciar el servicio.
 
+La migración `021_client_trainer_requests.sql` permite que los socios entren a su panel sin entrenador ni rutina, soliciten entrenador y esperen aceptación. La rutina se asigna después desde el panel del entrenador. Si un entrenador se da de baja, sus socios quedan marcados para reasignación administrativa.
+
 Para crear el primer administrador en Neon desde tu computadora, instala los requisitos de `backend/requirements.txt` y ejecuta desde `backend`:
 
 ```bash

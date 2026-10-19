@@ -252,6 +252,20 @@ class AuthController extends ChangeNotifier {
   Future<Map<String, dynamic>> clientDashboard() =>
       repository.getClientDashboard();
 
+  Future<Map<String, dynamic>> clientTrainers() =>
+      repository.getClientTrainers();
+
+  Future<void> requestClientTrainer({required String trainerId}) =>
+      repository.requestClientTrainer(trainerId: trainerId);
+
+  Future<List<Map<String, dynamic>>> trainerAssignmentRequests() =>
+      repository.getTrainerAssignmentRequests();
+
+  Future<void> reviewTrainerAssignmentRequest(
+          {required String requestId, required bool accept}) =>
+      repository.reviewTrainerAssignmentRequest(
+          requestId: requestId, accept: accept);
+
   Future<Map<String, dynamic>> updateClientProfile(
           {String? firstName,
           String? lastName,

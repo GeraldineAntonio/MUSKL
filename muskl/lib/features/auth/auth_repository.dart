@@ -130,6 +130,11 @@ abstract class AuthRepository {
       required String phaseId,
       required String clientId});
   Future<Map<String, dynamic>> getClientDashboard();
+  Future<Map<String, dynamic>> getClientTrainers();
+  Future<void> requestClientTrainer({required String trainerId});
+  Future<List<Map<String, dynamic>>> getTrainerAssignmentRequests();
+  Future<void> reviewTrainerAssignmentRequest(
+      {required String requestId, required bool accept});
   Future<Map<String, dynamic>> updateClientProfile(
       {String? firstName,
       String? lastName,
@@ -844,6 +849,23 @@ class FakeAuthRepository implements AuthRepository {
         'workouts_7d': 4,
         'attendance_7d_dates': [],
       };
+
+  @override
+  Future<Map<String, dynamic>> getClientTrainers() async => {
+        'trainers': <Map<String, dynamic>>[],
+        'assigned_trainer_id': null,
+        'pending_request': null,
+      };
+
+  @override
+  Future<void> requestClientTrainer({required String trainerId}) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> getTrainerAssignmentRequests() async => [];
+
+  @override
+  Future<void> reviewTrainerAssignmentRequest(
+      {required String requestId, required bool accept}) async {}
 
   @override
   Future<Map<String, dynamic>> updateClientProfile(

@@ -440,6 +440,25 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                           child: const Text('Mi perfil'))
                     ])
                   ])),
+              if ((data['trainer_name'] ?? '').toString().isEmpty) ...[
+                _section('Tu entrenador'),
+                if (data['pending_trainer_id'] != null)
+                  MusklCard(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text(
+                            'Tu solicitud está pendiente con ${data['pending_trainer_name'] ?? 'el entrenador'}. Cuando la acepte, podrá asignarte una rutina.'),
+                        TextButton(
+                            onPressed: () => context.push('/home/trainers'),
+                            child: const Text('Cambiar solicitud')),
+                      ]))
+                else
+                  MusklButton(
+                      label: 'Elegir entrenador',
+                      icon: Icons.fitness_center,
+                      onPressed: () => context.push('/home/trainers')),
+              ],
               _section('Tu gimnasio'),
               MusklCard(
                   child: Column(
@@ -566,6 +585,131 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                     onPressed: () => context.push('/home/phase-available')),
             ]));
       });
+}
+
+class ClientTrainerSelectionScreen extends StatefulWidget {
+  const ClientTrainerSelectionScreen({super.key});
+
+  @override
+  State<ClientTrainerSelectionScreen> createState() =>
+      _ClientTrainerSelectionScreenState();
+}
+
+class _ClientTrainerSelectionScreenState
+    extends State<ClientTrainerSelectionScreen> {
+  late Future<Map<String, dynamic>> _data;
+  String? _sendingId;
+
+  @override
+  void initState() {
+    super.initState();
+    _data = authController.clientTrainers();
+  }
+
+  Future<void> _request(String trainerId) async {
+    setState(() => _sendingId = trainerId);
+    try {
+      await authController.requestClientTrainer(trainerId: trainerId);
+      if (!mounted) return;
+      setState(() => _data = authController.clientTrainers());
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Solicitud enviada. Espera a que el entrenador la acepte.')));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No se pudo enviar la solicitud: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => _sendingId = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => WorkspacePage(
+        title: 'Elegir entrenador',
+        kicker: 'SOCIO',
+        items: _clientNav,
+        selected: 3,
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: _data,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Text(
+                  'No se pudieron cargar los entrenadores: ${snapshot.error}');
+            }
+            final data = snapshot.data ?? {};
+            final assignedId = data['assigned_trainer_id']?.toString();
+            final pending = data['pending_request'] as Map?;
+            final pendingId = pending?['trainer_id']?.toString();
+            final trainers = (data['trainers'] as List? ?? [])
+                .map((row) => Map<String, dynamic>.from(row as Map))
+                .toList();
+            if (assignedId != null) {
+              return MusklCard(
+                  child: Text(
+                      'Ya tienes entrenador asignado: ${data['assigned_trainer_name'] ?? ''}. Tu entrenador podrá asignarte una rutina.'));
+            }
+            return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                      'Elige a quién quieres solicitar. La asignación se confirma cuando el entrenador acepte.'),
+                  if (pendingId != null) ...[
+                    const SizedBox(height: 12),
+                    MusklCard(
+                        child: Text(
+                            'Solicitud pendiente para ${pending?['trainer_name'] ?? 'el entrenador seleccionado'}. Puedes elegir otro entrenador si lo prefieres.')),
+                  ],
+                  const SizedBox(height: 12),
+                  if (trainers.isEmpty)
+                    const MusklCard(
+                        child: Text(
+                            'Todavía no hay entrenadores disponibles. Puedes volver a intentarlo después.')),
+                  for (final trainer in trainers)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: MusklCard(
+                        child: Row(children: [
+                          const Icon(Icons.fitness_center,
+                              color: AppColors.red),
+                          const SizedBox(width: 12),
+                          Expanded(
+                              child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                Text(
+                                    '${trainer['first_name']} ${trainer['last_name']}',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium),
+                                if ((trainer['specialty'] ?? '')
+                                    .toString()
+                                    .isNotEmpty)
+                                  Text(trainer['specialty'].toString(),
+                                      style: const TextStyle(
+                                          color: AppColors.textMuted)),
+                              ])),
+                          FilledButton(
+                            onPressed: _sendingId != null
+                                ? null
+                                : () => _request(trainer['id'].toString()),
+                            child: Text(_sendingId == trainer['id'].toString()
+                                ? 'Enviando…'
+                                : pendingId == trainer['id'].toString()
+                                    ? 'Elegido'
+                                    : 'Solicitar'),
+                          ),
+                        ]),
+                      ),
+                    ),
+                ]);
+          },
+        ),
+      );
 }
 
 class ClientRoutineScreen extends StatefulWidget {
@@ -1611,16 +1755,39 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
   String search = '';
   late Future<List<Map<String, dynamic>>> _clients;
   late Future<List<Map<String, dynamic>>> _notifications;
+  late Future<List<Map<String, dynamic>>> _assignmentRequests;
 
   @override
   void initState() {
     super.initState();
     _loadClients();
     _notifications = authController.trainerNotifications();
+    _assignmentRequests = authController.trainerAssignmentRequests();
   }
 
   void _loadClients() =>
       _clients = authController.trainerClients(search: search);
+
+  Future<void> _reviewAssignment(String requestId, bool accept) async {
+    try {
+      await authController.reviewTrainerAssignmentRequest(
+          requestId: requestId, accept: accept);
+      if (!mounted) return;
+      setState(() {
+        _loadClients();
+        _assignmentRequests = authController.trainerAssignmentRequests();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(accept
+              ? 'Aceptaste al socio. Ahora puedes asignarle una rutina.'
+              : 'Solicitud rechazada.')));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No se pudo revisar la solicitud: $error')));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) => WorkspacePage(
@@ -1629,6 +1796,44 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
       items: _trainerNav,
       selected: 0,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        FutureBuilder<List<Map<String, dynamic>>>(
+            future: _assignmentRequests,
+            builder: (context, snapshot) {
+              final requests = snapshot.data ?? [];
+              if (requests.isEmpty) return const SizedBox.shrink();
+              return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _section('Solicitudes de socios'),
+                    for (final request in requests)
+                      MusklCard(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text(
+                                '${request['first_name']} ${request['last_name']}',
+                                style: Theme.of(context).textTheme.titleMedium),
+                            Text(
+                                'Socio ${request['member_number'] ?? ''} · ${request['email'] ?? ''}',
+                                style: const TextStyle(
+                                    color: AppColors.textMuted)),
+                            const SizedBox(height: 10),
+                            Row(children: [
+                              Expanded(
+                                  child: OutlinedButton(
+                                      onPressed: () => _reviewAssignment(
+                                          request['id'].toString(), false),
+                                      child: const Text('Rechazar'))),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                  child: FilledButton(
+                                      onPressed: () => _reviewAssignment(
+                                          request['id'].toString(), true),
+                                      child: const Text('Aceptar'))),
+                            ]),
+                          ])),
+                  ]);
+            }),
         FutureBuilder<List<Map<String, dynamic>>>(
             future: _notifications,
             builder: (context, snapshot) {
@@ -3133,6 +3338,10 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
             'deactivated_by': (user['deactivated_by'] ?? '').toString(),
             'trainer_id': (user['trainer_id'] ?? '').toString(),
             'trainer_name': (user['trainer_name'] ?? '').toString(),
+            'trainer_reassignment_required':
+                user['trainer_reassignment_required'] == true
+                    ? 'true'
+                    : 'false',
             'reactivation_until': user['reactivation_until']?.toString() ?? '',
           }).toString());
           if (changed == true && mounted) setState(_reload);

@@ -567,6 +567,22 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<List<Map<String, dynamic>>> getTrainerAssignmentRequests() async {
+    final rows = await _request('GET', '/api/v1/trainer/assignment-requests',
+        authenticated: true) as List;
+    return rows.map((row) => Map<String, dynamic>.from(row as Map)).toList();
+  }
+
+  @override
+  Future<void> reviewTrainerAssignmentRequest(
+      {required String requestId, required bool accept}) async {
+    final action = accept ? 'accept' : 'reject';
+    await _request('POST',
+        '/api/v1/trainer/assignment-requests/${Uri.encodeComponent(requestId)}/$action',
+        authenticated: true);
+  }
+
+  @override
   Future<Map<String, dynamic>> getTrainerClient(
           {required String clientId}) async =>
       Map<String, dynamic>.from(await _request(
@@ -1041,6 +1057,18 @@ class ApiAuthRepository implements AuthRepository {
       Map<String, dynamic>.from(
           await _request('GET', '/api/v1/client/dashboard', authenticated: true)
               as Map);
+
+  @override
+  Future<Map<String, dynamic>> getClientTrainers() async =>
+      Map<String, dynamic>.from(
+          await _request('GET', '/api/v1/client/trainers', authenticated: true)
+              as Map);
+
+  @override
+  Future<void> requestClientTrainer({required String trainerId}) async {
+    await _request('POST', '/api/v1/client/trainer-requests',
+        authenticated: true, body: {'trainer_id': trainerId});
+  }
 
   @override
   Future<Map<String, dynamic>> updateClientProfile(

@@ -65,6 +65,14 @@ GoRouter buildRouter(AuthController auth) {
           session.status == AccountStatus.activeNoOnboarding) {
         return null;
       }
+      // Email verification creates a session immediately before the verify
+      // screen routes the client to onboarding. Avoid racing that redirect to
+      // the dashboard and losing the onboarding destination.
+      if (loc == '/verify-email' &&
+          session.role == UserRole.client &&
+          session.status == AccountStatus.activeNoOnboarding) {
+        return '/onboarding';
+      }
       // Con sesión: fuera de las pantallas públicas y siempre en su destino.
       final dest = destinationFor(session);
       // Los subflujos de onboarding y las pantallas de detalle del rol deben
@@ -82,7 +90,8 @@ GoRouter buildRouter(AuthController auth) {
       GoRoute(
         path: '/verify-email',
         builder: (_, state) => VerifyRegistrationEmailScreen(
-            email: state.uri.queryParameters['email'] ?? ''),
+            email: state.uri.queryParameters['email'] ?? '',
+            emailSent: state.uri.queryParameters['email_sent'] != 'false'),
       ),
       GoRoute(
         path: '/forgot',

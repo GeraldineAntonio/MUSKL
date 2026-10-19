@@ -380,8 +380,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final last = _lastName.text.trim();
       final normalizedEmail = email.toLowerCase();
       final phone = _phone.text.trim().isEmpty ? null : _phone.text.trim();
+      var registrationEmailSent = true;
       if (_role == 'Cliente') {
-        await authController.registerClient(
+        registrationEmailSent = await authController.registerClient(
             firstName: first,
             lastName: last,
             email: normalizedEmail,
@@ -418,6 +419,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (mounted) {
         context.go(Uri(path: '/verify-email', queryParameters: {
           'email': normalizedEmail,
+          if (!registrationEmailSent) 'email_sent': 'false',
         }).toString());
       }
     } on AuthException catch (e) {
@@ -1312,6 +1314,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
   final List<_GroupMemberFields> _groupMembers = [];
   bool _editingGroupMembers = false;
   bool _groupRegistered = false;
+  DateTime? _birthDate;
   final _limitations = TextEditingController();
 
   String? get _draftKey {
@@ -1348,6 +1351,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         _weightKg.text = draft['weight_kg']?.toString() ?? '';
         _heightCm.text = draft['height_cm']?.toString() ?? '';
         _limitations.text = draft['limitations']?.toString() ?? '';
+        _birthDate = DateTime.tryParse(draft['birth_date']?.toString() ?? '');
       });
     } catch (_) {
       await _draftStorage.delete(key: key);
@@ -1370,6 +1374,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         'weight_kg': _weightKg.text,
         'height_cm': _heightCm.text,
         'limitations': _limitations.text,
+        'birth_date': _birthDate?.toIso8601String(),
       }),
     );
   }
@@ -1426,6 +1431,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         _trainers = (data['trainers'] as List)
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
+        _birthDate = DateTime.tryParse(data['birth_date']?.toString() ?? '');
         _trainerId ??= data['assigned_trainer_id']?.toString();
         final groupPlanId = data['group_plan_id']?.toString();
         if (groupPlanId != null) {
@@ -1690,7 +1696,8 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                     selected: selected,
                     onSelected: _saving
                         ? null
-                        : (_) => setState(() {
+                        : (_) {
+                            setState(() {
                               _selectedGroupSize = size;
                               _planId = null;
                               _editingGroupMembers = false;
@@ -1699,7 +1706,9 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                               }
                               _groupMembers.clear();
                               _error = null;
-                            }),
+                            });
+                            _saveDraft();
+                          },
                   );
                 }).toList(),
               ),
@@ -1715,16 +1724,18 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                 _option(plan['name'].toString(),
                     subtitle:
                         '${plan['price_mxn'] == null ? 'Precio por confirmar' : '\$${plan['price_mxn']} MXN'} · ${plan['duration_days']} días · ${_selectedGroupSize == 1 ? 'Individual' : 'Para $_selectedGroupSize personas'}',
-                    selected: _planId == plan['id'],
-                    onTap: () => setState(() {
-                          _planId = plan['id'].toString();
-                          _editingGroupMembers = false;
-                          _groupRegistered = false;
-                          for (final member in _groupMembers) {
-                            member.dispose();
-                          }
-                          _groupMembers.clear();
-                        })),
+                    selected: _planId == plan['id'], onTap: () {
+                  setState(() {
+                    _planId = plan['id'].toString();
+                    _editingGroupMembers = false;
+                    _groupRegistered = false;
+                    for (final member in _groupMembers) {
+                      member.dispose();
+                    }
+                    _groupMembers.clear();
+                  });
+                  _saveDraft();
+                }),
             ],
           ]),
         1 => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -1737,9 +1748,10 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
             for (final trainer in _trainers)
               _option('${trainer['first_name']} ${trainer['last_name']}',
                   subtitle: trainer['specialty']?.toString(),
-                  selected: _trainerId == trainer['id'],
-                  onTap: () =>
-                      setState(() => _trainerId = trainer['id'].toString())),
+                  selected: _trainerId == trainer['id'], onTap: () {
+                setState(() => _trainerId = trainer['id'].toString());
+                _saveDraft();
+              }),
           ]),
         2 => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const Text('¿Cuál es tu objetivo?'),
@@ -1762,7 +1774,10 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                   selected: selected,
                   label: goal,
                   child: InkWell(
-                    onTap: () => setState(() => _goal = goal),
+                    onTap: () {
+                      setState(() => _goal = goal);
+                      _saveDraft();
+                    },
                     borderRadius: BorderRadius.circular(16),
                     child: Ink(
                       decoration: BoxDecoration(
@@ -1834,7 +1849,10 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                   .map((v) => ChoiceChip(
                         label: Text(v.toUpperCase()),
                         selected: _level == v,
-                        onSelected: (_) => setState(() => _level = v),
+                        onSelected: (_) {
+                          setState(() => _level = v);
+                          _saveDraft();
+                        },
                       ))
                   .toList(),
             ),
@@ -1847,21 +1865,42 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                   .map((v) => ChoiceChip(
                         label: Text('$v días'),
                         selected: _days == v,
-                        onSelected: (_) => setState(() => _days = v),
+                        onSelected: (_) {
+                          setState(() => _days = v);
+                          _saveDraft();
+                        },
                       ))
                   .toList(),
             ),
             const SizedBox(height: 20),
             const Text('Datos físicos'),
             const SizedBox(height: 8),
-            MusklTextField(
-                label: 'Peso en kilogramos',
-                hint: 'Ej. 68.5',
-                controller: _weightKg,
-                icon: Icons.monitor_weight_outlined,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                onChanged: (_) => setState(() => _error = null)),
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(
+                child: MusklTextField(
+                    label: 'Peso (kg)',
+                    hint: 'Ej. 68.5',
+                    controller: _weightKg,
+                    icon: Icons.monitor_weight_outlined,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    onChanged: (_) {
+                      setState(() => _error = null);
+                      _saveDraft();
+                    }),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Edad',
+                    prefixIcon: Icon(Icons.cake_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                  child: Text(_ageFromBirthDate()?.toString() ?? 'Sin fecha'),
+                ),
+              ),
+            ]),
             const SizedBox(height: 12),
             MusklTextField(
                 label: 'Estatura en centímetros (opcional)',
@@ -1870,7 +1909,10 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                 icon: Icons.height,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                onChanged: (_) => setState(() => _error = null)),
+                onChanged: (_) {
+                  setState(() => _error = null);
+                  _saveDraft();
+                }),
             const SizedBox(height: 20),
             MusklTextField(
                 label: 'Lesiones o limitaciones (opcional)',
@@ -1879,6 +1921,18 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
           ]),
         _ => const SizedBox.shrink(),
       };
+
+  int? _ageFromBirthDate() {
+    final birthDate = _birthDate;
+    if (birthDate == null) return null;
+    final today = DateTime.now();
+    var age = today.year - birthDate.year;
+    if (today.month < birthDate.month ||
+        (today.month == birthDate.month && today.day < birthDate.day)) {
+      age--;
+    }
+    return age;
+  }
 
   Widget _groupMemberForm(int index) {
     final member = _groupMembers[index];

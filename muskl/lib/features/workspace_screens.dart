@@ -1014,6 +1014,8 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                 .where((exercise) =>
                     completedIds.contains(exercise['id'].toString()))
                 .length;
+            final scheduledDate =
+                DateTime.tryParse(data['scheduled_for_date']?.toString() ?? '');
             return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1031,7 +1033,9 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
-                          'Esta sesión quedó pendiente desde ${data['scheduled_for_date']} y pasó a hoy.',
+                          scheduledDate == null
+                              ? 'Hay una sesión pendiente; se recorrió para hoy.'
+                              : 'La sesión del ${_weekDays[scheduledDate.weekday - 1]} (${scheduledDate.day}/${scheduledDate.month}) quedó pendiente y se recorrió para hoy.',
                           style: const TextStyle(
                               color: AppColors.textMuted, fontSize: 12)),
                     ),
@@ -1313,18 +1317,36 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
                       )
                     : const SizedBox.shrink(key: ValueKey('no-set-feedback')),
               ),
-              MusklButton(
-                  label: _setsCompleted >= (int.tryParse(widget.sets) ?? 1)
-                      ? 'Ejercicio finalizado'
-                      : widget.canMarkComplete
-                          ? 'Finalizar serie ${_setsCompleted + 1}'
-                          : 'Solo lectura · consulta fuera del día de entrenamiento',
-                  icon: Icons.check,
-                  loading: _saving,
-                  onPressed: widget.canMarkComplete &&
-                          _setsCompleted < (int.tryParse(widget.sets) ?? 1)
-                      ? _finishExercise
-                      : null),
+              if (widget.canMarkComplete &&
+                  _setsCompleted < (int.tryParse(widget.sets) ?? 1))
+                MusklButton(
+                    label: 'Finalizar serie ${_setsCompleted + 1}',
+                    icon: Icons.check,
+                    loading: _saving,
+                    onPressed: _saving ? null : _finishExercise)
+              else
+                MusklCard(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        _setsCompleted >= (int.tryParse(widget.sets) ?? 1)
+                            ? Icons.check_circle_outline
+                            : Icons.info_outline,
+                        color: AppColors.accent,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _setsCompleted >= (int.tryParse(widget.sets) ?? 1)
+                              ? 'Ejercicio finalizado'
+                              : 'Puedes consultar este ejercicio. El registro de series se activa en el día programado.',
+                          softWrap: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ]));
 
   Widget _buildExerciseCelebration(BuildContext context) => Center(
@@ -1510,6 +1532,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               .toSet();
           final today = data['today']?.toString() ??
               DateTime.now().toIso8601String().substring(0, 10);
+          final nextSession = data['next_session'] is Map
+              ? Map<String, dynamic>.from(data['next_session'] as Map)
+              : null;
+          final movedFrom = nextSession?['scheduled_for_date']?.toString();
+          final availableOn = nextSession?['available_on']?.toString();
+          final movedDate = DateTime.tryParse(availableOn ?? '');
           final alreadyCheckedIn = attendedDates.contains(today);
           final offset = DateTime(_year, _month, 1).weekday - 1;
           final daysInMonth = DateTime(_year, _month + 1, 0).day;
@@ -1551,6 +1579,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                         onPressed: () => context.go('/home/profile'),
                         icon: const Icon(Icons.chevron_right)),
                   ])),
+                if (nextSession != null && movedFrom != availableOn) ...[
+                  const SizedBox(height: 8),
+                  MusklCard(
+                    child: Row(children: [
+                      const Icon(Icons.update, color: AppColors.accent),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'La sesión pendiente del ${_weekDays[(nextSession['day_number'] as num).toInt() - 1]} se recorrió para hoy. La asistencia contará cuando finalices la rutina.',
+                        ),
+                      ),
+                    ]),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 MusklCard(
                     child: Column(children: [
@@ -1605,7 +1647,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                               final date = DateTime(_year, _month, day);
                               final hasAttendance = attended.contains(day);
                               final isRoutineDay =
-                                  routineDays.contains(date.weekday);
+                                  routineDays.contains(date.weekday) ||
+                                      (movedDate != null &&
+                                          date.year == movedDate.year &&
+                                          date.month == movedDate.month &&
+                                          date.day == movedDate.day);
                               return Container(
                                   width: 30,
                                   height: 32,

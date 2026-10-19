@@ -5,7 +5,7 @@ import 'dart:typed_data';
 /// [FakeAuthRepository] queda para vistas previas locales.
 abstract class AuthRepository {
   Future<Session?> restoreSession();
-  Future<void> registerClient(
+  Future<bool> registerClient(
       {required String firstName,
       required String lastName,
       required String email,
@@ -267,17 +267,18 @@ class FakeAuthRepository implements AuthRepository {
   Future<Session?> restoreSession() async => null;
 
   @override
-  Future<void> registerClient(
-      {required String firstName,
-      required String lastName,
-      required String email,
-      String? phone,
-      required String memberNumber,
-      String? memberRegistryId,
-      required DateTime birthDate,
-      required String password,
-      Uint8List? profilePhotoBytes,
-      String? profilePhotoMime}) async {}
+  Future<bool> registerClient(
+          {required String firstName,
+          required String lastName,
+          required String email,
+          String? phone,
+          required String memberNumber,
+          String? memberRegistryId,
+          required DateTime birthDate,
+          required String password,
+          Uint8List? profilePhotoBytes,
+          String? profilePhotoMime}) async =>
+      true;
 
   @override
   Future<Map<String, dynamic>> lookupMemberNumber(

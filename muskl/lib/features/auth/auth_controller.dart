@@ -25,7 +25,7 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> registerClient(
+  Future<bool> registerClient(
       {required String firstName,
       required String lastName,
       required String email,
@@ -36,7 +36,7 @@ class AuthController extends ChangeNotifier {
       required String password,
       Uint8List? profilePhotoBytes,
       String? profilePhotoMime}) async {
-    await repository.registerClient(
+    return repository.registerClient(
         firstName: firstName,
         lastName: lastName,
         email: email,

@@ -11,9 +11,11 @@ import 'auth_models.dart';
 import 'widgets/auth_scaffold.dart';
 
 class VerifyRegistrationEmailScreen extends StatefulWidget {
-  const VerifyRegistrationEmailScreen({super.key, required this.email});
+  const VerifyRegistrationEmailScreen(
+      {super.key, required this.email, this.emailSent = true});
 
   final String email;
+  final bool emailSent;
 
   @override
   State<VerifyRegistrationEmailScreen> createState() =>
@@ -63,7 +65,8 @@ class _VerifyRegistrationEmailScreenState
           email: widget.email, code: _code);
       if (mounted) {
         final session = authController.session!;
-        context.go(session.role == UserRole.client ? '/onboarding' : '/pending');
+        context
+            .go(session.role == UserRole.client ? '/onboarding' : '/pending');
       }
     } on AuthException catch (error) {
       if (mounted) setState(() => _error = error.message);
@@ -88,8 +91,9 @@ class _VerifyRegistrationEmailScreenState
         _inputKey++;
       });
       _startCooldown();
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Si tu cuenta requiere verificación, enviaremos otro código.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Si tu cuenta requiere verificación, enviaremos otro código.')));
     } on AuthException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } catch (_) {
@@ -103,7 +107,9 @@ class _VerifyRegistrationEmailScreenState
   Widget build(BuildContext context) => AuthScaffold(
         kicker: 'Verifica tu cuenta',
         title: 'Confirma tu correo',
-        subtitle: 'Escribe el código de 6 dígitos que enviamos a ${widget.email}.',
+        subtitle: widget.emailSent
+            ? 'Escribe el código de 6 dígitos que enviamos a ${widget.email}.'
+            : 'La cuenta se creó, pero no se pudo enviar el código a ${widget.email}. Pide al administrador que revise la configuración de correo en Render y luego vuelve a enviar el código.',
         bottom: MusklButton(
           label: 'Verificar correo',
           icon: Icons.verified_outlined,
@@ -126,7 +132,8 @@ class _VerifyRegistrationEmailScreenState
           const SizedBox(height: 24),
           Center(
             child: _seconds > 0
-                ? Text('Reenviar código en 0:${_seconds.toString().padLeft(2, '0')}',
+                ? Text(
+                    'Reenviar código en 0:${_seconds.toString().padLeft(2, '0')}',
                     style: const TextStyle(color: AppColors.textMuted))
                 : TextButton(
                     onPressed: _resending ? null : _resend,

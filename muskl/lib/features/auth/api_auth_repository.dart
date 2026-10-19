@@ -135,7 +135,7 @@ class ApiAuthRepository implements AuthRepository {
       };
 
   @override
-  Future<void> registerClient(
+  Future<bool> registerClient(
       {required String firstName,
       required String lastName,
       required String email,
@@ -146,7 +146,8 @@ class ApiAuthRepository implements AuthRepository {
       required String password,
       Uint8List? profilePhotoBytes,
       String? profilePhotoMime}) async {
-    await _request('POST', '/api/v1/auth/register/client', body: {
+    final result = Map<String, dynamic>.from(
+        await _request('POST', '/api/v1/auth/register/client', body: {
       'first_name': firstName,
       'last_name': lastName,
       'email': email,
@@ -158,7 +159,8 @@ class ApiAuthRepository implements AuthRepository {
       if (profilePhotoBytes != null && profilePhotoMime != null)
         'photo_data': base64Encode(profilePhotoBytes),
       if (profilePhotoMime != null) 'photo_mime': profilePhotoMime,
-    });
+    }) as Map);
+    return result['email_sent'] == true;
   }
 
   @override

@@ -359,7 +359,9 @@ class OwnProfileUpdate(BaseModel):
 
 class RoutineExerciseInput(BaseModel):
     catalog_id: uuid.UUID | None = None
-    day_number: int | None = Field(default=None, ge=1, le=7)
+    # Every item belongs to exactly one day. Leaving this optional caused the
+    # API to copy an exercise onto every selected routine day.
+    day_number: int = Field(ge=1, le=7)
     name: str = Field(min_length=1, max_length=120)
     sets: int = Field(default=4, ge=1, le=20)
     reps: str = Field(default='8-12', min_length=1, max_length=40)
@@ -383,7 +385,7 @@ class RoutineCreateRequest(BaseModel):
     @classmethod
     def validate_exercise_days(cls, value: list[RoutineExerciseInput], info):
         days = set(info.data.get('days', []))
-        if any(ex.day_number is not None and ex.day_number not in days for ex in value):
+        if any(ex.day_number not in days for ex in value):
             raise ValueError('Cada ejercicio debe pertenecer a uno de los días seleccionados.')
         return value
 
@@ -404,7 +406,7 @@ class RoutinePhaseCreateRequest(BaseModel):
     @classmethod
     def validate_phase_exercise_days(cls, value: list[RoutineExerciseInput], info):
         days = set(info.data.get('days', []))
-        if any(ex.day_number is not None and ex.day_number not in days for ex in value):
+        if any(ex.day_number not in days for ex in value):
             raise ValueError('Cada ejercicio debe pertenecer a uno de los días seleccionados.')
         return value
 
@@ -1949,6 +1951,9 @@ def verify_password_change_code(payload: PasswordChangeCodeVerifyRequest,
 @app.get('/api/v1/client/onboarding/options')
 def client_onboarding_options(client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
+        birth_date = conn.execute(
+            "SELECT birth_date FROM client_profiles WHERE user_id = %s",
+            (client['id'],)).fetchone()
         group = conn.execute("""SELECT g.plan_id, g.member_number,
                 (SELECT count(*) FROM client_group_members gm WHERE gm.group_id = g.id) AS member_count
             FROM client_groups g JOIN client_group_members m ON m.group_id = g.id
@@ -1965,6 +1970,8 @@ def client_onboarding_options(client: dict = Depends(active_client)) -> dict:
     result = {'plans': [{**p, 'id': str(p['id']), 'price_mxn': str(p['price_mxn']) if p['price_mxn'] is not None else None} for p in plans],
               'trainers': [{**t, 'id': str(t['id'])} for t in trainers]}
     result.update({'group_plan_id': str(group['plan_id']) if group and group['plan_id'] else None,
+                   'birth_date': birth_date['birth_date'].isoformat()
+                   if birth_date and birth_date['birth_date'] else None,
                    'group_member_number': group['member_number'] if group else None,
                    'group_member_count': group['member_count'] if group else 1,
                    'assigned_trainer_id': str(assigned_trainer['trainer_id'])
@@ -2269,16 +2276,15 @@ def create_trainer_routine(payload: RoutineCreateRequest,
                                 (routine['id'],)).fetchone()
             positions: dict[int, int] = {}
             for exercise in payload.exercises:
-                target_days = [exercise.day_number] if exercise.day_number is not None else payload.days
-                for day_number in target_days:
-                    positions[day_number] = positions.get(day_number, 0) + 1
-                    catalog_id, exercise_name, media_url, instructions = _resolve_catalog_exercise(cur, exercise)
-                    cur.execute("""INSERT INTO routine_exercises
-                        (phase_id, day_number, position, exercise_catalog_id, name, sets, reps,
-                         rest_seconds, media_url, instructions)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                        (phase['id'], day_number, positions[day_number], catalog_id, exercise_name,
-                         exercise.sets, exercise.reps, exercise.rest_seconds, media_url, instructions))
+                day_number = exercise.day_number
+                positions[day_number] = positions.get(day_number, 0) + 1
+                catalog_id, exercise_name, media_url, instructions = _resolve_catalog_exercise(cur, exercise)
+                cur.execute("""INSERT INTO routine_exercises
+                    (phase_id, day_number, position, exercise_catalog_id, name, sets, reps,
+                     rest_seconds, media_url, instructions)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (phase['id'], day_number, positions[day_number], catalog_id, exercise_name,
+                     exercise.sets, exercise.reps, exercise.rest_seconds, media_url, instructions))
             cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, %s, %s)",
                         (trainer['gym_id'], trainer['id'], 'routine_created', Jsonb({'routine_id': str(routine['id']), 'phase_id': str(phase['id'])})))
     return {**routine, 'id': str(routine['id']), 'phase_id': str(phase['id']), 'status': 'draft'}
@@ -2334,16 +2340,15 @@ def create_routine_phase(routine_id: uuid.UUID, payload: RoutinePhaseCreateReque
                 (routine_id, number, payload.name.strip())).fetchone()
             positions: dict[int, int] = {}
             for exercise in payload.exercises:
-                target_days = [exercise.day_number] if exercise.day_number is not None else payload.days
-                for day in target_days:
-                    positions[day] = positions.get(day, 0) + 1
-                    catalog_id, exercise_name, media_url, instructions = _resolve_catalog_exercise(cur, exercise)
-                    cur.execute("""INSERT INTO routine_exercises
-                        (phase_id, day_number, position, exercise_catalog_id, name, sets, reps,
-                         rest_seconds, media_url, instructions)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                        (phase['id'], day, positions[day], catalog_id, exercise_name, exercise.sets,
-                         exercise.reps, exercise.rest_seconds, media_url, instructions))
+                day = exercise.day_number
+                positions[day] = positions.get(day, 0) + 1
+                catalog_id, exercise_name, media_url, instructions = _resolve_catalog_exercise(cur, exercise)
+                cur.execute("""INSERT INTO routine_exercises
+                    (phase_id, day_number, position, exercise_catalog_id, name, sets, reps,
+                     rest_seconds, media_url, instructions)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (phase['id'], day, positions[day], catalog_id, exercise_name, exercise.sets,
+                     exercise.reps, exercise.rest_seconds, media_url, instructions))
             cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, 'routine_phase_created', %s)",
                 (trainer['gym_id'], trainer['id'], Jsonb({'routine_id': str(routine_id), 'phase_id': str(phase['id']), 'phase_number': number})))
     return {**phase, 'id': str(phase['id'])}
@@ -2585,17 +2590,20 @@ def _deliver_trainer_daily_reminders() -> int:
                     (trainer['id'], local_date.isoformat())).fetchone()
                 if already_sent:
                     continue
-                pending = cur.execute("""SELECT count(DISTINCT c.id) AS total
+                candidates = cur.execute("""SELECT DISTINCT c.id,
+                        cra.current_phase_id,
+                        (cra.phase_started_at AT TIME ZONE g.timezone)::date AS started_on
                     FROM trainer_client_assignments tca
                     JOIN users c ON c.id = tca.client_id AND c.status = 'active'
                     JOIN client_routine_assignments cra ON cra.client_id = c.id AND cra.ended_at IS NULL
-                    JOIN routine_exercises re ON re.phase_id = cra.current_phase_id
-                      AND re.day_number = extract(isodow FROM %s::date)::integer
-                    WHERE tca.trainer_id = %s AND tca.ends_at IS NULL
-                      AND NOT EXISTS (SELECT 1 FROM workout_completions wc
-                        WHERE wc.client_id = c.id AND wc.phase_id = cra.current_phase_id
-                          AND wc.workout_date = %s)""",
-                    (local_date, trainer['id'], local_date)).fetchone()['total']
+                    JOIN gyms g ON g.id = c.gym_id
+                    WHERE tca.trainer_id = %s AND tca.ends_at IS NULL""",
+                    (trainer['id'],)).fetchall()
+                pending = sum(
+                    _next_due_routine_session(
+                        cur, candidate['id'], candidate['current_phase_id'],
+                        candidate['started_on'], local_date) is not None
+                    for candidate in candidates)
                 if pending == 0:
                     continue
                 cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
@@ -2611,6 +2619,21 @@ def _date_streak(values: set[date], today: date) -> int:
     cursor = today if today in values else today - timedelta(days=1)
     count = 0
     while cursor in values:
+        count += 1
+        cursor -= timedelta(days=1)
+    return count
+
+
+def _routine_streak(values: set[date], today: date) -> int:
+    """Count completed workout days; Sunday is a neutral rest day."""
+    cursor = today if today in values else today - timedelta(days=1)
+    count = 0
+    while True:
+        if cursor.isoweekday() == 7:
+            cursor -= timedelta(days=1)
+            continue
+        if cursor not in values:
+            break
         count += 1
         cursor -= timedelta(days=1)
     return count
@@ -2705,7 +2728,7 @@ def client_dashboard(client: dict = Depends(active_client)) -> dict:
             'attendance_7d_dates': sorted(attendance_days),
             'app_login_streak': _date_streak({r['d'] for r in access_dates}, row['today']),
             'gym_attendance_streak': _date_streak({r['d'] for r in all_attendance_dates}, row['today']),
-            'routine_completion_streak': _date_streak({r['d'] for r in full_routine_dates}, row['today']),
+            'routine_completion_streak': _routine_streak({r['d'] for r in full_routine_dates}, row['today']),
             'new_phase_notification': ({**phase_notice, 'id': str(phase_notice['id'])} if phase_notice else None)}
 
 
@@ -2907,12 +2930,29 @@ def client_attendance(year: int = Query(ge=2000, le=2200), month: int = Query(ge
             JOIN routine_exercises re ON re.phase_id = cra.current_phase_id
             WHERE cra.client_id = %s AND cra.ended_at IS NULL
             ORDER BY re.day_number""", (client['id'],)).fetchall()
+        assignment = conn.execute("""SELECT cra.current_phase_id,
+                (cra.phase_started_at AT TIME ZONE g.timezone)::date AS started_on
+            FROM client_routine_assignments cra
+            JOIN gyms g ON g.id = %s
+            WHERE cra.client_id = %s AND cra.ended_at IS NULL
+            LIMIT 1""", (client['gym_id'], client['id'])).fetchone()
+        next_session = None
+        if assignment:
+            with conn.cursor() as cur:
+                next_session = _next_due_routine_session(
+                    cur, client['id'], assignment['current_phase_id'],
+                    assignment['started_on'], gym['today'])
     return {
         'days': [{'date': r['local_date'].isoformat(), 'checked_in_at': r['checked_in_at'].isoformat(), 'source': r['source']} for r in rows],
         'total': len(rows),
         'today': gym['today'].isoformat(),
         'can_check_in': gym['can_check_in'],
         'routine_days': [row['day_number'] for row in routine_days],
+        'next_session': ({
+            'available_on': gym['today'].isoformat(),
+            'scheduled_for_date': next_session['scheduled_for_date'].isoformat(),
+            'day_number': next_session['day_number'],
+        } if next_session else None),
     }
 
 
@@ -2950,9 +2990,12 @@ def client_attendance_check_in(client: dict = Depends(active_client)) -> dict:
 
 def _next_due_routine_session(cur, client_id: uuid.UUID, phase_id: uuid.UUID,
                               started_on: date, today: date) -> dict | None:
+    # A missed session rolls forward within the current gym week. On Monday,
+    # last week's unfinished sessions expire instead of accumulating forever.
+    week_start = today - timedelta(days=today.isoweekday() - 1)
     return cur.execute("""SELECT dates.d::date AS scheduled_for_date,
                 extract(isodow FROM dates.d)::integer AS day_number
-            FROM generate_series(GREATEST(%s::date, %s::date - 6), %s::date,
+            FROM generate_series(GREATEST(%s::date, %s::date), %s::date,
                                  interval '1 day') AS dates(d)
             WHERE EXISTS (SELECT 1 FROM routine_exercises re
                 WHERE re.phase_id = %s
@@ -2961,7 +3004,7 @@ def _next_due_routine_session(cur, client_id: uuid.UUID, phase_id: uuid.UUID,
                 WHERE wc.phase_id = %s AND wc.client_id = %s
                   AND wc.scheduled_for_date = dates.d::date)
             ORDER BY dates.d LIMIT 1""",
-        (started_on, today, today, phase_id, phase_id, client_id)).fetchone()
+        (started_on, week_start, today, phase_id, phase_id, client_id)).fetchone()
 
 
 @app.get('/api/v1/client/routine')

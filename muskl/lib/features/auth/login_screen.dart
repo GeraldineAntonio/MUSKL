@@ -207,13 +207,6 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ),
-        Center(
-          child: TextButton(
-            onPressed: () => context.go('/welcome'),
-            child: const Text('Volver a bienvenida',
-                style: TextStyle(color: AppColors.textMuted)),
-          ),
-        ),
       ],
     );
   }

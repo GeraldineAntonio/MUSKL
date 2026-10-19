@@ -145,7 +145,7 @@ class WelcomeScreen extends StatelessWidget {
                     MusklButton(
                         label: 'Iniciar sesión',
                         icon: Icons.arrow_forward,
-                        onPressed: () => context.go('/login')),
+                        onPressed: () => context.push('/login')),
                     const SizedBox(height: 10),
                     MusklButton(
                         label: 'Registrarme',
@@ -1606,6 +1606,13 @@ class _ClientProfileWorkspaceScreenState
     }
   }
 
+  Future<void> _chooseTrainer() async {
+    await context.push('/home/trainers');
+    if (mounted) {
+      setState(() => _profile = authController.clientDashboard());
+    }
+  }
+
   Future<void> _requestDeletion() async {
     final confirmed = await showDialog<bool>(
         context: context,
@@ -1689,6 +1696,16 @@ class _ClientProfileWorkspaceScreenState
             _record('Entrenador',
                 (data['trainer_name'] ?? 'Sin asignar').toString(),
                 icon: Icons.person_outline),
+            if ((data['trainer_name'] ?? '').toString().isEmpty)
+              _setting(
+                  data['pending_trainer_id'] == null
+                      ? 'Elegir entrenador'
+                      : 'Cambiar solicitud de entrenador',
+                  data['pending_trainer_id'] == null
+                      ? 'Solicita que un entrenador te acepte'
+                      : 'Pendiente con ${data['pending_trainer_name'] ?? 'el entrenador'}',
+                  Icons.fitness_center,
+                  onTap: _chooseTrainer),
             _section('Membresía'),
             MusklCard(
                 child: Row(children: [
@@ -1756,6 +1773,7 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
   late Future<List<Map<String, dynamic>>> _clients;
   late Future<List<Map<String, dynamic>>> _notifications;
   late Future<List<Map<String, dynamic>>> _assignmentRequests;
+  Timer? _assignmentRequestTimer;
 
   @override
   void initState() {
@@ -1763,6 +1781,18 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
     _loadClients();
     _notifications = authController.trainerNotifications();
     _assignmentRequests = authController.trainerAssignmentRequests();
+    _assignmentRequestTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) {
+        setState(() =>
+            _assignmentRequests = authController.trainerAssignmentRequests());
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _assignmentRequestTimer?.cancel();
+    super.dispose();
   }
 
   void _loadClients() =>
@@ -1776,6 +1806,7 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
       setState(() {
         _loadClients();
         _assignmentRequests = authController.trainerAssignmentRequests();
+        _notifications = authController.trainerNotifications();
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(accept
@@ -1799,12 +1830,31 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
         FutureBuilder<List<Map<String, dynamic>>>(
             future: _assignmentRequests,
             builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  !snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return MusklCard(
+                    child: Text(
+                        'No se pudieron cargar las solicitudes. Se volverá a intentar automáticamente. ${snapshot.error}'));
+              }
               final requests = snapshot.data ?? [];
-              if (requests.isEmpty) return const SizedBox.shrink();
               return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _section('Solicitudes de socios'),
+                    Row(children: [
+                      Expanded(child: _section('Solicitudes de socios')),
+                      IconButton(
+                          tooltip: 'Actualizar solicitudes',
+                          onPressed: () => setState(() => _assignmentRequests =
+                              authController.trainerAssignmentRequests()),
+                          icon: const Icon(Icons.refresh)),
+                    ]),
+                    if (requests.isEmpty)
+                      const Padding(
+                          padding: EdgeInsets.only(bottom: 12),
+                          child: Text('No tienes solicitudes pendientes.')),
                     for (final request in requests)
                       MusklCard(
                           child: Column(

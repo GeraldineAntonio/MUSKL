@@ -5,10 +5,10 @@ import 'core/theme/app_theme.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/api_auth_repository.dart';
 
-/// Usa la IP LAN del backend en el teléfono mediante MUSKL_API_URL.
+/// Permite cambiar el backend al compilar mediante MUSKL_API_URL.
 const _apiUrl = String.fromEnvironment(
   'MUSKL_API_URL',
-  defaultValue: 'http://127.0.0.1:8000',
+  defaultValue: 'https://muskl-api.onrender.com',
 );
 final apiAuthRepository = ApiAuthRepository(_apiUrl);
 final authController = AuthController(apiAuthRepository);

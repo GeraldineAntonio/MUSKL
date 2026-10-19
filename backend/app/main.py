@@ -2689,7 +2689,7 @@ def trainer_notifications(trainer: dict = Depends(active_trainer)) -> list[dict]
     with pool.connection() as conn:
         rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
             FROM notifications WHERE user_id = %s
-              AND kind IN ('routine_phase_due', 'client_activity', 'daily_reminder')
+              AND kind IN ('routine_phase_due', 'client_activity', 'daily_reminder', 'trainer_request')
               AND read_at IS NULL ORDER BY created_at DESC LIMIT 20""",
             (trainer['id'],)).fetchall()
     return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()} for row in rows]

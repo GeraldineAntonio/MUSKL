@@ -32,9 +32,9 @@ bool _isPublicPath(String path) =>
 
 /// A dónde va cada cuenta al iniciar sesión (tabla 2.3 de la especificación).
 String destinationFor(Session s) => switch (s.status) {
-      // A client account can use the dashboard while waiting for a trainer.
-      // Profile details and trainer assignment must not trap the user in setup.
-      AccountStatus.activeNoOnboarding => '/home',
+      // An incomplete client onboarding must remain resumable after app restart
+      // so membership, trainer request, and profile details can be completed.
+      AccountStatus.activeNoOnboarding => '/onboarding',
       AccountStatus.activeOnboarded => switch (s.role) {
           UserRole.client => '/home',
           UserRole.trainer => '/trainer',

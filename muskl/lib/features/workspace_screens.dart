@@ -1056,13 +1056,8 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                     final exercise = entry.value;
                     final exerciseId = exercise['id'].toString();
                     final isCompleted = completedIds.contains(exerciseId);
-                    final canCompleteToday =
-                        data['can_complete_today'] == true ||
-                            (data['can_complete_today'] == null &&
-                                data['scheduled_for_date'] != null);
-                    final isScheduledToday = canCompleteToday &&
-                        data['completed_today'] != true &&
-                        exercise['day_number'] == data['scheduled_day_number'];
+                    final canCompleteExercise =
+                        data['completed_today'] != true;
                     return _record(
                       exercise['name'].toString(),
                       '${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s descanso',
@@ -1084,9 +1079,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                           'sets': exercise['sets'].toString(),
                           'reps': exercise['reps'].toString(),
                           'rest_seconds': exercise['rest_seconds'].toString(),
-                          'can_complete': (isScheduledToday &&
-                                  data['completed_today'] != true)
-                              .toString(),
+                          'can_complete': canCompleteExercise.toString(),
                           'already_completed': isCompleted.toString(),
                           'sets_completed':
                               ((data['exercise_sets_completed'] as Map? ??
@@ -1340,7 +1333,7 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
                         child: Text(
                           _setsCompleted >= (int.tryParse(widget.sets) ?? 1)
                               ? 'Ejercicio finalizado'
-                              : 'Puedes consultar este ejercicio. El registro de series se activa en el día programado.',
+                              : 'La sesión de hoy ya se finalizó. Puedes consultar el progreso guardado.',
                           softWrap: true,
                         ),
                       ),
@@ -1903,7 +1896,9 @@ class _ClientProfileWorkspaceScreenState
               ? (openingHours['display']?.toString() ??
                   _formatGymHours(Map<String, dynamic>.from(openingHours)))
               : '';
-          return Column(children: [
+          return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
             if (_savingProfile) const LinearProgressIndicator(),
             MusklCard(
                 child: Row(

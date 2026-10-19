@@ -1593,8 +1593,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
       final key = _draftKey;
       if (key != null) await _draftStorage.delete(key: key);
       if (!mounted) return;
-      await authController.signOut();
-      if (mounted) context.go('/login');
+      context.go('/home');
     } on AuthException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {

@@ -3069,7 +3069,6 @@ def complete_client_exercise(exercise_id: uuid.UUID, payload: WorkoutSetProgress
     with pool.connection() as conn:
         with conn.cursor() as cur:
             assignment = cur.execute("""SELECT cra.current_phase_id,
-                    (cra.phase_started_at AT TIME ZONE g.timezone)::date AS started_on,
                     (now() AT TIME ZONE g.timezone)::date AS today
                 FROM client_routine_assignments cra
                 JOIN gyms g ON g.id = %s
@@ -3078,18 +3077,12 @@ def complete_client_exercise(exercise_id: uuid.UUID, payload: WorkoutSetProgress
             if assignment is None:
                 raise _problem(404, 'ROUTINE_NOT_ASSIGNED',
                                'Todavía no tienes una rutina asignada.')
-            due_session = _next_due_routine_session(
-                cur, client['id'], assignment['current_phase_id'],
-                assignment['started_on'], assignment['today'])
-            if due_session is None:
-                raise _problem(409, 'NO_DUE_WORKOUT', 'No tienes una sesión pendiente para hoy.')
             exercise = cur.execute("""SELECT id, sets FROM routine_exercises
-                WHERE id = %s AND phase_id = %s
-                  AND day_number = %s""",
-                (exercise_id, assignment['current_phase_id'], due_session['day_number'])).fetchone()
+                WHERE id = %s AND phase_id = %s""",
+                (exercise_id, assignment['current_phase_id'])).fetchone()
             if exercise is None:
-                raise _problem(409, 'EXERCISE_NOT_SCHEDULED_TODAY',
-                               'Este ejercicio no está programado para hoy.')
+                raise _problem(404, 'EXERCISE_NOT_IN_ROUTINE',
+                               'Este ejercicio no pertenece a tu rutina activa.')
             if payload.sets_completed > exercise['sets']:
                 raise _problem(422, 'INVALID_SET_PROGRESS', 'La cantidad de series supera la indicada para el ejercicio.')
             if cur.execute("""SELECT 1 FROM workout_completions

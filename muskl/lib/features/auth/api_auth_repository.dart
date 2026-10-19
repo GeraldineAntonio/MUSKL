@@ -302,7 +302,8 @@ class ApiAuthRepository implements AuthRepository {
       required double weightKg,
       double? heightCm,
       String? limitations}) async {
-    final result = await _request('POST', '/api/v1/client/onboarding', body: {
+    final result = await _request('POST', '/api/v1/client/onboarding',
+        authenticated: true, body: {
       'plan_id': planId,
       'trainer_id': trainerId,
       'goal': goal,

@@ -385,7 +385,7 @@ class AuthController extends ChangeNotifier {
       required double weightKg,
       double? heightCm,
       String? limitations}) async {
-    await repository.completeClientOnboarding(
+    _session = await repository.completeClientOnboarding(
         planId: planId,
         trainerId: trainerId,
         goal: goal,
@@ -394,6 +394,7 @@ class AuthController extends ChangeNotifier {
         weightKg: weightKg,
         heightCm: heightCm,
         limitations: limitations);
+    notifyListeners();
   }
 
   Future<void> signIn(String identifier, String password) async {

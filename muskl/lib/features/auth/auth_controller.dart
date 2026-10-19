@@ -94,6 +94,23 @@ class AuthController extends ChangeNotifier {
   Future<Map<String, dynamic>> adminRoutine({required String routineId}) =>
       repository.getAdminRoutine(routineId: routineId);
 
+  Future<void> updateAdminRoutineExercise(
+          {required String routineId,
+          required String exerciseId,
+          required String name,
+          required int sets,
+          required String reps,
+          required int restSeconds,
+          required int dayNumber}) =>
+      repository.updateAdminRoutineExercise(
+          routineId: routineId,
+          exerciseId: exerciseId,
+          name: name,
+          sets: sets,
+          reps: reps,
+          restSeconds: restSeconds,
+          dayNumber: dayNumber);
+
   Future<void> assignAdminRoutine(
           {required String routineId,
           required String phaseId,

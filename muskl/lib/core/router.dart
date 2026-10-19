@@ -56,6 +56,15 @@ GoRouter buildRouter(AuthController auth) {
       if (session == null) {
         return _isPublicPath(loc) ? null : '/login';
       }
+      // La verificación del correo inicia el onboarding del cliente. Aunque
+      // active_no_onboarding normalmente abre el panel, debe poder completar
+      // aquí membresía, entrenador y datos físicos antes de volver a iniciar
+      // sesión. El siguiente login ya irá al panel para esperar su rutina.
+      if (loc == '/onboarding' &&
+          session.role == UserRole.client &&
+          session.status == AccountStatus.activeNoOnboarding) {
+        return null;
+      }
       // Con sesión: fuera de las pantallas públicas y siempre en su destino.
       final dest = destinationFor(session);
       // Los subflujos de onboarding y las pantallas de detalle del rol deben
@@ -99,6 +108,9 @@ GoRouter buildRouter(AuthController auth) {
           builder: (_, __) => const OnboardingStartScreen()),
       GoRoute(path: '/home', builder: (_, __) => const ClientDashboardScreen()),
       GoRoute(
+          path: '/home/password',
+          builder: (_, __) => const ChangePasswordScreen()),
+      GoRoute(
           path: '/home/trainers',
           builder: (_, __) => const ClientTrainerSelectionScreen()),
       GoRoute(
@@ -123,17 +135,23 @@ GoRouter buildRouter(AuthController auth) {
       GoRoute(
           path: '/home/complete',
           builder: (_, state) => RoutineCompleteScreen(
-              exerciseCount: int.tryParse(
-                      state.uri.queryParameters['exercise_count'] ?? '') ??
+              exerciseCount:
+                  int.tryParse(state.uri.queryParameters['exercise_count'] ?? '') ??
+                      0,
+              sessionsThisWeek:
+                  int.tryParse(state.uri.queryParameters['sessions_this_week'] ?? '') ??
+                      1,
+              sessionsTotal:
+                  int.tryParse(state.uri.queryParameters['sessions_total'] ?? '') ??
+                      1,
+              fullyCompleted:
+                  state.uri.queryParameters['fully_completed'] != 'false',
+              scheduledExerciseCount: int.tryParse(
+                      state.uri.queryParameters['scheduled_exercise_count'] ??
+                          '') ??
                   0,
-              sessionsThisWeek: int.tryParse(
-                      state.uri.queryParameters['sessions_this_week'] ?? '') ??
-                  1,
-              sessionsTotal: int.tryParse(
-                      state.uri.queryParameters['sessions_total'] ?? '') ??
-                  1,
-              durationSeconds: int.tryParse(
-                  state.uri.queryParameters['duration_seconds'] ?? ''),
+              durationSeconds:
+                  int.tryParse(state.uri.queryParameters['duration_seconds'] ?? ''),
               date: state.uri.queryParameters['date'])),
       GoRoute(
           path: '/home/attendance',
@@ -161,10 +179,16 @@ GoRouter buildRouter(AuthController auth) {
           path: '/trainer/settings',
           builder: (_, __) => const TrainerSettingsScreen()),
       GoRoute(
+          path: '/trainer/password',
+          builder: (_, __) => const ChangePasswordScreen()),
+      GoRoute(
           path: '/trainer/phases',
           builder: (_, state) => TrainerPhasesScreen(
               routineId: state.uri.queryParameters['id'] ?? '')),
       GoRoute(path: '/admin', builder: (_, __) => const AdminDashboardScreen()),
+      GoRoute(
+          path: '/admin/password',
+          builder: (_, __) => const ChangePasswordScreen()),
       GoRoute(
           path: '/admin/users', builder: (_, __) => const AdminUsersScreen()),
       GoRoute(

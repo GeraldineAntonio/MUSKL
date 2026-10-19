@@ -98,7 +98,7 @@ Render Free usa disco efímero. Si los documentos antiguos solo existían en ese
 
 Las fotos de clientes, entrenadores y administradores se guardan en el bucket privado indicado por `MUSKL_R2_PRIVATE_BUCKET`. Usa en Render las mismas credenciales R2 que para certificados. Después de desplegar la migración `014_profile_photo_storage_key.sql`, ejecuta desde `backend` y en un entorno con acceso a Neon y R2: `python -m app.migrate_profile_photos_to_r2`. El script copia las fotos JPG/PNG antiguas de clientes, registra su clave R2 y limpia el binario de Neon en una transacción. Las fotos inválidas se reportan para revisión. La app muestra cada foto mediante un acceso temporal de 10 minutos.
 
-Los scripts `db/001_schema.sql` a `db/014_profile_photo_storage_key.sql` se ejecutan al inicializar un volumen vacío. Si ya tienes la base creada, aplica las migraciones pendientes desde la raíz del proyecto:
+Los scripts numerados de `db/` se ejecutan al inicializar un volumen vacío. Si ya tienes la base creada, aplica las migraciones pendientes desde la raíz del proyecto; Render también las aplica al iniciar el servicio:
 
 ```bash
 docker compose --env-file backend/.env exec -T db psql -U muskl -d muskl < backend/db/002_client_workouts_and_account_rules.sql
@@ -115,6 +115,7 @@ docker compose --env-file backend/.env exec -T db psql -U muskl -d muskl < backe
 docker compose --env-file backend/.env exec -T db psql -U muskl -d muskl < backend/db/013_auth_security_hardening.sql
 docker compose --env-file backend/.env exec -T db psql -U muskl -d muskl < backend/db/014_profile_photo_storage_key.sql
 docker compose --env-file backend/.env exec -T db psql -U muskl -d muskl < backend/db/015_email_verification.sql
+docker compose --env-file backend/.env exec -T db psql -U muskl -d muskl < backend/db/016_workout_progression.sql
 ```
 
-Las migraciones son idempotentes; no borres el volumen para actualizar. Las migraciones `010_client_attendance_checkin.sql` y `011_workout_exercise_completions.sql` añaden el registro de asistencia desde la app y el progreso persistente de cada ejercicio; `012_password_change_verification.sql` separa códigos de recuperación y cambio de contraseña; `014_profile_photo_storage_key.sql` añade la clave de R2 para fotos de perfil; `015_email_verification.sql` agrega la verificación obligatoria de correo al registro. Render aplica las migraciones automáticamente al desplegar.
+Las migraciones son idempotentes; no borres el volumen para actualizar. Las migraciones `010_client_attendance_checkin.sql` y `011_workout_exercise_completions.sql` añaden el registro de asistencia desde la app y el progreso persistente de cada ejercicio; `012_password_change_verification.sql` separa códigos de recuperación y cambio de contraseña; `014_profile_photo_storage_key.sql` añade la clave de R2 para fotos de perfil; `015_email_verification.sql` agrega la verificación obligatoria de correo al registro; `016_workout_progression.sql` registra las sesiones recorridas, la finalización completa y las rachas. Render aplica las migraciones automáticamente al desplegar.

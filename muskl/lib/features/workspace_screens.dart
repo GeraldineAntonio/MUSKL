@@ -313,6 +313,7 @@ Widget _metric(String value, String label,
 Widget _record(String title, String subtitle,
         {IconData icon = Icons.fitness_center,
         String? badge,
+        bool editable = false,
         VoidCallback? onTap}) =>
     Padding(
       padding: const EdgeInsets.only(bottom: 9),
@@ -342,7 +343,8 @@ Widget _record(String title, String subtitle,
                   style: const TextStyle(
                       color: AppColors.accent, fontWeight: FontWeight.bold)),
             const SizedBox(width: 4),
-            const Icon(Icons.chevron_right, color: AppColors.textMuted),
+            Icon(editable ? Icons.edit_outlined : Icons.chevron_right,
+                color: AppColors.textMuted),
           ]))),
     );
 
@@ -379,6 +381,11 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                           style: const TextStyle(color: AppColors.red)))));
         }
         final data = snapshot.data ?? {};
+        final photoData = data['profile_photo_data'];
+        final photoBytes = photoData is String && photoData.isNotEmpty
+            ? base64Decode(photoData)
+            : null;
+        final photoUrl = data['profile_photo_url']?.toString();
         final dates =
             Set<String>.from(data['attendance_7d_dates'] as List? ?? []);
         final now = DateTime.tryParse(data['today']?.toString() ?? '') ??
@@ -399,46 +406,44 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               MusklCard(
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                    Row(children: [
-                      const Text('SOCIO Nº',
-                          style: TextStyle(
-                              fontSize: 12, color: AppColors.textMuted)),
-                      const Spacer(),
-                      Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                              color: AppColors.red.withValues(alpha: .16),
-                              borderRadius: BorderRadius.circular(20)),
-                          child: Text(
-                              (data['goal'] ?? 'TU OBJETIVO')
-                                  .toString()
-                                  .toUpperCase(),
-                              style: TextStyle(
-                                  color: AppColors.red,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800)))
-                    ]),
-                    const SizedBox(height: 3),
-                    Text('${data['member_number'] ?? '—'}',
-                        style: TextStyle(
-                            fontSize: 29,
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.red)),
-                    const Divider(height: 20, color: AppColors.surfaceHigh),
-                    Row(children: [
-                      const Icon(Icons.person, size: 15),
-                      const SizedBox(width: 6),
-                      Text(
-                          'Entrenador: ${data['trainer_name'] ?? 'Sin asignar'}'),
-                      const Spacer(),
-                      TextButton(
-                          onPressed: () => context.go('/home/profile'),
-                          child: const Text('Mi perfil'))
-                    ])
+                  padding: const EdgeInsets.all(14),
+                  child: Row(children: [
+                    ProfilePhotoAvatar(
+                      radius: 27,
+                      image: photoUrl != null && photoUrl.isNotEmpty
+                          ? NetworkImage(photoUrl)
+                          : photoBytes == null
+                              ? null
+                              : MemoryImage(photoBytes),
+                      name: '${data['first_name']} ${data['last_name']}',
+                      onEdit: () => context.go('/home/profile'),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('SOCIO Nº',
+                                style: TextStyle(
+                                    fontSize: 11, color: AppColors.textMuted)),
+                            Text('${data['member_number'] ?? '—'}',
+                                style: const TextStyle(
+                                    fontSize: 25,
+                                    fontWeight: FontWeight.w900,
+                                    color: AppColors.red)),
+                            Text(
+                                '${data['gym_name'] ?? 'Gimnasio'} · ${data['trainer_name'] ?? 'Sin entrenador'}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 11, color: AppColors.textMuted)),
+                          ]),
+                    ),
+                    IconButton(
+                      tooltip: 'Mi perfil',
+                      onPressed: () => context.go('/home/profile'),
+                      icon: const Icon(Icons.chevron_right),
+                    ),
                   ])),
               if ((data['trainer_name'] ?? '').toString().isEmpty) ...[
                 _section('Tu entrenador'),
@@ -459,30 +464,50 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                       icon: Icons.fitness_center,
                       onPressed: () => context.push('/home/trainers')),
               ],
-              _section('Tu gimnasio'),
-              MusklCard(
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                    Text((data['gym_name'] ?? 'Gimnasio').toString(),
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                    if ((data['gym_address'] ?? '').toString().isNotEmpty)
-                      Text(data['gym_address'].toString()),
-                    if ((data['gym_phone'] ?? '').toString().isNotEmpty)
-                      Text(data['gym_phone'].toString()),
-                    if (hoursText.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(hoursText,
-                          style: const TextStyle(color: AppColors.textMuted)),
-                    ],
-                  ])),
+              if (((data['gym_address'] ?? '').toString().isNotEmpty ||
+                  (data['gym_phone'] ?? '').toString().isNotEmpty ||
+                  hoursText.isNotEmpty))
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, left: 8),
+                  child: Text(
+                    [
+                      data['gym_address'],
+                      data['gym_phone'],
+                      if (hoursText.isNotEmpty)
+                        hoursText.replaceAll('\n', ' · ')
+                    ]
+                        .where((value) =>
+                            value != null && value.toString().isNotEmpty)
+                        .join('  ·  '),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 10, color: AppColors.textMuted),
+                  ),
+                ),
               _section('Tu actividad'),
               Row(children: [
-                _metric('${data['workouts_7d'] ?? 0}', 'Rutinas · 7 días',
+                _metric('${data['workouts_7d'] ?? 0}', 'Sesiones · 7 días',
                     color: AppColors.bgDeep, background: AppColors.accent),
                 const SizedBox(width: 8),
                 _metric(
-                    '${data['attendance_total'] ?? 0}', 'Asistencias totales')
+                    '${data['attendance_total'] ?? 0}', 'Visitas al gimnasio')
+              ]),
+              const Padding(
+                padding: EdgeInsets.only(top: 6, left: 8),
+                child: Text(
+                    'Las asistencias cuentan las visitas registradas al gimnasio.',
+                    style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+              ),
+              const SizedBox(height: 8),
+              Row(children: [
+                _metric('${data['app_login_streak'] ?? 0}', 'Racha de accesos'),
+                const SizedBox(width: 8),
+                _metric('${data['gym_attendance_streak'] ?? 0}',
+                    'Racha de visitas'),
+                const SizedBox(width: 8),
+                _metric('${data['routine_completion_streak'] ?? 0}',
+                    'Rutinas completas'),
               ]),
               _section('Asistencia semanal',
                   action: 'Ver mes',
@@ -727,12 +752,8 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
   final FlutterTts _speech = FlutterTts();
   final Set<String> _completedExerciseIds = {};
   Timer? _ticker;
-  Timer? _hideEncouragement;
-  int _elapsedSeconds = 0;
   int _nextEncouragementSeconds = 20 * 60;
   int _encouragementIndex = 0;
-  String? _encouragement;
-  bool _soundEnabled = true;
   bool _isForeground = true;
   bool _workoutFinished = false;
   bool _saving = false;
@@ -771,6 +792,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
     _isForeground = state == AppLifecycleState.resumed;
     if (_isForeground && !_workoutFinished) {
       _workoutClock.start();
+      if (mounted) setState(_load);
     } else {
       _workoutClock.stop();
       _stopEncouragementAudio();
@@ -784,22 +806,14 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
       _nextEncouragementSeconds += 20 * 60;
       _showEncouragement();
     }
-    if (elapsed != _elapsedSeconds && mounted) {
-      setState(() => _elapsedSeconds = elapsed);
-    }
   }
 
   void _showEncouragement() {
     final message =
         _encouragements[_encouragementIndex % _encouragements.length];
     _encouragementIndex++;
-    _hideEncouragement?.cancel();
-    setState(() => _encouragement = message);
     HapticFeedback.mediumImpact();
-    _hideEncouragement = Timer(const Duration(seconds: 14), () {
-      if (mounted) setState(() => _encouragement = null);
-    });
-    if (_soundEnabled) _playEncouragement(message);
+    _playEncouragement(message);
   }
 
   Future<void> _playEncouragement(String message) async {
@@ -807,7 +821,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
       await _applausePlayer.play(AssetSource('audio/applause.wav'),
           volume: 0.55);
       await Future<void>.delayed(const Duration(milliseconds: 900));
-      if (_soundEnabled && _isForeground) await _speech.speak(message);
+      if (_isForeground) await _speech.speak(message);
     } catch (_) {
       // Audio is optional; never interrupt the exercise flow.
     }
@@ -823,6 +837,33 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
   void _load() => _routine = authController.clientRoutine(day: _day);
 
   Future<void> _complete() async {
+    if (!mounted) return;
+    final data = await _routine;
+    final total = (data['exercises'] as List? ?? []).length;
+    final done = ((data['completed_exercise_ids'] as List? ?? [])
+            .map((id) => id.toString())
+            .toSet()
+          ..addAll(_completedExerciseIds))
+        .length;
+    if (done < total) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('¿Finalizar esta sesión?'),
+          content: Text(
+              'Llevas $done de $total ejercicios. La sesión se cerrará y se registrará tu visita de hoy al gimnasio.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Seguir entrenando')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Finalizar')),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
     setState(() => _saving = true);
     try {
       final durationSeconds =
@@ -838,6 +879,10 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
           'sessions_this_week':
               completion['sessions_this_week']?.toString() ?? '1',
           'sessions_total': completion['sessions_total']?.toString() ?? '1',
+          'fully_completed':
+              completion['fully_completed'] == true ? 'true' : 'false',
+          'scheduled_exercise_count':
+              completion['scheduled_exercise_count']?.toString() ?? '0',
           if (completion['duration_seconds'] != null)
             'duration_seconds': completion['duration_seconds'].toString(),
           'date': completion['date']?.toString() ?? '',
@@ -857,7 +902,6 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
-    _hideEncouragement?.cancel();
     _stopEncouragementAudio();
     _applausePlayer.dispose();
     _speech.stop();
@@ -892,6 +936,14 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
               ),
             ),
         ]),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () => setState(_load),
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Actualizar rutina'),
+          ),
+        ),
         const SizedBox(height: 12),
         FutureBuilder<Map<String, dynamic>>(
           future: _routine,
@@ -903,9 +955,11 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                   style: const TextStyle(color: AppColors.red));
             final data = snapshot.data ?? {};
             if (data['assigned'] != true)
-              return const MusklCard(
-                  child: Text(
-                      'Tu entrenador o el administrador todavía no te han asignado una rutina.'));
+              return const Column(children: [
+                MusklCard(
+                    child: Text(
+                        'Tu entrenador o el administrador todavía no te han asignado una rutina. Cuando la asignen, aparecerá aquí.')),
+              ]);
             final exercises = (data['exercises'] as List? ?? [])
                 .map((e) => Map<String, dynamic>.from(e as Map))
                 .toList();
@@ -914,31 +968,13 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                   .map((id) => id.toString())),
               ..._completedExerciseIds,
             };
-            if (data['completed_today'] == true) {
-              completedIds.addAll(
-                  exercises.map((exercise) => exercise['id'].toString()));
-            }
             final completedCount = exercises
                 .where((exercise) =>
                     completedIds.contains(exercise['id'].toString()))
                 .length;
-            final nextIncompleteIndex = exercises.indexWhere((exercise) =>
-                !completedIds.contains(exercise['id'].toString()));
-            final allExercisesComplete =
-                exercises.isNotEmpty && completedCount == exercises.length;
             return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _WorkoutEncouragementCard(
-                    elapsedSeconds: _elapsedSeconds,
-                    secondsToNext: _nextEncouragementSeconds - _elapsedSeconds,
-                    encouragement: _encouragement,
-                    soundEnabled: _soundEnabled,
-                    onToggleSound: () {
-                      setState(() => _soundEnabled = !_soundEnabled);
-                      if (!_soundEnabled) _stopEncouragementAudio();
-                    },
-                  ),
                   MusklCard(
                       child: Row(children: [
                     const Icon(Icons.local_fire_department,
@@ -948,6 +984,15 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                         child: Text(
                             '${data['routine_name']} · ${data['phase_name']} · ${data['goal']}')),
                   ])),
+                  if (data['scheduled_for_date'] != null &&
+                      data['today'] != data['scheduled_for_date'])
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                          'Esta sesión quedó pendiente desde ${data['scheduled_for_date']} y pasó a hoy.',
+                          style: const TextStyle(
+                              color: AppColors.textMuted, fontSize: 12)),
+                    ),
                   _section('Ejercicios del día · ${exercises.length}'),
                   if (exercises.isNotEmpty) ...[
                     Text('Finalizados: $completedCount de ${exercises.length}'),
@@ -965,49 +1010,39 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                     final exercise = entry.value;
                     final exerciseId = exercise['id'].toString();
                     final isCompleted = completedIds.contains(exerciseId);
-                    final isNext = entry.key == nextIncompleteIndex;
-                    final isUnlocked = isCompleted || isNext;
+                    final isScheduledToday = data['scheduled_for_date'] !=
+                            null &&
+                        exercise['day_number'] == data['scheduled_day_number'];
                     return _record(
                       exercise['name'].toString(),
-                      isUnlocked
-                          ? '${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s descanso'
-                          : 'Finaliza el ejercicio anterior para desbloquearlo.',
+                      '${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s descanso',
                       badge:
                           isCompleted ? '✓' : '${exercise['position'] ?? ''}',
                       icon: isCompleted
                           ? Icons.check_circle
-                          : isUnlocked
-                              ? Icons.fitness_center
-                              : Icons.lock_outline,
-                      onTap: isUnlocked
-                          ? () async {
-                              final finished = await context.push<bool>(
-                                  Uri(path: '/home/exercise', queryParameters: {
-                                'id': exerciseId,
-                                'name': exercise['name'].toString(),
-                                'media_url':
-                                    exercise['media_url']?.toString() ?? '',
-                                'muscle_group':
-                                    exercise['muscle_group']?.toString() ??
-                                        'Rutina',
-                                'instructions':
-                                    exercise['instructions']?.toString() ?? '',
-                                'sets': exercise['sets'].toString(),
-                                'reps': exercise['reps'].toString(),
-                                'rest_seconds':
-                                    exercise['rest_seconds'].toString(),
-                                'can_complete':
-                                    (_day == DateTime.now().weekday &&
-                                            data['completed_today'] != true)
-                                        .toString(),
-                                'already_completed': isCompleted.toString(),
-                              }).toString());
-                              if (finished == true && mounted) {
-                                setState(() =>
-                                    _completedExerciseIds.add(exerciseId));
-                              }
-                            }
-                          : null,
+                          : Icons.fitness_center,
+                      onTap: () async {
+                        final finished = await context.push<bool>(
+                            Uri(path: '/home/exercise', queryParameters: {
+                          'id': exerciseId,
+                          'name': exercise['name'].toString(),
+                          'media_url': exercise['media_url']?.toString() ?? '',
+                          'muscle_group':
+                              exercise['muscle_group']?.toString() ?? 'Rutina',
+                          'instructions':
+                              exercise['instructions']?.toString() ?? '',
+                          'sets': exercise['sets'].toString(),
+                          'reps': exercise['reps'].toString(),
+                          'rest_seconds': exercise['rest_seconds'].toString(),
+                          'can_complete': (isScheduledToday &&
+                                  data['completed_today'] != true)
+                              .toString(),
+                          'already_completed': isCompleted.toString(),
+                        }).toString());
+                        if (finished == true && mounted) {
+                          setState(() => _completedExerciseIds.add(exerciseId));
+                        }
+                      },
                     );
                   }),
                   if (exercises.isEmpty)
@@ -1015,106 +1050,18 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                   MusklButton(
                       label: data['completed_today'] == true
                           ? 'Rutina completada'
-                          : allExercisesComplete
-                              ? 'Finalizar rutina'
-                              : 'Finaliza ejercicios ($completedCount/${exercises.length})',
+                          : 'Finalizar rutina ($completedCount/${exercises.length})',
                       icon: Icons.check,
                       loading: _saving,
                       onPressed: exercises.isEmpty ||
-                              !allExercisesComplete ||
                               data['completed_today'] == true ||
-                              _day != DateTime.now().weekday
+                              data['scheduled_for_date'] == null
                           ? null
                           : _complete),
                 ]);
           },
         ),
       ]));
-}
-
-class _WorkoutEncouragementCard extends StatelessWidget {
-  const _WorkoutEncouragementCard({
-    required this.elapsedSeconds,
-    required this.secondsToNext,
-    required this.encouragement,
-    required this.soundEnabled,
-    required this.onToggleSound,
-  });
-
-  final int elapsedSeconds;
-  final int secondsToNext;
-  final String? encouragement;
-  final bool soundEnabled;
-  final VoidCallback onToggleSound;
-
-  String _time(int seconds) =>
-      '${(seconds ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
-
-  @override
-  Widget build(BuildContext context) {
-    final progress = ((20 * 60 - secondsToNext) / (20 * 60)).clamp(0.0, 1.0);
-    return MusklCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          const Icon(Icons.timer_outlined, color: AppColors.red),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text('ENTRENAMIENTO · ${_time(elapsedSeconds)}',
-                style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: .5)),
-          ),
-          IconButton(
-            tooltip: soundEnabled ? 'Silenciar incentivos' : 'Activar sonido',
-            onPressed: onToggleSound,
-            visualDensity: VisualDensity.compact,
-            icon: Icon(soundEnabled ? Icons.volume_up : Icons.volume_off,
-                color: AppColors.textMuted),
-          ),
-        ]),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 500),
-          switchInCurve: Curves.easeOutBack,
-          transitionBuilder: (child, animation) => FadeTransition(
-            opacity: animation,
-            child: ScaleTransition(scale: animation, child: child),
-          ),
-          child: encouragement == null
-              ? Text(
-                  'Tu próximo mensaje de ánimo en ${_time(secondsToNext.clamp(0, 20 * 60))}',
-                  key: const ValueKey('countdown'),
-                  style:
-                      const TextStyle(fontSize: 13, color: AppColors.textMuted),
-                )
-              : Row(
-                  key: ValueKey(encouragement),
-                  children: [
-                    const Icon(Icons.celebration,
-                        color: AppColors.accent, size: 24),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(encouragement!,
-                          style: const TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.w800)),
-                    ),
-                  ],
-                ),
-        ),
-        const SizedBox(height: 10),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: LinearProgressIndicator(
-            value: progress,
-            minHeight: 5,
-            color: AppColors.accent,
-            backgroundColor: AppColors.surfaceHigh,
-          ),
-        ),
-      ]),
-    );
-  }
 }
 
 class ExerciseDetailScreen extends StatefulWidget {
@@ -1231,11 +1178,15 @@ class RoutineCompleteScreen extends StatelessWidget {
       required this.exerciseCount,
       required this.sessionsThisWeek,
       required this.sessionsTotal,
+      this.fullyCompleted = true,
+      this.scheduledExerciseCount = 0,
       this.durationSeconds,
       this.date});
   final int exerciseCount;
   final int sessionsThisWeek;
   final int sessionsTotal;
+  final bool fullyCompleted;
+  final int scheduledExerciseCount;
   final int? durationSeconds;
   final String? date;
 
@@ -1248,16 +1199,17 @@ class RoutineCompleteScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => WorkspacePage(
-      title: 'Rutina completada',
+      title: fullyCompleted ? 'Rutina completada' : 'Sesión finalizada',
       items: _clientNav,
       selected: 1,
       child: Column(children: [
         const SizedBox(height: 20),
         const Icon(Icons.check_circle, size: 110, color: AppColors.red),
         const SizedBox(height: 14),
-        const Text('¡LO LOGRASTE!',
-            style: TextStyle(
-                fontSize: 30,
+        Text(fullyCompleted ? '¡LO LOGRASTE!' : '¡SESIÓN REGISTRADA!',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                fontSize: 27,
                 fontWeight: FontWeight.w900,
                 color: AppColors.red)),
         _section(date == null || date!.isEmpty
@@ -1275,7 +1227,9 @@ class RoutineCompleteScreen extends StatelessWidget {
         MusklCard(
             selected: true,
             child: Text(
-                'Tu historial ya suma $sessionsTotal rutinas completadas.',
+                fullyCompleted
+                    ? 'Tu historial ya suma $sessionsTotal sesiones registradas. Tu racha de rutinas completas avanzó.'
+                    : 'Se registró tu asistencia y completaste $exerciseCount de $scheduledExerciseCount ejercicios. La sesión quedó cerrada.',
                 textAlign: TextAlign.center)),
         const SizedBox(height: 18),
         MusklButton(
@@ -1534,28 +1488,19 @@ class _ClientProfileWorkspaceScreenState
     _profile = authController.clientDashboard();
   }
 
-  Future<void> _editPersonal(Map<String, dynamic> data) async {
-    final result = await _editFields(context, 'EDITAR DATOS PERSONALES', [
-      'Nombre',
-      'Apellidos',
-      'Correo electrónico',
-      'Teléfono',
-    ], [
-      (data['first_name'] ?? '').toString(),
-      (data['last_name'] ?? '').toString(),
-      (data['email'] ?? '').toString(),
-      (data['phone'] ?? '').toString(),
-    ]);
-    if (!mounted || result == null) return;
-    if (result[2].toLowerCase() !=
-        (data['email'] ?? '').toString().toLowerCase()) {
-      if (!await _verifyEmailChange(context, result[2])) return;
+  Future<void> _editContact(String field, String current) async {
+    final label = field == 'email' ? 'Correo electrónico' : 'Teléfono';
+    final values =
+        await _editFields(context, 'EDITAR $label', [label], [current]);
+    if (!mounted || values == null) return;
+    if (field == 'email') {
+      final email = values.first.trim();
+      if (email.toLowerCase() != current.toLowerCase() &&
+          !await _verifyEmailChange(context, email)) return;
+      await _saveClientProfile(email: email);
+    } else {
+      await _saveClientProfile(phone: values.first.trim());
     }
-    await _saveClientProfile(
-        firstName: result[0],
-        lastName: result[1],
-        email: result[2],
-        phone: result[3]);
   }
 
   Future<void> _pickProfilePhoto() async {
@@ -1611,6 +1556,26 @@ class _ClientProfileWorkspaceScreenState
     if (mounted) {
       setState(() => _profile = authController.clientDashboard());
     }
+  }
+
+  Future<void> _editTrainer(Map<String, dynamic> data) async {
+    if ((data['trainer_name'] ?? '').toString().isEmpty) {
+      await _chooseTrainer();
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cambio de entrenador'),
+        content: const Text(
+            'Tu entrenador actual ya está asignado. Para mantener el seguimiento de tu rutina, el administrador puede reasignarte si el entrenador deja el gimnasio.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Entendido'))
+        ],
+      ),
+    );
   }
 
   Future<void> _requestDeletion() async {
@@ -1685,17 +1650,26 @@ class _ClientProfileWorkspaceScreenState
               Text('${data['goal'] ?? 'OBJETIVO PENDIENTE'}',
                   style: const TextStyle(color: AppColors.textMuted)),
             ])),
-            _setting('Editar datos personales',
-                'Actualiza tu nombre, correo y teléfono', Icons.edit_outlined,
-                onTap: _savingProfile ? null : () => _editPersonal(data)),
             _section('Datos personales'),
             _record('Correo', (data['email'] ?? '').toString(),
-                icon: Icons.mail_outline),
+                icon: Icons.mail_outline,
+                editable: true,
+                onTap: _savingProfile
+                    ? null
+                    : () => _editContact(
+                        'email', (data['email'] ?? '').toString())),
             _record('Teléfono', (data['phone'] ?? 'Sin teléfono').toString(),
-                icon: Icons.phone_outlined),
+                icon: Icons.phone_outlined,
+                editable: true,
+                onTap: _savingProfile
+                    ? null
+                    : () => _editContact(
+                        'phone', (data['phone'] ?? '').toString())),
             _record('Entrenador',
                 (data['trainer_name'] ?? 'Sin asignar').toString(),
-                icon: Icons.person_outline),
+                icon: Icons.person_outline,
+                editable: true,
+                onTap: () => _editTrainer(data)),
             if ((data['trainer_name'] ?? '').toString().isEmpty)
               _setting(
                   data['pending_trainer_id'] == null
@@ -1726,6 +1700,15 @@ class _ClientProfileWorkspaceScreenState
                   ])),
               const Text('ACTIVO', style: TextStyle(color: AppColors.red)),
             ])),
+            _setting('Cambiar contraseña', 'Actualiza tus credenciales',
+                Icons.lock_outline,
+                onTap: () => context.push('/home/password')),
+            const SizedBox(height: 8),
+            MusklButton(
+                label: 'Cerrar sesión',
+                style: MusklButtonStyle.ghost,
+                onPressed: authController.signOut),
+            const SizedBox(height: 10),
             if (data['deletion_request_status'] == 'pending')
               MusklCard(
                   child: ListTile(
@@ -1742,21 +1725,12 @@ class _ClientProfileWorkspaceScreenState
                       leading: Icon(Icons.info_outline, color: AppColors.red),
                       title: Text('SOLICITUD ANTERIOR RECHAZADA'),
                       subtitle: Text('Puedes enviar una nueva solicitud.'))),
-            const SizedBox(height: 16),
             if (data['deletion_request_status'] != 'pending')
               MusklButton(
                   label: 'Solicitar eliminación de mi cuenta',
                   icon: Icons.delete_outline,
                   style: MusklButtonStyle.secondary,
                   onPressed: _requestDeletion),
-            _setting('Cambiar contraseña', 'Actualiza tus credenciales',
-                Icons.lock_outline,
-                onTap: () => _changeAccountPassword(context)),
-            const SizedBox(height: 8),
-            MusklButton(
-                label: 'Cerrar sesión',
-                style: MusklButtonStyle.ghost,
-                onPressed: authController.signOut),
           ]);
         },
       ));
@@ -2181,8 +2155,11 @@ class _TrainerRoutinesScreenState extends State<TrainerRoutinesScreen> {
   Future<void> _assign(Map<String, dynamic> routine) async {
     try {
       final clients = await authController.trainerClients();
+      final availableClients = clients
+          .where((item) => (item['routine_name'] ?? '').toString().isEmpty)
+          .toList();
       if (!mounted) return;
-      if (clients.isEmpty) {
+      if (availableClients.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('No tienes clientes activos para asignar.')));
         return;
@@ -2194,7 +2171,7 @@ class _TrainerRoutinesScreenState extends State<TrainerRoutinesScreen> {
             shrinkWrap: true,
             children: [
               const ListTile(title: Text('ASIGNAR A CLIENTE')),
-              for (final item in clients)
+              for (final item in availableClients)
                 ListTile(
                   title: Text('${item['first_name']} ${item['last_name']}'),
                   subtitle: Text('Socio ${item['member_number'] ?? ''}'),
@@ -2285,7 +2262,8 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
   final name = TextEditingController();
   String goal = 'Masa muscular';
   final Set<String> selectedDays = {'LUN', 'MIÉ', 'VIE'};
-  final exercises = <Map<String, dynamic>>[];
+  final Map<String, List<Map<String, dynamic>>> exercisesByDay = {};
+  String activeDay = 'LUN';
   bool saving = false;
   String? error;
   @override
@@ -2373,7 +2351,7 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
     searchController.dispose();
     if (selected != null && mounted) {
       setState(() {
-        exercises.add(selected);
+        exercisesByDay.putIfAbsent(activeDay, () => []).add(selected);
         error = null;
       });
     }
@@ -2416,14 +2394,32 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                     onSelected: (selected) => setState(() {
                           if (selected) {
                             selectedDays.add(d);
+                            activeDay = d;
                           } else {
                             selectedDays.remove(d);
+                            exercisesByDay.remove(d);
+                            if (activeDay == d && selectedDays.isNotEmpty) {
+                              activeDay = selectedDays.first;
+                            }
                           }
                         })))
                 .toList()),
-        _section('Ejercicios',
+        if (selectedDays.isNotEmpty) ...[
+          _section('Día que estás editando'),
+          Wrap(
+              spacing: 6,
+              children: ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM']
+                  .where(selectedDays.contains)
+                  .map((d) => ChoiceChip(
+                        label: Text(d),
+                        selected: activeDay == d,
+                        onSelected: (_) => setState(() => activeDay = d),
+                      ))
+                  .toList()),
+        ],
+        _section('Ejercicios de $activeDay',
             action: 'Buscar y agregar', onAction: _addExercise),
-        for (var i = 0; i < exercises.length; i++)
+        for (var i = 0; i < (exercisesByDay[activeDay] ?? []).length; i++)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: Row(children: [
@@ -2431,15 +2427,17 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.fitness_center),
-                  title: Text(exercises[i]['name'].toString()),
+                  title: Text(exercisesByDay[activeDay]![i]['name'].toString()),
                   subtitle: Text(
-                      '${exercises[i]['muscle_group']} · ${exercises[i]['equipment']}'),
+                      '${exercisesByDay[activeDay]![i]['muscle_group']} · ${exercisesByDay[activeDay]![i]['equipment']}'),
                 ),
               ),
               IconButton(
                 tooltip: 'Quitar ejercicio',
-                onPressed:
-                    saving ? null : () => setState(() => exercises.removeAt(i)),
+                onPressed: saving
+                    ? null
+                    : () =>
+                        setState(() => exercisesByDay[activeDay]!.removeAt(i)),
                 icon: const Icon(Icons.delete_outline, color: AppColors.red),
               ),
             ]),
@@ -2451,9 +2449,11 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
             icon: Icons.save_outlined,
             loading: saving,
             onPressed: selectedDays.length < 3 ||
-                    exercises.isEmpty ||
-                    exercises.any((exercise) =>
-                        exercise['name'].toString().trim().isEmpty) ||
+                    selectedDays
+                        .any((day) => (exercisesByDay[day] ?? []).isEmpty) ||
+                    exercisesByDay.values.expand((items) => items).any(
+                        (exercise) =>
+                            exercise['name'].toString().trim().isEmpty) ||
                     name.text.trim().isEmpty ||
                     saving
                 ? null
@@ -2478,7 +2478,11 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                         days:
                             selectedDays.map((day) => dayNumber[day]!).toList()
                               ..sort(),
-                        exercises: exercises,
+                        exercises: [
+                          for (final day in selectedDays)
+                            for (final exercise in exercisesByDay[day] ?? [])
+                              {...exercise, 'day_number': dayNumber[day]},
+                        ],
                       );
                       if (mounted) context.go('/trainer/routines');
                     } catch (e) {
@@ -2862,7 +2866,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
   }
 
   Future<void> _changePassword() async {
-    await _changeAccountPassword(context);
+    if (mounted) context.push('/trainer/password');
   }
 
   Widget _preference(String label, String key, bool fallback) {
@@ -3074,137 +3078,267 @@ Widget _setting(String title, String subtitle, IconData icon,
             subtitle: Text(subtitle),
             trailing: const Icon(Icons.chevron_right)));
 
-Future<void> _changeAccountPassword(BuildContext context) async {
-  final currentValues = await _editFields(
-      context, 'PASO 1 DE 3 · CONTRASEÑA ACTUAL', ['Contraseña actual'], [''],
-      obscure: true, trim: false);
-  if (!context.mounted || currentValues == null) return;
-  final currentPassword = currentValues.single;
-  if (currentPassword.isEmpty) return;
+class ChangePasswordScreen extends StatefulWidget {
+  const ChangePasswordScreen({super.key});
 
-  String? channel;
-  try {
-    channel = await authController.sendPasswordChangeCode(
-        currentPassword: currentPassword);
-  } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('No se pudo validar la contraseña actual: $e')));
-    }
-    return;
-  }
-  if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(channel == 'development'
-          ? 'Código de prueba generado; revisa la consola del API.'
-          : 'Contraseña actual confirmada. Enviamos un código al correo vinculado.')));
-
-  String? code;
-  while (context.mounted) {
-    final codeValues = await _editFields(
-        context,
-        'PASO 2 DE 3 · CÓDIGO DE SEGURIDAD',
-        ['Código enviado a tu correo'],
-        ['']);
-    if (!context.mounted || codeValues == null) return;
-    final candidate = codeValues.single;
-    if (!RegExp(r'^\d{6}$').hasMatch(candidate)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Escribe el código de seguridad de 6 dígitos.')));
-      continue;
-    }
-    try {
-      await authController.verifyPasswordChangeCode(
-          currentPassword: currentPassword, code: candidate);
-      code = candidate;
-      break;
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo verificar el código: $e')));
-    }
-  }
-  if (!context.mounted || code == null) return;
-
-  final newValues = await _editNewPassword(context);
-  if (!context.mounted || newValues == null) return;
-  try {
-    await authController.changePassword(
-        currentPassword: currentPassword,
-        newPassword: newValues[0],
-        code: code);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content:
-              Text('Contraseña actualizada. Las demás sesiones se cerraron.')));
-    }
-  } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo cambiar la contraseña: $e')));
-    }
-  }
+  @override
+  State<ChangePasswordScreen> createState() => _ChangePasswordScreenState();
 }
 
-Future<List<String>?> _editNewPassword(BuildContext context) async {
-  final password = TextEditingController();
-  final confirmation = TextEditingController();
-  try {
-    return await showDialog<List<String>>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          final valid = isStrongPassword(password.text) &&
-              password.text == confirmation.text;
-          return AlertDialog(
-            title: const Text('PASO 3 DE 3 · CONTRASEÑA NUEVA'),
-            content: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                TextField(
-                  controller: password,
-                  obscureText: true,
-                  onChanged: (_) => setDialogState(() {}),
-                  decoration: const InputDecoration(
-                      labelText: 'Nueva contraseña',
-                      border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 12),
-                PasswordStrength(password: password.text),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: confirmation,
-                  obscureText: true,
-                  onChanged: (_) => setDialogState(() {}),
-                  decoration: InputDecoration(
-                      labelText: 'Confirmar contraseña',
-                      errorText: confirmation.text.isNotEmpty &&
-                              password.text != confirmation.text
-                          ? 'Las contraseñas no coinciden'
-                          : null,
-                      border: const OutlineInputBorder()),
-                ),
-              ]),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancelar')),
-              FilledButton(
-                onPressed: valid
-                    ? () => Navigator.pop(
-                        dialogContext, [password.text, confirmation.text])
-                    : null,
-                child: const Text('Guardar contraseña'),
+class _ChangePasswordScreenState extends State<ChangePasswordScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+  final _currentPassword = TextEditingController();
+  final _code = TextEditingController();
+  final _newPassword = TextEditingController();
+  final _confirmation = TextEditingController();
+  int _furthestStep = 0;
+  bool _loading = false;
+  String? _error;
+  String? _deliveryMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(length: 3, vsync: this)
+      ..addListener(() {
+        if (_tabs.index > _furthestStep) _tabs.index = _furthestStep;
+        if (mounted) setState(() {});
+      });
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    _currentPassword.dispose();
+    _code.dispose();
+    _newPassword.dispose();
+    _confirmation.dispose();
+    super.dispose();
+  }
+
+  Future<void> _continue() async {
+    setState(() => _error = null);
+    if (_tabs.index == 0) {
+      if (_currentPassword.text.isEmpty) {
+        setState(() => _error = 'Escribe tu contraseña actual.');
+        return;
+      }
+      setState(() => _loading = true);
+      try {
+        final channel = await authController.sendPasswordChangeCode(
+            currentPassword: _currentPassword.text);
+        if (!mounted) return;
+        setState(() {
+          _deliveryMessage = channel == 'development'
+              ? 'Código de prueba generado; revisa la consola del API.'
+              : 'Enviamos un código de seguridad al correo vinculado.';
+          _furthestStep = 1;
+          _tabs.animateTo(1);
+        });
+      } catch (error) {
+        if (mounted) {
+          setState(() => _error =
+              'No se pudo validar la contraseña actual. ${_readableError(error)}');
+        }
+      } finally {
+        if (mounted) setState(() => _loading = false);
+      }
+      return;
+    }
+    if (_tabs.index == 1) {
+      if (!RegExp(r'^\d{6}$').hasMatch(_code.text.trim())) {
+        setState(() => _error = 'Escribe el código de seguridad de 6 dígitos.');
+        return;
+      }
+      setState(() => _loading = true);
+      try {
+        await authController.verifyPasswordChangeCode(
+            currentPassword: _currentPassword.text, code: _code.text.trim());
+        if (!mounted) return;
+        setState(() {
+          _furthestStep = 2;
+          _tabs.animateTo(2);
+        });
+      } catch (error) {
+        if (mounted) setState(() => _error = _readableError(error));
+      } finally {
+        if (mounted) setState(() => _loading = false);
+      }
+      return;
+    }
+    if (!isStrongPassword(_newPassword.text)) {
+      setState(() => _error =
+          'Usa al menos 8 caracteres con mayúscula, minúscula, número y carácter especial.');
+      return;
+    }
+    if (_newPassword.text != _confirmation.text) {
+      setState(() => _error = 'Las contraseñas no coinciden.');
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      await authController.changePassword(
+          currentPassword: _currentPassword.text,
+          newPassword: _newPassword.text,
+          code: _code.text.trim());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Contraseña actualizada. Las demás sesiones se cerraron.')));
+      context.pop();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error =
+            'No se pudo cambiar la contraseña. ${_readableError(error)}');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  String _readableError(Object error) => error is AuthException
+      ? error.message
+      : error.toString().replaceFirst('Exception: ', '');
+
+  @override
+  Widget build(BuildContext context) {
+    final step = _tabs.index;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Cambiar contraseña'),
+        bottom: TabBar(
+          controller: _tabs,
+          onTap: (index) {
+            if (index > _furthestStep) _tabs.animateTo(_furthestStep);
+          },
+          tabs: const [
+            Tab(text: 'Actual', icon: Icon(Icons.lock_outline)),
+            Tab(text: 'Código', icon: Icon(Icons.verified_user_outlined)),
+            Tab(text: 'Nueva', icon: Icon(Icons.password_outlined)),
+          ],
+        ),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('PASO ${step + 1} DE 3',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            color: AppColors.red,
+                            fontWeight: FontWeight.bold,
+                          )),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabs,
+                      physics: const NeverScrollableScrollPhysics(),
+                      children: [
+                        _passwordStep(
+                          title: 'Confirma tu contraseña actual',
+                          description:
+                              'La verificaremos antes de enviar el código de seguridad.',
+                          controller: _currentPassword,
+                          label: 'Contraseña actual',
+                        ),
+                        _passwordStep(
+                          title: 'Verifica tu identidad',
+                          description: _deliveryMessage ??
+                              'Escribe el código enviado a tu correo.',
+                          controller: _code,
+                          label: 'Código de 6 dígitos',
+                          keyboardType: TextInputType.number,
+                          maxLength: 6,
+                        ),
+                        SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text('Elige una contraseña nueva',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge),
+                              const SizedBox(height: 8),
+                              const Text(
+                                  'Debe incluir mayúscula, minúscula, número y carácter especial.'),
+                              const SizedBox(height: 24),
+                              _passwordField(_newPassword, 'Nueva contraseña',
+                                  onChanged: (_) => setState(() {})),
+                              const SizedBox(height: 12),
+                              PasswordStrength(password: _newPassword.text),
+                              const SizedBox(height: 20),
+                              _passwordField(_confirmation,
+                                  'Confirmar contraseña',
+                                  onChanged: (_) => setState(() {})),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_error != null) ...[
+                    Text(_error!, style: const TextStyle(color: AppColors.red)),
+                    const SizedBox(height: 12),
+                  ],
+                  MusklButton(
+                    label: _loading
+                        ? 'Procesando...'
+                        : step == 2
+                            ? 'Guardar contraseña'
+                            : 'Continuar',
+                    loading: _loading,
+                    onPressed: _loading ? null : _continue,
+                  ),
+                ],
               ),
-            ],
-          );
-        },
+            ),
+          ),
+        ),
       ),
     );
-  } finally {
-    password.dispose();
-    confirmation.dispose();
   }
+
+  Widget _passwordStep({
+    required String title,
+    required String description,
+    required TextEditingController controller,
+    required String label,
+    TextInputType? keyboardType,
+    int? maxLength,
+  }) => SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(description),
+            const SizedBox(height: 24),
+            _passwordField(controller, label,
+                keyboardType: keyboardType, maxLength: maxLength),
+          ],
+        ),
+      );
+
+  Widget _passwordField(TextEditingController controller, String label,
+          {TextInputType? keyboardType,
+          int? maxLength,
+          ValueChanged<String>? onChanged}) =>
+      TextField(
+        controller: controller,
+        obscureText: keyboardType != TextInputType.number,
+        keyboardType: keyboardType,
+        maxLength: maxLength,
+        onChanged: onChanged,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          counterText: maxLength == null ? null : '',
+        ),
+      );
 }
 
 class _SwitchSetting extends StatelessWidget {
@@ -3594,6 +3728,7 @@ class AdminRoutineDetailScreen extends StatefulWidget {
 
 class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
   late Future<Map<String, dynamic>> _routine;
+  bool _savingExercise = false;
 
   @override
   void initState() {
@@ -3644,6 +3779,54 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('No se pudo asignar la rutina: $error')));
       }
+    }
+  }
+
+  Future<void> _editExercise(Map<String, dynamic> exercise) async {
+    final values = await _editFields(context, 'EDITAR EJERCICIO', [
+      'Nombre',
+      'Series',
+      'Repeticiones',
+      'Descanso en segundos',
+      'Día (1 lunes, 7 domingo)',
+    ], [
+      exercise['name'].toString(),
+      exercise['sets'].toString(),
+      exercise['reps'].toString(),
+      exercise['rest_seconds'].toString(),
+      exercise['day_number'].toString(),
+    ]);
+    if (!mounted || values == null) return;
+    final sets = int.tryParse(values[1]);
+    final rest = int.tryParse(values[3]);
+    final day = int.tryParse(values[4]);
+    if (sets == null || rest == null || day == null || day < 1 || day > 7) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Series, descanso o día no son válidos.')));
+      return;
+    }
+    setState(() => _savingExercise = true);
+    try {
+      await authController.updateAdminRoutineExercise(
+        routineId: widget.routineId,
+        exerciseId: exercise['id'].toString(),
+        name: values[0].trim(),
+        sets: sets,
+        reps: values[2].trim(),
+        restSeconds: rest,
+        dayNumber: day,
+      );
+      if (!mounted) return;
+      setState(() =>
+          _routine = authController.adminRoutine(routineId: widget.routineId));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ejercicio de la rutina actualizado.')));
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('No se pudo editar: $error')));
+    } finally {
+      if (mounted) setState(() => _savingExercise = false);
     }
   }
 
@@ -3714,7 +3897,11 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
                 _section('Ejercicios'),
                 for (final exercise in exercises)
                   _record(exercise['name'].toString(),
-                      'Fase ${exercise['phase_number']} · Día ${exercise['day_number']} · ${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s'),
+                      'Fase ${exercise['phase_number']} · Día ${exercise['day_number']} · ${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s',
+                      editable: true,
+                      onTap: _savingExercise
+                          ? null
+                          : () => _editExercise(exercise)),
                 _section('Clientes asignados'),
                 for (final client in clients)
                   _record('${client['first_name']} ${client['last_name']}',
@@ -4179,7 +4366,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             onTap: _manageCodes),
         _setting('Cambiar contraseña', 'Actualiza tus credenciales',
             Icons.lock_outline,
-            onTap: () => _changeAccountPassword(context)),
+            onTap: () => context.push('/admin/password')),
         const SizedBox(height: 12),
         MusklButton(
             label: 'Cerrar sesión',

@@ -351,6 +351,7 @@ class ProfilePhotoUpdate(BaseModel):
 
 class RoutineExerciseInput(BaseModel):
     catalog_id: uuid.UUID | None = None
+    day_number: int | None = Field(default=None, ge=1, le=7)
     name: str = Field(min_length=1, max_length=120)
     sets: int = Field(default=4, ge=1, le=20)
     reps: str = Field(default='8-12', min_length=1, max_length=40)
@@ -370,6 +371,14 @@ class RoutineCreateRequest(BaseModel):
             raise ValueError('Los días deben ser únicos y estar entre 1 y 7.')
         return value
 
+    @field_validator('exercises')
+    @classmethod
+    def validate_exercise_days(cls, value: list[RoutineExerciseInput], info):
+        days = set(info.data.get('days', []))
+        if any(ex.day_number is not None and ex.day_number not in days for ex in value):
+            raise ValueError('Cada ejercicio debe pertenecer a uno de los días seleccionados.')
+        return value
+
 
 class RoutinePhaseCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
@@ -386,6 +395,14 @@ class RoutinePhaseCreateRequest(BaseModel):
 
 class WorkoutCompletionRequest(BaseModel):
     duration_seconds: int | None = Field(default=None, ge=1, le=86400)
+
+
+class AdminRoutineExerciseUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    sets: int = Field(ge=1, le=20)
+    reps: str = Field(min_length=1, max_length=40)
+    rest_seconds: int = Field(ge=0, le=3600)
+    day_number: int = Field(ge=1, le=7)
 
 
 class RoutineAssignmentRequest(BaseModel):
@@ -2170,14 +2187,17 @@ def create_trainer_routine(payload: RoutineCreateRequest,
                 (trainer['gym_id'], trainer['id'], payload.name.strip(), payload.goal, len(payload.days))).fetchone()
             phase = cur.execute("INSERT INTO routine_phases (routine_id, phase_number, name, duration_weeks, status) VALUES (%s, 1, 'Fase 1', 8, 'draft') RETURNING id",
                                 (routine['id'],)).fetchone()
-            for day_number in payload.days:
-                for position, exercise in enumerate(payload.exercises, start=1):
+            positions: dict[int, int] = {}
+            for exercise in payload.exercises:
+                target_days = [exercise.day_number] if exercise.day_number is not None else payload.days
+                for day_number in target_days:
+                    positions[day_number] = positions.get(day_number, 0) + 1
                     catalog_id, exercise_name, media_url, instructions = _resolve_catalog_exercise(cur, exercise)
                     cur.execute("""INSERT INTO routine_exercises
                         (phase_id, day_number, position, exercise_catalog_id, name, sets, reps,
                          rest_seconds, media_url, instructions)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                        (phase['id'], day_number, position, catalog_id, exercise_name,
+                        (phase['id'], day_number, positions[day_number], catalog_id, exercise_name,
                          exercise.sets, exercise.reps, exercise.rest_seconds, media_url, instructions))
             cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, %s, %s)",
                         (trainer['gym_id'], trainer['id'], 'routine_created', Jsonb({'routine_id': str(routine['id']), 'phase_id': str(phase['id'])})))
@@ -2504,6 +2524,15 @@ def _deliver_trainer_daily_reminders() -> int:
     return created
 
 
+def _date_streak(values: set[date], today: date) -> int:
+    cursor = today if today in values else today - timedelta(days=1)
+    count = 0
+    while cursor in values:
+        count += 1
+        cursor -= timedelta(days=1)
+    return count
+
+
 @app.get('/api/v1/client/dashboard')
 def client_dashboard(client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
@@ -2544,6 +2573,13 @@ def client_dashboard(client: dict = Depends(active_client)) -> dict:
             WHERE u.id = %s""", (client['id'],)).fetchone()
         attendance = conn.execute("SELECT local_date FROM attendance WHERE client_id = %s AND local_date >= %s - 6 AND local_date <= %s ORDER BY local_date",
                                   (client['id'], row['today'], row['today'])).fetchall()
+        access_dates = conn.execute("""SELECT DISTINCT (created_at AT TIME ZONE %s)::date AS d
+            FROM auth_sessions WHERE user_id = %s""",
+            (row['timezone'], client['id'])).fetchall()
+        all_attendance_dates = conn.execute("SELECT DISTINCT local_date AS d FROM attendance WHERE client_id = %s",
+                                            (client['id'],)).fetchall()
+        full_routine_dates = conn.execute("""SELECT DISTINCT workout_date AS d FROM workout_completions
+            WHERE client_id = %s AND is_fully_completed""", (client['id'],)).fetchall()
         phase_notice = conn.execute("""SELECT id, title, body, payload FROM notifications
             WHERE user_id = %s AND kind = 'new_phase_available' AND read_at IS NULL
             ORDER BY created_at DESC LIMIT 1""", (client['id'],)).fetchone()
@@ -2565,6 +2601,9 @@ def client_dashboard(client: dict = Depends(active_client)) -> dict:
             'phase_started_at': row['phase_started_at'].isoformat() if row['phase_started_at'] else None,
             'deletion_requested_at': row['deletion_requested_at'].isoformat() if row['deletion_requested_at'] else None,
             'attendance_7d_dates': sorted(attendance_days),
+            'app_login_streak': _date_streak({r['d'] for r in access_dates}, row['today']),
+            'gym_attendance_streak': _date_streak({r['d'] for r in all_attendance_dates}, row['today']),
+            'routine_completion_streak': _date_streak({r['d'] for r in full_routine_dates}, row['today']),
             'new_phase_notification': ({**phase_notice, 'id': str(phase_notice['id'])} if phase_notice else None)}
 
 
@@ -2793,29 +2832,61 @@ def client_attendance_check_in(client: dict = Depends(active_client)) -> dict:
     }
 
 
+def _next_due_routine_session(cur, client_id: uuid.UUID, phase_id: uuid.UUID,
+                              started_on: date, today: date) -> dict | None:
+    return cur.execute("""SELECT dates.d::date AS scheduled_for_date,
+                extract(isodow FROM dates.d)::integer AS day_number
+            FROM generate_series(GREATEST(%s::date, %s::date - 6), %s::date,
+                                 interval '1 day') AS dates(d)
+            WHERE EXISTS (SELECT 1 FROM routine_exercises re
+                WHERE re.phase_id = %s
+                  AND re.day_number = extract(isodow FROM dates.d)::integer)
+              AND NOT EXISTS (SELECT 1 FROM workout_completions wc
+                WHERE wc.phase_id = %s AND wc.client_id = %s
+                  AND wc.scheduled_for_date = dates.d::date)
+            ORDER BY dates.d LIMIT 1""",
+        (started_on, today, today, phase_id, phase_id, client_id)).fetchone()
+
+
 @app.get('/api/v1/client/routine')
 def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
         _advance_due_client_phase(conn, client['id'])
         assignment = conn.execute("""SELECT cra.id AS assignment_id, cra.current_phase_id, cra.phase_started_at,
+                (cra.phase_started_at AT TIME ZONE g.timezone)::date AS started_on,
                 r.id AS routine_id, r.name AS routine_name, r.goal, r.days_per_week,
                 rp.phase_number, rp.name AS phase_name, rp.status AS phase_status
             FROM client_routine_assignments cra JOIN routines r ON r.id = cra.routine_id
+            JOIN gyms g ON g.id = r.gym_id
             JOIN routine_phases rp ON rp.id = cra.current_phase_id AND rp.status = 'published'
             WHERE cra.client_id = %s AND cra.ended_at IS NULL AND r.active LIMIT 1""",
             (client['id'],)).fetchone()
         if assignment is None:
             return {'assigned': False, 'exercises': []}
+        today = conn.execute("SELECT (now() AT TIME ZONE timezone)::date AS d FROM gyms WHERE id = %s", (client['gym_id'],)).fetchone()['d']
+        display_day = day
+        due_session = None
+        completed = None
+        if day == today.isoweekday():
+            completed = conn.execute("""SELECT id, scheduled_day_number, scheduled_for_date
+                FROM workout_completions WHERE client_id = %s AND phase_id = %s AND workout_date = %s""",
+                (client['id'], assignment['current_phase_id'], today)).fetchone()
+            if completed:
+                display_day = completed['scheduled_day_number']
+            else:
+                with conn.cursor() as cur:
+                    due_session = _next_due_routine_session(
+                        cur, client['id'], assignment['current_phase_id'],
+                        assignment['started_on'], today)
+                if due_session:
+                    display_day = due_session['day_number']
         exercises = conn.execute("""SELECT re.id, re.day_number, re.position, re.name, re.sets,
                 re.reps, re.rest_seconds, COALESCE(re.instructions, ec.instructions) AS instructions,
                 COALESCE(ec.media_url, re.media_url) AS media_url, ec.muscle_group, re.media_key
             FROM routine_exercises re
             LEFT JOIN exercise_catalog ec ON ec.id = re.exercise_catalog_id
             WHERE re.phase_id = %s AND re.day_number = %s ORDER BY re.position""",
-            (assignment['current_phase_id'], day)).fetchall()
-        today = conn.execute("SELECT (now() AT TIME ZONE timezone)::date AS d FROM gyms WHERE id = %s", (client['gym_id'],)).fetchone()['d']
-        completed = conn.execute("SELECT id FROM workout_completions WHERE client_id = %s AND phase_id = %s AND workout_date = %s",
-                                 (client['id'], assignment['current_phase_id'], today)).fetchone()
+            (assignment['current_phase_id'], display_day)).fetchall()
         completed_exercises = conn.execute("""SELECT exercise_id
             FROM workout_exercise_completions
             WHERE client_id = %s AND phase_id = %s AND workout_date = %s""",
@@ -2824,6 +2895,10 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_c
             'goal': assignment['goal'], 'days_per_week': assignment['days_per_week'],
             'phase_id': str(assignment['current_phase_id']), 'phase_number': assignment['phase_number'],
             'phase_name': assignment['phase_name'], 'phase_status': assignment['phase_status'],
+            'scheduled_day_number': display_day,
+            'scheduled_for_date': ((completed['scheduled_for_date'] if completed else due_session['scheduled_for_date']).isoformat()
+                                   if (completed or due_session) else None),
+            'today': today.isoformat(),
             'phase_started_at': assignment['phase_started_at'].isoformat(), 'completed_today': completed is not None,
             'completed_exercise_ids': [str(row['exercise_id']) for row in completed_exercises],
             'exercises': [{**exercise, 'id': str(exercise['id'])} for exercise in exercises]}
@@ -2835,6 +2910,7 @@ def complete_client_exercise(exercise_id: uuid.UUID,
     with pool.connection() as conn:
         with conn.cursor() as cur:
             assignment = cur.execute("""SELECT cra.current_phase_id,
+                    (cra.phase_started_at AT TIME ZONE g.timezone)::date AS started_on,
                     (now() AT TIME ZONE g.timezone)::date AS today
                 FROM client_routine_assignments cra
                 JOIN gyms g ON g.id = %s
@@ -2843,10 +2919,15 @@ def complete_client_exercise(exercise_id: uuid.UUID,
             if assignment is None:
                 raise _problem(404, 'ROUTINE_NOT_ASSIGNED',
                                'Todavía no tienes una rutina asignada.')
+            due_session = _next_due_routine_session(
+                cur, client['id'], assignment['current_phase_id'],
+                assignment['started_on'], assignment['today'])
+            if due_session is None:
+                raise _problem(409, 'NO_DUE_WORKOUT', 'No tienes una sesión pendiente para hoy.')
             exercise = cur.execute("""SELECT id FROM routine_exercises
                 WHERE id = %s AND phase_id = %s
-                  AND day_number = extract(isodow FROM %s)::integer""",
-                (exercise_id, assignment['current_phase_id'], assignment['today'])).fetchone()
+                  AND day_number = %s""",
+                (exercise_id, assignment['current_phase_id'], due_session['day_number'])).fetchone()
             if exercise is None:
                 raise _problem(409, 'EXERCISE_NOT_SCHEDULED_TODAY',
                                'Este ejercicio no está programado para hoy.')
@@ -2870,33 +2951,45 @@ def complete_client_workout(payload: WorkoutCompletionRequest,
                             client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            row = cur.execute("""SELECT cra.current_phase_id, (now() AT TIME ZONE g.timezone)::date AS today
+            row = cur.execute("""SELECT cra.current_phase_id,
+                    (cra.phase_started_at AT TIME ZONE g.timezone)::date AS started_on,
+                    (now() AT TIME ZONE g.timezone)::date AS today
                 FROM client_routine_assignments cra JOIN users u ON u.id = cra.client_id
                 JOIN gyms g ON g.id = u.gym_id JOIN routine_phases rp ON rp.id = cra.current_phase_id AND rp.status = 'published'
                 WHERE cra.client_id = %s AND cra.ended_at IS NULL LIMIT 1 FOR UPDATE OF cra""",
                 (client['id'],)).fetchone()
             if row is None:
                 raise _problem(404, 'ROUTINE_NOT_ASSIGNED', 'Todavía no tienes una rutina asignada.')
-            scheduled_count = cur.execute("SELECT count(*) AS total FROM routine_exercises WHERE phase_id = %s AND day_number = extract(isodow FROM %s)::integer",
-                                          (row['current_phase_id'], row['today'])).fetchone()['total']
+            due_session = _next_due_routine_session(
+                cur, client['id'], row['current_phase_id'], row['started_on'], row['today'])
+            if due_session is None:
+                raise _problem(409, 'NO_DUE_WORKOUT', 'Hoy no hay una rutina pendiente para finalizar.')
+            scheduled_count = cur.execute("SELECT count(*) AS total FROM routine_exercises WHERE phase_id = %s AND day_number = %s",
+                                          (row['current_phase_id'], due_session['day_number'])).fetchone()['total']
             if scheduled_count == 0:
                 raise _problem(409, 'REST_DAY', 'Hoy no tienes ejercicios programados en tu rutina.')
             scheduled_ids = {exercise['id'] for exercise in cur.execute("""SELECT id
-                FROM routine_exercises WHERE phase_id = %s
-                  AND day_number = extract(isodow FROM %s)::integer""",
-                (row['current_phase_id'], row['today'])).fetchall()}
+                FROM routine_exercises WHERE phase_id = %s AND day_number = %s""",
+                (row['current_phase_id'], due_session['day_number'])).fetchall()}
             completed_ids = {exercise['exercise_id'] for exercise in cur.execute("""SELECT exercise_id
                 FROM workout_exercise_completions
                 WHERE client_id = %s AND phase_id = %s AND workout_date = %s""",
                 (client['id'], row['current_phase_id'], row['today'])).fetchall()}
-            if completed_ids != scheduled_ids:
-                raise _problem(409, 'EXERCISES_INCOMPLETE',
-                               'Finaliza todos los ejercicios programados antes de terminar la rutina.')
-            completion = cur.execute("""INSERT INTO workout_completions (client_id, phase_id, workout_date, duration_seconds)
-                VALUES (%s, %s, %s, %s) ON CONFLICT (client_id, phase_id, workout_date) DO NOTHING RETURNING id""",
-                (client['id'], row['current_phase_id'], row['today'], payload.duration_seconds)).fetchone()
+            completed_today = completed_ids.intersection(scheduled_ids)
+            fully_completed = completed_today == scheduled_ids
+            completion = cur.execute("""INSERT INTO workout_completions
+                    (client_id, phase_id, workout_date, duration_seconds,
+                     scheduled_for_date, scheduled_day_number, is_fully_completed)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (client_id, phase_id, workout_date) DO NOTHING RETURNING id""",
+                (client['id'], row['current_phase_id'], row['today'], payload.duration_seconds,
+                 due_session['scheduled_for_date'], due_session['day_number'], fully_completed)).fetchone()
             if completion is None:
                 raise _problem(409, 'ALREADY_COMPLETED', 'La rutina de hoy ya se marcó como completada.')
+            cur.execute("""INSERT INTO attendance (gym_id, client_id, local_date, source)
+                VALUES (%s, %s, %s, 'app')
+                ON CONFLICT (client_id, local_date) DO NOTHING""",
+                (client['gym_id'], client['id'], row['today']))
             trainer = cur.execute("""SELECT tca.trainer_id,
                     coalesce((tp.notification_preferences->>'client_activity')::boolean, true) AS enabled,
                     concat_ws(' ', c.first_name, c.last_name) AS client_name,
@@ -2910,16 +3003,18 @@ def complete_client_workout(payload: WorkoutCompletionRequest,
             if trainer and trainer['enabled']:
                 cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
                     VALUES (%s, 'client_activity', 'Actividad de cliente', %s, %s)""",
-                    (trainer['trainer_id'], f'{trainer["client_name"]} completó su rutina de hoy.',
+                    (trainer['trainer_id'], f'{trainer["client_name"]} finalizó una sesión de su rutina.',
                      Jsonb({'client_id': str(client['id']), 'routine_id': str(trainer['routine_id']) if trainer['routine_id'] else None,
-                            'completion_id': str(completion['id'])})))
+                            'completion_id': str(completion['id']),
+                            'fully_completed': fully_completed})))
             activity = cur.execute("""SELECT
                     count(*) FILTER (WHERE workout_date >= date_trunc('week', %s::timestamp)::date) AS sessions_this_week,
                     count(*) AS sessions_total
                 FROM workout_completions WHERE client_id = %s""",
                 (row['today'], client['id'])).fetchone()
-    return {'completed': True, 'date': row['today'].isoformat(),
-            'exercise_count': scheduled_count, 'duration_seconds': payload.duration_seconds,
+            return {'completed': True, 'date': row['today'].isoformat(),
+            'exercise_count': len(completed_today), 'scheduled_exercise_count': scheduled_count,
+            'fully_completed': fully_completed, 'duration_seconds': payload.duration_seconds,
             'sessions_this_week': activity['sessions_this_week'],
             'sessions_total': activity['sessions_total']}
 
@@ -3210,6 +3305,36 @@ def admin_routine_detail(routine_id: uuid.UUID,
         exercise['id'] = str(exercise['id'])
         exercise['phase_id'] = str(exercise['phase_id'])
     return {**routine, 'phases': phases, 'clients': clients, 'exercises': exercises}
+
+
+@app.patch('/api/v1/admin/routines/{routine_id}/exercises/{exercise_id}')
+def admin_update_routine_exercise(routine_id: uuid.UUID, exercise_id: uuid.UUID,
+                                  payload: AdminRoutineExerciseUpdate,
+                                  admin: dict = Depends(active_admin)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            exercise = cur.execute("""SELECT re.id, re.phase_id, re.day_number, re.position
+                FROM routine_exercises re JOIN routine_phases rp ON rp.id = re.phase_id
+                JOIN routines r ON r.id = rp.routine_id
+                WHERE r.id = %s AND r.gym_id = %s AND r.active AND re.id = %s
+                FOR UPDATE OF re""", (routine_id, admin['gym_id'], exercise_id)).fetchone()
+            if exercise is None:
+                raise _problem(404, 'ROUTINE_EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio de la rutina.')
+            position = exercise['position']
+            if payload.day_number != exercise['day_number']:
+                position = cur.execute("""SELECT coalesce(max(position), 0) + 1 AS next_position
+                    FROM routine_exercises WHERE phase_id = %s AND day_number = %s""",
+                    (exercise['phase_id'], payload.day_number)).fetchone()['next_position']
+            updated = cur.execute("""UPDATE routine_exercises SET name = %s, sets = %s,
+                    reps = %s, rest_seconds = %s, day_number = %s, position = %s
+                WHERE id = %s RETURNING id, name, sets, reps, rest_seconds, day_number, position""",
+                (payload.name.strip(), payload.sets, payload.reps.strip(), payload.rest_seconds,
+                 payload.day_number, position, exercise_id)).fetchone()
+            cur.execute("""INSERT INTO account_audit_events (gym_id, actor_id, event_type, details)
+                VALUES (%s, %s, 'admin_routine_exercise_updated', %s)""",
+                (admin['gym_id'], admin['id'], Jsonb({'routine_id': str(routine_id), 'exercise_id': str(exercise_id)})))
+    updated['id'] = str(updated['id'])
+    return updated
 
 
 @app.post('/api/v1/admin/routines/{routine_id}/assign')

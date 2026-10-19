@@ -30,6 +30,9 @@ class AuthController extends ChangeNotifier {
       required String lastName,
       required String email,
       String? phone,
+      required String memberNumber,
+      String? memberRegistryId,
+      required DateTime birthDate,
       required String password,
       Uint8List? profilePhotoBytes,
       String? profilePhotoMime}) async {
@@ -38,10 +41,17 @@ class AuthController extends ChangeNotifier {
         lastName: lastName,
         email: email,
         phone: phone,
+        memberNumber: memberNumber,
+        memberRegistryId: memberRegistryId,
+        birthDate: birthDate,
         password: password,
         profilePhotoBytes: profilePhotoBytes,
         profilePhotoMime: profilePhotoMime);
   }
+
+  Future<Map<String, dynamic>> lookupMemberNumber(
+          {required String memberNumber}) =>
+      repository.lookupMemberNumber(memberNumber: memberNumber);
 
   Future<void> resendRegistrationEmailCode(String email) =>
       repository.resendRegistrationEmailCode(email);

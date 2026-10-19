@@ -1559,6 +1559,9 @@ class _ClientProfileWorkspaceScreenState
                         style: const TextStyle(fontWeight: FontWeight.bold)),
                     Text('Vigente hasta ${data['membership_ends_on'] ?? '—'}',
                         style: const TextStyle(color: AppColors.textMuted)),
+                    Text(
+                        'Fecha de pago ${data['payment_due_on'] ?? 'pendiente'}',
+                        style: const TextStyle(color: AppColors.textMuted)),
                   ])),
               const Text('ACTIVO', style: TextStyle(color: AppColors.red)),
             ])),

@@ -10,9 +10,14 @@ abstract class AuthRepository {
       required String lastName,
       required String email,
       String? phone,
+      required String memberNumber,
+      String? memberRegistryId,
+      required DateTime birthDate,
       required String password,
       Uint8List? profilePhotoBytes,
       String? profilePhotoMime});
+  Future<Map<String, dynamic>> lookupMemberNumber(
+      {required String memberNumber});
   Future<Map<String, dynamic>> registerClientGroupMembers(
       {required String planId, required List<Map<String, String>> members});
   Future<void> registerTrainer(
@@ -241,9 +246,17 @@ class FakeAuthRepository implements AuthRepository {
       required String lastName,
       required String email,
       String? phone,
+      required String memberNumber,
+      String? memberRegistryId,
+      required DateTime birthDate,
       required String password,
       Uint8List? profilePhotoBytes,
       String? profilePhotoMime}) async {}
+
+  @override
+  Future<Map<String, dynamic>> lookupMemberNumber(
+          {required String memberNumber}) async =>
+      {'found': false, 'members': <Map<String, dynamic>>[]};
 
   @override
   Future<Map<String, dynamic>> registerClientGroupMembers(

@@ -14,7 +14,7 @@ import smtplib
 import urllib.request
 import uuid
 from contextlib import asynccontextmanager, suppress
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Annotated, Literal
@@ -201,9 +201,23 @@ class ClientRegistration(BaseModel):
     last_name: str = Field(min_length=1, max_length=100)
     email: EmailStr
     phone: str | None = Field(default=None, max_length=30)
+    member_number: str = Field(min_length=1, max_length=40)
+    member_registry_id: uuid.UUID | None = None
+    birth_date: date
     password: StrongPassword
     photo_data: str | None = Field(default=None, max_length=2_800_000)
     photo_mime: Literal['image/jpeg', 'image/png'] | None = None
+
+    @field_validator('birth_date')
+    @classmethod
+    def validate_birth_date(cls, value: date) -> date:
+        if value > datetime.now(UTC).date():
+            raise ValueError('La fecha de nacimiento no puede estar en el futuro.')
+        return value
+
+
+class MemberNumberLookup(BaseModel):
+    member_number: str = Field(min_length=1, max_length=40)
 
 
 class GroupMemberRegistration(BaseModel):
@@ -211,7 +225,15 @@ class GroupMemberRegistration(BaseModel):
     last_name: str = Field(min_length=1, max_length=100)
     email: EmailStr
     phone: str | None = Field(default=None, max_length=30)
+    birth_date: date
     password: StrongPassword
+
+    @field_validator('birth_date')
+    @classmethod
+    def validate_birth_date(cls, value: date) -> date:
+        if value > datetime.now(UTC).date():
+            raise ValueError('La fecha de nacimiento no puede estar en el futuro.')
+        return value
 
 
 class ClientGroupRegistration(BaseModel):
@@ -446,6 +468,29 @@ def _login_identifier_hash(identifier: str) -> str:
     return hmac.new(JWT_SECRET.encode(), f'login:{normalized}'.encode(), hashlib.sha256).hexdigest()
 
 
+def _take_member_lookup_attempt(cur, member_number: str) -> None:
+    lookup_hash = _login_identifier_hash(f'member-lookup:{member_number.casefold()}')
+    attempt = cur.execute("""INSERT INTO auth_login_limits
+        (identifier_hash, attempt_count, window_started_at)
+        VALUES (%s, 1, now())
+        ON CONFLICT (identifier_hash) DO UPDATE SET
+          attempt_count = CASE
+            WHEN auth_login_limits.window_started_at < now() - interval '15 minutes' THEN 1
+            ELSE auth_login_limits.attempt_count + 1 END,
+          window_started_at = CASE
+            WHEN auth_login_limits.window_started_at < now() - interval '15 minutes' THEN now()
+            ELSE auth_login_limits.window_started_at END,
+          blocked_until = CASE
+            WHEN auth_login_limits.window_started_at < now() - interval '15 minutes' THEN NULL
+            WHEN auth_login_limits.blocked_until > now() THEN auth_login_limits.blocked_until
+            WHEN auth_login_limits.attempt_count + 1 >= 8 THEN now() + interval '15 minutes'
+            ELSE NULL END
+        RETURNING blocked_until""", (lookup_hash,)).fetchone()
+    if attempt['blocked_until'] and attempt['blocked_until'] > datetime.now(UTC):
+        raise _problem(429, 'MEMBER_LOOKUP_RATE_LIMIT',
+                       'Demasiadas búsquedas para ese número. Intenta más tarde.')
+
+
 def _new_registration_email_code(cur, user_id: uuid.UUID) -> str:
     # Serialize sends for an account so concurrent requests cannot bypass the
     # hourly delivery limit.
@@ -598,30 +643,55 @@ def _normalize_person_name(value: str, label: str) -> str:
 
 def _ensure_unique_person_name(cur, gym_id: uuid.UUID, first_name: str,
                                last_name: str,
-                               exclude_user_id: uuid.UUID | None = None) -> None:
+                               exclude_user_id: uuid.UUID | None = None,
+                               birth_date: date | None = None,
+                               role: str | None = None) -> None:
     normalized_name = f'{first_name} {last_name}'.casefold()
+    # For clients, a name alone is not a reliable identity: two different
+    # people (including partners) can share it. Use the name and DOB together.
+    # The transaction-scoped advisory lock makes the check safe against two
+    # simultaneous registrations of the same person.
+    identity = (f'{normalized_name}:{birth_date.isoformat()}'
+                if role == 'client' and birth_date else normalized_name)
     cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))',
-                (f'muskl-person-name:{gym_id}:{normalized_name}',))
-    existing = cur.execute("""SELECT id FROM users
-        WHERE gym_id = %s AND status <> 'deactivated'
-          AND lower(trim(regexp_replace(first_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
-          AND lower(trim(regexp_replace(last_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
-          AND (%s::uuid IS NULL OR id <> %s)
-        LIMIT 1""",
-        (gym_id, first_name, last_name, exclude_user_id,
-         exclude_user_id)).fetchone()
+                (f'muskl-person-identity:{gym_id}:{identity}',))
+    if role == 'client' and birth_date:
+        existing = cur.execute("""SELECT u.id FROM users u
+            JOIN client_profiles cp ON cp.user_id = u.id
+            WHERE u.gym_id = %s AND u.role = 'client'
+              AND u.status <> 'deactivated'
+              AND lower(trim(regexp_replace(u.first_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+              AND lower(trim(regexp_replace(u.last_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+              AND cp.birth_date = %s
+              AND (%s::uuid IS NULL OR u.id <> %s)
+            LIMIT 1""",
+            (gym_id, first_name, last_name, birth_date, exclude_user_id,
+             exclude_user_id)).fetchone()
+    else:
+        existing = cur.execute("""SELECT id FROM users
+            WHERE gym_id = %s AND status <> 'deactivated'
+              AND lower(trim(regexp_replace(first_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+              AND lower(trim(regexp_replace(last_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+              AND (%s::uuid IS NULL OR id <> %s)
+            LIMIT 1""",
+            (gym_id, first_name, last_name, exclude_user_id,
+             exclude_user_id)).fetchone()
     if existing:
         raise _problem(409, 'PERSON_NAME_IN_USE',
+                       'Ya existe una cuenta de esta persona (mismo nombre y fecha de nacimiento) en este gimnasio.'
+                       if role == 'client' and birth_date else
                        'Ya existe una cuenta con ese nombre y apellido en este gimnasio.')
 
 
 def _create_user(cur, *, role: str, status: str, first_name: str, last_name: str,
                  email: str, phone: str | None, password: str, member_number: str | None = None,
-                 email_verified: bool = True) -> dict:
+                 email_verified: bool = True,
+                 birth_date: date | None = None) -> dict:
     _validate_strong_password(password)
     first_name = _normalize_person_name(first_name, 'nombre')
     last_name = _normalize_person_name(last_name, 'apellido')
-    _ensure_unique_person_name(cur, GYM_ID, first_name, last_name)
+    _ensure_unique_person_name(cur, GYM_ID, first_name, last_name,
+                               birth_date=birth_date, role=role)
     user_id = uuid.uuid4()
     return cur.execute(
         """INSERT INTO users
@@ -835,6 +905,33 @@ def login(payload: LoginRequest) -> dict:
     return response
 
 
+@app.post('/api/v1/auth/member-lookup')
+def lookup_member_number(payload: MemberNumberLookup) -> dict:
+    member_number = ' '.join(payload.member_number.split()).upper()
+    if not member_number:
+        raise _problem(422, 'INVALID_MEMBER_NUMBER', 'Escribe tu número de socio.')
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            _take_member_lookup_attempt(cur, member_number)
+            rows = cur.execute("""SELECT id, member_number, first_name, last_name,
+                    birth_date, phone, payment_due_on,
+                    (linked_user_id IS NOT NULL) AS registered
+                FROM client_member_registry
+                WHERE gym_id = %s
+                  AND upper(trim(regexp_replace(member_number, '[[:space:]]+', ' ', 'g'))) = %s
+                ORDER BY first_name, last_name, birth_date""",
+                (GYM_ID, member_number)).fetchall()
+    return {'found': bool(rows), 'members': [
+        {'registry_id': str(row['id']),
+         'first_name': _normalize_person_name(row['first_name'], 'nombre'),
+         'last_name': _normalize_person_name(row['last_name'], 'apellido'),
+         'birth_date': row['birth_date'].isoformat(),
+         'phone': row['phone'],
+         'payment_due_on': row['payment_due_on'].isoformat() if row['payment_due_on'] else None,
+         'registered': row['registered']}
+        for row in rows]}
+
+
 @app.post('/api/v1/auth/register/client', status_code=201)
 def register_client(payload: ClientRegistration) -> dict:
     photo = _decode_profile_photo(payload.photo_data, payload.photo_mime)
@@ -848,25 +945,88 @@ def register_client(payload: ClientRegistration) -> dict:
                                        (GYM_ID, str(payload.email).lower())).fetchone()
                 if existing:
                     raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado.')
-                seq = cur.execute("SELECT nextval('member_number_seq') AS value").fetchone()['value']
-                member_number = f'MSK-{seq:06d}'
+                member_number = ' '.join(payload.member_number.split()).upper()
+                _take_member_lookup_attempt(cur, member_number)
+
+                registry = None
+                if payload.member_registry_id:
+                    registry = cur.execute("""SELECT id, member_number, first_name, last_name,
+                            birth_date, phone, payment_due_on, linked_user_id
+                        FROM client_member_registry WHERE id = %s AND gym_id = %s
+                          AND upper(trim(regexp_replace(member_number, '[[:space:]]+', ' ', 'g'))) = %s FOR UPDATE""",
+                        (payload.member_registry_id, GYM_ID, member_number)).fetchone()
+                    if registry is None:
+                        raise _problem(409, 'MEMBER_RECORD_MISMATCH',
+                                       'El registro de socio no corresponde a ese número.')
+                else:
+                    candidates = cur.execute("""SELECT id, member_number, first_name, last_name,
+                            birth_date, phone, payment_due_on, linked_user_id
+                        FROM client_member_registry WHERE gym_id = %s
+                          AND upper(trim(regexp_replace(member_number, '[[:space:]]+', ' ', 'g'))) = %s
+                        ORDER BY first_name, last_name FOR UPDATE""",
+                        (GYM_ID, member_number)).fetchall()
+                    if len(candidates) == 1:
+                        registry = candidates[0]
+                    elif len(candidates) > 1:
+                        raise _problem(409, 'MEMBER_SELECTION_REQUIRED',
+                                       'Ese número tiene varios integrantes. Busca el número y selecciona tu ficha.')
+
+                if registry and registry['linked_user_id']:
+                    raise _problem(409, 'MEMBER_ALREADY_REGISTERED',
+                                   'Ese socio ya tiene una cuenta vinculada. Inicia sesión o recupera tu contraseña.')
+                first_name = registry['first_name'] if registry else payload.first_name
+                last_name = registry['last_name'] if registry else payload.last_name
+                birth_date = registry['birth_date'] if registry else payload.birth_date
+                if registry is None:
+                    same_person = cur.execute("""SELECT member_number FROM client_member_registry
+                        WHERE gym_id = %s
+                          AND lower(trim(regexp_replace(first_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                          AND lower(trim(regexp_replace(last_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                          AND birth_date = %s LIMIT 1""",
+                        (GYM_ID, _normalize_person_name(first_name, 'nombre'),
+                         _normalize_person_name(last_name, 'apellido'), birth_date)).fetchone()
+                    if same_person:
+                        raise _problem(409, 'PERSON_NAME_IN_USE',
+                                       'Ya existe una ficha con ese nombre y fecha de nacimiento. Revisa el número de socio.')
                 user = _create_user(cur, role='client', status='active_no_onboarding',
-                                    first_name=payload.first_name, last_name=payload.last_name,
-                                    email=str(payload.email), phone=payload.phone,
+                                    first_name=first_name, last_name=last_name,
+                                    email=str(payload.email),
+                                    phone=payload.phone or (registry['phone'] if registry else None),
                                     password=payload.password, member_number=member_number,
-                                    email_verified=False)
+                                    email_verified=False, birth_date=birth_date)
                 user_id = user['id']
                 storage_key = _store_registration_photo(user['id'], photo)
                 if storage_key:
                     cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
                         profile_photo_mime = %s WHERE id = %s""",
                         (storage_key, photo[1], user['id']))
-                cur.execute('INSERT INTO client_profiles (user_id) VALUES (%s)', (user['id'],))
-                cur.execute('INSERT INTO client_groups (gym_id, member_number) VALUES (%s, %s) RETURNING id',
+                if registry is None:
+                    payment_due_on = cur.execute("SELECT (now() AT TIME ZONE timezone)::date AS date FROM gyms WHERE id = %s",
+                                                 (GYM_ID,)).fetchone()['date']
+                    registry = cur.execute("""INSERT INTO client_member_registry
+                        (gym_id, member_number, first_name, last_name, birth_date,
+                         phone, payment_due_on, linked_user_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                        (GYM_ID, member_number, user['first_name'], user['last_name'],
+                         birth_date, user['phone'], payment_due_on, user['id'])).fetchone()
+                    registry_id = registry['id']
+                else:
+                    payment_due_on = registry['payment_due_on']
+                    cur.execute("""UPDATE client_member_registry SET linked_user_id = %s,
+                        updated_at = now() WHERE id = %s AND linked_user_id IS NULL""",
+                        (user['id'], registry['id']))
+                    registry_id = registry['id']
+                cur.execute('INSERT INTO client_profiles (user_id, birth_date, member_registry_id) VALUES (%s, %s, %s)',
+                            (user['id'], birth_date, registry_id))
+                group = cur.execute('''INSERT INTO client_groups (gym_id, member_number)
+                    VALUES (%s, %s) ON CONFLICT (member_number) DO UPDATE
+                    SET gym_id = EXCLUDED.gym_id RETURNING id''',
                             (GYM_ID, member_number))
-                group = cur.fetchone()
-                cur.execute('INSERT INTO client_group_members (group_id, user_id, is_primary) VALUES (%s, %s, true)',
-                            (group['id'], user['id']))
+                group = group.fetchone()
+                current_members = cur.execute('SELECT count(*) AS count FROM client_group_members WHERE group_id = %s',
+                                              (group['id'],)).fetchone()['count']
+                cur.execute('INSERT INTO client_group_members (group_id, user_id, is_primary) VALUES (%s, %s, %s)',
+                            (group['id'], user['id'], current_members == 0))
                 verification_code = _new_registration_email_code(cur, user['id'])
     except HTTPException:
         _cleanup_profile_photo(storage_key)
@@ -1129,12 +1289,57 @@ def register_client_group_members(payload: ClientGroupRegistration,
                 if cur.execute('SELECT 1 FROM users WHERE gym_id = %s AND email = %s',
                                (client['gym_id'], email)).fetchone():
                     raise _problem(409, 'EMAIL_IN_USE', f'El correo {email} ya está registrado.')
+                registry = cur.execute("""SELECT id, first_name, last_name, birth_date,
+                        phone, linked_user_id FROM client_member_registry
+                    WHERE gym_id = %s
+                      AND upper(trim(regexp_replace(member_number, '[[:space:]]+', ' ', 'g'))) = %s
+                      AND lower(trim(regexp_replace(first_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                      AND lower(trim(regexp_replace(last_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                      AND birth_date = %s FOR UPDATE""",
+                    (client['gym_id'], group['member_number'], member.first_name,
+                     member.last_name, member.birth_date)).fetchone()
+                if registry and registry['linked_user_id']:
+                    raise _problem(409, 'MEMBER_ALREADY_REGISTERED',
+                                   f'{member.first_name} {member.last_name} ya tiene una cuenta vinculada.')
+                first_name = registry['first_name'] if registry else member.first_name
+                last_name = registry['last_name'] if registry else member.last_name
+                birth_date = registry['birth_date'] if registry else member.birth_date
+                if registry is None:
+                    same_person = cur.execute("""SELECT member_number FROM client_member_registry
+                        WHERE gym_id = %s
+                          AND lower(trim(regexp_replace(first_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                          AND lower(trim(regexp_replace(last_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                          AND birth_date = %s LIMIT 1""",
+                        (client['gym_id'], _normalize_person_name(first_name, 'nombre'),
+                         _normalize_person_name(last_name, 'apellido'), birth_date)).fetchone()
+                    if same_person:
+                        raise _problem(409, 'PERSON_NAME_IN_USE',
+                                       'Ya existe una ficha con ese nombre y fecha de nacimiento.')
                 user = _create_user(cur, role='client', status='active_no_onboarding',
-                    first_name=member.first_name, last_name=member.last_name, email=email,
-                    phone=member.phone, password=member.password,
-                    member_number=group['member_number'], email_verified=False)
+                    first_name=first_name, last_name=last_name, email=email,
+                    phone=member.phone or (registry['phone'] if registry else None),
+                    password=member.password,
+                    member_number=group['member_number'], email_verified=False,
+                    birth_date=birth_date)
                 pending_codes.append((email, _new_registration_email_code(cur, user['id'])))
-                cur.execute('INSERT INTO client_profiles (user_id) VALUES (%s)', (user['id'],))
+                if registry is None:
+                    payment_due_on = cur.execute("SELECT (now() AT TIME ZONE timezone)::date AS date FROM gyms WHERE id = %s",
+                                                 (client['gym_id'],)).fetchone()['date']
+                    registry = cur.execute("""INSERT INTO client_member_registry
+                        (gym_id, member_number, first_name, last_name, birth_date,
+                         phone, payment_due_on, linked_user_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                        (client['gym_id'], group['member_number'], user['first_name'],
+                         user['last_name'], birth_date, user['phone'], payment_due_on,
+                         user['id'])).fetchone()
+                    registry_id = registry['id']
+                else:
+                    registry_id = registry['id']
+                    cur.execute("""UPDATE client_member_registry SET linked_user_id = %s,
+                        updated_at = now() WHERE id = %s AND linked_user_id IS NULL""",
+                        (user['id'], registry_id))
+                cur.execute('INSERT INTO client_profiles (user_id, birth_date, member_registry_id) VALUES (%s, %s, %s)',
+                            (user['id'], birth_date, registry_id))
                 cur.execute('INSERT INTO client_group_members (group_id, user_id) VALUES (%s, %s)',
                             (group['id'], user['id']))
             cur.execute('UPDATE client_groups SET plan_id = %s WHERE id = %s',
@@ -2144,6 +2349,7 @@ def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
                 g.timezone, g.name AS gym_name, g.address AS gym_address,
                 g.phone AS gym_phone, g.opening_hours AS gym_opening_hours,
                 p.name AS plan_name, m.ends_on AS membership_ends_on,
+                registry.payment_due_on,
                 concat_ws(' ', t.first_name, t.last_name) AS trainer_name,
                 r.name AS routine_name, cra.current_phase_id, rp.phase_number,
                 cra.phase_started_at, (now() AT TIME ZONE g.timezone)::date AS today,
@@ -2153,6 +2359,7 @@ def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
                 COALESCE((SELECT count(*) FROM workout_completions wc WHERE wc.client_id = u.id AND wc.workout_date >= (now() AT TIME ZONE g.timezone)::date - 6), 0) AS workouts_7d
             FROM users u JOIN gyms g ON g.id = u.gym_id
             LEFT JOIN client_profiles cp ON cp.user_id = u.id
+            LEFT JOIN client_member_registry registry ON registry.id = cp.member_registry_id
             LEFT JOIN LATERAL (SELECT plan_id, ends_on FROM memberships WHERE client_id = u.id AND status = 'active' ORDER BY ends_on DESC LIMIT 1) m ON true
             LEFT JOIN membership_plans p ON p.id = m.plan_id
             LEFT JOIN LATERAL (SELECT trainer_id FROM trainer_client_assignments WHERE client_id = u.id AND ends_at IS NULL LIMIT 1) tca ON true
@@ -2181,6 +2388,7 @@ def client_dashboard(client: dict = Depends(onboarded_client)) -> dict:
             'profile_photo_url': profile_photo_url,
             'profile_photo_mime': row['profile_photo_mime'] or row['legacy_profile_photo_mime'],
             'membership_ends_on': row['membership_ends_on'].isoformat() if row['membership_ends_on'] else None,
+            'payment_due_on': row['payment_due_on'].isoformat() if row['payment_due_on'] else None,
             'phase_started_at': row['phase_started_at'].isoformat() if row['phase_started_at'] else None,
             'deletion_requested_at': row['deletion_requested_at'].isoformat() if row['deletion_requested_at'] else None,
             'attendance_7d_dates': sorted(attendance_days),
@@ -2246,8 +2454,27 @@ def update_client_profile(payload: ClientProfileUpdate,
         with pool.connection() as conn:
             with conn.cursor() as cur:
                 if fields & {'first_name', 'last_name'}:
+                    identity_row = cur.execute('SELECT birth_date, member_registry_id FROM client_profiles WHERE user_id = %s',
+                                               (client['id'],)).fetchone()
                     _ensure_unique_person_name(cur, client['gym_id'], first_name,
-                                               last_name, client['id'])
+                                               last_name, client['id'],
+                                               birth_date=identity_row['birth_date'] if identity_row else None,
+                                               role='client')
+                    if identity_row and identity_row['birth_date']:
+                        duplicate_registry = cur.execute("""SELECT id FROM client_member_registry
+                            WHERE gym_id = %s
+                              AND lower(trim(regexp_replace(first_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                              AND lower(trim(regexp_replace(last_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                              AND birth_date = %s
+                              AND (%s::uuid IS NULL OR id <> %s)
+                            LIMIT 1""",
+                            (client['gym_id'], first_name, last_name,
+                             identity_row['birth_date'],
+                             identity_row['member_registry_id'],
+                             identity_row['member_registry_id'])).fetchone()
+                        if duplicate_registry:
+                            raise _problem(409, 'PERSON_NAME_IN_USE',
+                                           'Ya existe una ficha con ese nombre y fecha de nacimiento.')
                 cur.execute('INSERT INTO client_profiles (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING',
                             (client['id'],))
                 old_profile = cur.execute(
@@ -2257,6 +2484,10 @@ def update_client_profile(payload: ClientProfileUpdate,
                 cur.execute("""UPDATE users SET first_name = %s, last_name = %s,
                     email = %s, phone = %s, updated_at = now() WHERE id = %s""",
                     (first_name, last_name, email, phone, client['id']))
+                if fields & {'first_name', 'last_name'}:
+                    cur.execute("""UPDATE client_member_registry SET first_name = %s,
+                        last_name = %s, updated_at = now() WHERE linked_user_id = %s""",
+                        (first_name, last_name, client['id']))
                 if payload.remove_photo:
                     cur.execute("""UPDATE users SET profile_photo_storage_key = NULL,
                         profile_photo_mime = NULL, updated_at = now() WHERE id = %s""",

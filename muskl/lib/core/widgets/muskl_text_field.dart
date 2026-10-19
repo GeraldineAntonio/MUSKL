@@ -20,6 +20,7 @@ class MusklTextField extends StatefulWidget {
     this.onSubmitted,
     this.autofillHints,
     this.inputFormatters,
+    this.readOnly = false,
   });
 
   final String label;
@@ -34,6 +35,7 @@ class MusklTextField extends StatefulWidget {
   final ValueChanged<String>? onSubmitted;
   final Iterable<String>? autofillHints;
   final List<TextInputFormatter>? inputFormatters;
+  final bool readOnly;
 
   @override
   State<MusklTextField> createState() => _MusklTextFieldState();
@@ -62,6 +64,7 @@ class _MusklTextFieldState extends State<MusklTextField> {
         const SizedBox(height: 6),
         TextField(
           controller: widget.controller,
+          readOnly: widget.readOnly,
           obscureText: _hidden,
           keyboardType: widget.keyboardType,
           textInputAction: widget.textInputAction,

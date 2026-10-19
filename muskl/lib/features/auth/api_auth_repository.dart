@@ -140,6 +140,9 @@ class ApiAuthRepository implements AuthRepository {
       required String lastName,
       required String email,
       String? phone,
+      required String memberNumber,
+      String? memberRegistryId,
+      required DateTime birthDate,
       required String password,
       Uint8List? profilePhotoBytes,
       String? profilePhotoMime}) async {
@@ -148,11 +151,22 @@ class ApiAuthRepository implements AuthRepository {
       'last_name': lastName,
       'email': email,
       'phone': phone,
+      'member_number': memberNumber.trim(),
+      if (memberRegistryId != null) 'member_registry_id': memberRegistryId,
+      'birth_date': birthDate.toIso8601String().substring(0, 10),
       'password': password,
       if (profilePhotoBytes != null && profilePhotoMime != null)
         'photo_data': base64Encode(profilePhotoBytes),
       if (profilePhotoMime != null) 'photo_mime': profilePhotoMime,
     });
+  }
+
+  @override
+  Future<Map<String, dynamic>> lookupMemberNumber(
+      {required String memberNumber}) async {
+    final result = await _request('POST', '/api/v1/auth/member-lookup',
+        body: {'member_number': memberNumber.trim()});
+    return Map<String, dynamic>.from(result as Map);
   }
 
   @override
@@ -244,13 +258,14 @@ class ApiAuthRepository implements AuthRepository {
   @override
   Future<Map<String, dynamic>> getClientOnboardingOptions() async {
     final options = Map<String, dynamic>.from(await _request(
-        'GET', '/api/v1/client/onboarding/options', authenticated: true) as Map);
+            'GET', '/api/v1/client/onboarding/options', authenticated: true)
+        as Map);
 
     // The API repairs legacy accounts whose onboarding was saved but whose
     // status remained active_no_onboarding. Refresh the local session so the
     // router leaves onboarding immediately instead of showing it again.
-    final response = Map<String, dynamic>.from(await _request(
-        'GET', '/api/v1/auth/me', authenticated: true) as Map);
+    final response = Map<String, dynamic>.from(
+        await _request('GET', '/api/v1/auth/me', authenticated: true) as Map);
     final user = Map<String, dynamic>.from(response['user'] as Map);
     final session = await _saveSessionFromUser(user);
     onSessionChanged?.call(session);

@@ -29,6 +29,7 @@ class _GroupMemberFields {
   final email = TextEditingController();
   final phone = TextEditingController();
   final password = TextEditingController();
+  DateTime? birthDate;
 
   void dispose() {
     firstName.dispose();
@@ -38,6 +39,27 @@ class _GroupMemberFields {
     password.dispose();
   }
 }
+
+String _formatBirthDate(DateTime value) =>
+    '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}/${value.year}';
+
+Widget _birthDateInput(BuildContext context,
+        {required DateTime? value,
+        required VoidCallback onTap,
+        String label = 'Fecha de nacimiento *'}) =>
+    InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: const Icon(Icons.cake_outlined),
+          suffixIcon: const Icon(Icons.calendar_month_outlined),
+        ),
+        child: Text(
+            value == null ? 'Selecciona la fecha' : _formatBirthDate(value)),
+      ),
+    );
 
 class PrototypePage extends StatelessWidget {
   const PrototypePage(
@@ -96,6 +118,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _lastName = TextEditingController();
   final _email = TextEditingController();
   final _phone = TextEditingController();
+  final _memberNumber = TextEditingController();
   final _password = TextEditingController();
   final _confirmPassword = TextEditingController();
   final _specialty = TextEditingController();
@@ -106,6 +129,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _profilePhotoMime;
   bool _loading = false;
   String? _error;
+  DateTime? _birthDate;
+  List<Map<String, dynamic>> _registryMatches = [];
+  String? _memberRegistryId;
+  String? _memberPaymentDueOn;
+  bool _memberLookupDone = false;
+  bool _memberLookupLoading = false;
+  bool _registeringAdditionalGroupMember = false;
   late String _role;
 
   @override
@@ -120,6 +150,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _lastName.dispose();
     _email.dispose();
     _phone.dispose();
+    _memberNumber.dispose();
     _password.dispose();
     _confirmPassword.dispose();
     _specialty.dispose();
@@ -142,6 +173,124 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() {
       _certName = selected.name;
       _certBytes = selected.bytes;
+      _error = null;
+    });
+  }
+
+  Future<void> _pickBirthDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _birthDate ?? DateTime(now.year - 18, now.month, now.day),
+      firstDate: DateTime(1900),
+      lastDate: now,
+      helpText: 'Selecciona tu fecha de nacimiento',
+      cancelText: 'Cancelar',
+      confirmText: 'Aceptar',
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _birthDate = picked;
+        _error = null;
+      });
+    }
+  }
+
+  Future<void> _lookupMemberNumber() async {
+    final number = _memberNumber.text.trim();
+    if (number.isEmpty) {
+      setState(() => _error = 'Escribe tu número de socio primero.');
+      return;
+    }
+    setState(() {
+      _memberLookupLoading = true;
+      _memberLookupDone = false;
+      _registryMatches = [];
+      _memberRegistryId = null;
+      _memberPaymentDueOn = null;
+      _registeringAdditionalGroupMember = false;
+      _error = null;
+    });
+    try {
+      final result =
+          await authController.lookupMemberNumber(memberNumber: number);
+      final matches = (result['members'] as List? ?? const [])
+          .map((row) => Map<String, dynamic>.from(row as Map))
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _registryMatches = matches;
+        _memberLookupDone = true;
+        _memberLookupLoading = false;
+      });
+      if (matches.isEmpty) {
+        setState(() {
+          _name.clear();
+          _lastName.clear();
+          _birthDate = null;
+        });
+        return;
+      }
+      if (matches.length == 1) {
+        _applyRegistryMember(matches.first);
+        return;
+      }
+      final selected = await showDialog<Map<String, dynamic>>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: const Text('Selecciona tu ficha de socio'),
+          children: matches
+              .map((member) => SimpleDialogOption(
+                    onPressed: () => Navigator.pop(context, member),
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                          '${member['first_name']} ${member['last_name']}'),
+                      subtitle: Text(
+                          'Nacimiento ${member['birth_date']} · ${member['registered'] == true ? 'Cuenta ya vinculada' : 'Pendiente de registro'}'),
+                    ),
+                  ))
+              .toList(),
+        ),
+      );
+      if (selected != null && mounted) _applyRegistryMember(selected);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _memberLookupLoading = false;
+          _error = error.toString().replaceFirst('AuthException: ', '');
+        });
+      }
+    }
+  }
+
+  void _applyRegistryMember(Map<String, dynamic> member) {
+    if (member['registered'] == true) {
+      setState(() => _error =
+          'Esta ficha ya tiene una cuenta. Inicia sesión o recupera la contraseña.');
+      return;
+    }
+    final birthDate = DateTime.tryParse(member['birth_date']?.toString() ?? '');
+    setState(() {
+      _memberRegistryId = member['registry_id']?.toString();
+      _memberPaymentDueOn = member['payment_due_on']?.toString();
+      _registeringAdditionalGroupMember = false;
+      _name.text = member['first_name']?.toString() ?? '';
+      _lastName.text = member['last_name']?.toString() ?? '';
+      _phone.text = member['phone']?.toString() ?? '';
+      _birthDate = birthDate;
+      _error = null;
+    });
+  }
+
+  void _registerAnotherGroupMember() {
+    setState(() {
+      _memberRegistryId = null;
+      _memberPaymentDueOn = null;
+      _registeringAdditionalGroupMember = true;
+      _name.clear();
+      _lastName.clear();
+      _birthDate = null;
       _error = null;
     });
   }
@@ -176,6 +325,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
       setState(() => _error = 'Las contraseñas no coinciden.');
       return;
     }
+    if (_role == 'Cliente' && _birthDate == null) {
+      setState(() => _error = 'Selecciona tu fecha de nacimiento.');
+      return;
+    }
+    if (_role == 'Cliente' &&
+        (_memberNumber.text.trim().isEmpty || !_memberLookupDone)) {
+      setState(() => _error = 'Busca tu número de socio antes de continuar.');
+      return;
+    }
     if (_role == 'Entrenador' &&
         (_specialty.text.trim().isEmpty || _certBytes == null)) {
       setState(
@@ -202,6 +360,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             lastName: last,
             email: normalizedEmail,
             phone: phone,
+            memberNumber: _memberNumber.text.trim(),
+            memberRegistryId: _memberRegistryId,
+            birthDate: _birthDate!,
             password: _password.text,
             profilePhotoBytes: _profilePhotoBytes,
             profilePhotoMime: _profilePhotoMime);
@@ -275,13 +436,66 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     onSelected: (_) => setState(() => _role = v)))
                 .toList()),
         const SizedBox(height: 14),
+        if (_role == 'Cliente') ...[
+          MusklTextField(
+              label: 'Número de socio *',
+              controller: _memberNumber,
+              icon: Icons.badge_outlined,
+              onChanged: (_) => setState(() {
+                    _memberLookupDone = false;
+                    _memberRegistryId = null;
+                    _memberPaymentDueOn = null;
+                    _registryMatches = [];
+                    _error = null;
+                  })),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _memberLookupLoading ? null : _lookupMemberNumber,
+            icon: _memberLookupLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.search),
+            label: Text(
+                _memberLookupLoading ? 'Buscando…' : 'Buscar número de socio'),
+          ),
+          if (_memberLookupDone && _registryMatches.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child:
+                  Text('Número nuevo: completa tus datos para crear tu ficha.'),
+            ),
+          if (_memberRegistryId != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text('Ficha encontrada.'),
+            ),
+          if (_memberRegistryId != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                  'Fecha de pago: ${_memberPaymentDueOn ?? 'pendiente de captura'}'),
+            ),
+          if (_registryMatches.isNotEmpty && _memberRegistryId == null)
+            TextButton.icon(
+              onPressed: _registerAnotherGroupMember,
+              icon: const Icon(Icons.group_add_outlined),
+              label: const Text('Soy otro integrante que comparte este número'),
+            ),
+          const SizedBox(height: 14),
+        ],
         MusklTextField(
-            label: 'Nombre', controller: _name, icon: Icons.person_outline),
+            label: 'Nombre',
+            controller: _name,
+            icon: Icons.person_outline,
+            readOnly: _memberRegistryId != null),
         const SizedBox(height: 14),
         MusklTextField(
             label: 'Apellido',
             controller: _lastName,
-            icon: Icons.person_outline),
+            icon: Icons.person_outline,
+            readOnly: _memberRegistryId != null),
         const SizedBox(height: 14),
         MusklTextField(
             label: 'Correo electrónico *',
@@ -295,6 +509,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
             icon: Icons.phone_outlined,
             hint: '+52 55 1234 5678',
             keyboardType: TextInputType.phone),
+        if (_role == 'Cliente') ...[
+          const SizedBox(height: 14),
+          _birthDateInput(context,
+              value: _birthDate,
+              onTap: _loading || _memberRegistryId != null
+                  ? () {}
+                  : _pickBirthDate),
+        ],
         const SizedBox(height: 14),
         MusklCard(
             child: Column(children: [
@@ -1326,6 +1548,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
             member.firstName.text.trim().isNotEmpty &&
             member.lastName.text.trim().isNotEmpty &&
             member.email.text.contains('@') &&
+            member.birthDate != null &&
             isStrongPassword(member.password.text));
         if (!validMembers) {
           setState(() => _error =
@@ -1345,6 +1568,8 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                       'last_name': member.lastName.text.trim(),
                       'email': member.email.text.trim(),
                       'phone': member.phone.text.trim(),
+                      'birth_date':
+                          member.birthDate!.toIso8601String().substring(0, 10),
                       'password': member.password.text,
                     })
                 .toList(),
@@ -1743,6 +1968,31 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
             label: 'Teléfono (opcional)',
             controller: member.phone,
             icon: Icons.phone_outlined),
+        const SizedBox(height: 8),
+        _birthDateInput(context,
+            value: member.birthDate,
+            label: 'Fecha de nacimiento *',
+            onTap: _saving
+                ? () {}
+                : () async {
+                    final now = DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: member.birthDate ??
+                          DateTime(now.year - 18, now.month, now.day),
+                      firstDate: DateTime(1900),
+                      lastDate: now,
+                      helpText: 'Fecha de nacimiento del integrante',
+                      cancelText: 'Cancelar',
+                      confirmText: 'Aceptar',
+                    );
+                    if (picked != null && mounted) {
+                      setState(() {
+                        member.birthDate = picked;
+                        _error = null;
+                      });
+                    }
+                  }),
         const SizedBox(height: 8),
         MusklTextField(
             label: 'Contraseña individual segura',

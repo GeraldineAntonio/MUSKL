@@ -242,10 +242,20 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<Map<String, dynamic>> getClientOnboardingOptions() async =>
-      Map<String, dynamic>.from(await _request(
-              'GET', '/api/v1/client/onboarding/options', authenticated: true)
-          as Map);
+  Future<Map<String, dynamic>> getClientOnboardingOptions() async {
+    final options = Map<String, dynamic>.from(await _request(
+        'GET', '/api/v1/client/onboarding/options', authenticated: true) as Map);
+
+    // The API repairs legacy accounts whose onboarding was saved but whose
+    // status remained active_no_onboarding. Refresh the local session so the
+    // router leaves onboarding immediately instead of showing it again.
+    final response = Map<String, dynamic>.from(await _request(
+        'GET', '/api/v1/auth/me', authenticated: true) as Map);
+    final user = Map<String, dynamic>.from(response['user'] as Map);
+    final session = await _saveSessionFromUser(user);
+    onSessionChanged?.call(session);
+    return options;
+  }
 
   @override
   Future<List<Map<String, dynamic>>> getClientOnboardingRoutines(

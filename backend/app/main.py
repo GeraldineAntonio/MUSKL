@@ -1062,28 +1062,32 @@ def active_admin(user: dict = Depends(current_user)) -> dict:
 def active_client(user: dict = Depends(current_user)) -> dict:
     if user['role'] != 'client' or user['status'] not in ('active_no_onboarding', 'active'):
         raise _problem(403, 'CLIENT_REQUIRED', 'Esta opción requiere una cuenta cliente activa.')
-    # Repair accounts left in onboarding status by older app/backend versions
-    # after the membership/profile had already been saved.
-    if user['status'] == 'active_no_onboarding':
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                completed = cur.execute("""SELECT cp.onboarding_completed_at,
-                        cp.goal, cp.days_per_week, cp.weight_kg,
-                        EXISTS (SELECT 1 FROM memberships m WHERE m.client_id = u.id
-                            AND m.status = 'active') AS has_membership
-                    FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id
-                    WHERE u.id = %s""", (user['id'],)).fetchone()
-                profile_is_complete = (completed is not None
-                    and completed['goal'] is not None
-                    and completed['days_per_week'] is not None
-                    and completed['weight_kg'] is not None
-                    and completed['has_membership'])
-                if completed and (completed['onboarding_completed_at'] or profile_is_complete):
-                    cur.execute("""UPDATE client_profiles SET
-                        onboarding_completed_at = COALESCE(onboarding_completed_at, now()),
-                        updated_at = now() WHERE user_id = %s""", (user['id'],))
-                    user = cur.execute("""UPDATE users SET status = 'active', updated_at = now()
-                        WHERE id = %s RETURNING *""", (user['id'],)).fetchone()
+    return _repair_completed_client_onboarding(user)
+
+
+def _repair_completed_client_onboarding(user: dict) -> dict:
+    """Correct legacy clients whose saved onboarding was not reflected in status."""
+    if user['role'] != 'client' or user['status'] != 'active_no_onboarding':
+        return user
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            completed = cur.execute("""SELECT cp.onboarding_completed_at,
+                    cp.goal, cp.days_per_week, cp.weight_kg,
+                    EXISTS (SELECT 1 FROM memberships m WHERE m.client_id = u.id
+                        AND m.status = 'active') AS has_membership
+                FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id
+                WHERE u.id = %s""", (user['id'],)).fetchone()
+            profile_is_complete = (completed is not None
+                and completed['goal'] is not None
+                and completed['days_per_week'] is not None
+                and completed['weight_kg'] is not None
+                and completed['has_membership'])
+            if completed and (completed['onboarding_completed_at'] or profile_is_complete):
+                cur.execute("""UPDATE client_profiles SET
+                    onboarding_completed_at = COALESCE(onboarding_completed_at, now()),
+                    updated_at = now() WHERE user_id = %s""", (user['id'],))
+                return cur.execute("""UPDATE users SET status = 'active', updated_at = now()
+                    WHERE id = %s RETURNING *""", (user['id'],)).fetchone()
     return user
 
 
@@ -1156,6 +1160,9 @@ def active_trainer(user: dict = Depends(current_user)) -> dict:
 
 @app.get('/api/v1/auth/me')
 def me(user: dict = Depends(current_user)) -> dict:
+    # A session restore is the first request after login/app launch. Repair
+    # legacy completed client profiles here so the router opens the client home.
+    user = _repair_completed_client_onboarding(user)
     return {'user': _public_user(user)}
 
 

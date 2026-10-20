@@ -52,6 +52,33 @@ El script solicita la URL de Neon sin mostrarla en pantalla, además de nombre, 
 
 Configura también en el servicio del API `JWT_SECRET` con al menos 32 caracteres aleatorios y `MUSKL_ENV=production`. Para correo transaccional puedes usar Brevo por HTTPS: configura `BREVO_API_KEY` y `BREVO_FROM_EMAIL` con un remitente verificado en Brevo; opcionalmente define `BREVO_FROM_NAME`. Resend (`MUSKL_RESEND_API_KEY` y `MUSKL_RESEND_FROM`) y `MUSKL_SMTP_*` se mantienen como alternativas. En Render Free conviene usar Brevo o Resend por HTTPS porque Render bloquea conexiones SMTP salientes comunes. El backend envía por correo códigos para registro, cambio de contraseña, recuperación, cambio de correo y avisos de cuenta. La verificación de registro vence en 10 minutos, permite hasta cinco intentos por código y limita los envíos a tres por hora. El inicio de sesión permite hasta siete intentos por identificador en una ventana de 15 minutos y bloquea temporalmente los siguientes; la clave del limitador se guarda como hash HMAC; no se almacenan correos ni números en esa tabla. Para certificados crea un bucket **privado** en R2 y un token S3 con lectura/escritura limitado a ese bucket; guarda en Render `MUSKL_R2_ACCOUNT_ID`, `MUSKL_R2_ACCESS_KEY_ID`, `MUSKL_R2_SECRET_ACCESS_KEY` y `MUSKL_R2_PRIVATE_BUCKET`. El API sube los documentos y entrega a los admins del mismo gimnasio enlaces de descarga con vigencia de 10 minutos. No pongas estas credenciales en GitHub ni en el APK. Los códigos de cambio de correo y contraseña se envían por email; cambiar correo exige además la contraseña actual. Olvidar contraseña requiere código válido 10 minutos, con límite de 3 solicitudes por hora y 5 intentos por código. La URL pública del API debe ser HTTPS, y esa URL se compila en Flutter con `--dart-define=MUSKL_API_URL=https://...`.
 
+### Inicio de sesión con Google y Apple
+
+Los botones de la app autentican una cuenta MUSKL existente. En el primer acceso, el API vincula el identificador estable del proveedor a la cuenta cuyo correo ya está verificado y coincide. Si la persona aún no tiene cuenta, debe registrarse primero con el mismo correo. Para Apple, la primera autorización debe compartir un correo que coincida con el de MUSKL; después el vínculo por identificador permite usar la opción de ocultar correo.
+
+**Google (Android)**
+
+1. En Google Cloud crea un cliente OAuth de tipo **Web application** y otro de tipo **Android**. Al cliente Android asígnale el nombre de paquete `mx.muskl.muskl` y la huella SHA-1 del certificado con que firmarás la app. Para debug puedes obtenerla con `cd muskl/android && ./gradlew signingReport`; crea también un cliente para la huella de distribución cuando configures la firma release.
+2. El ID Web `355323290179-5t96b3a4efp9lqju4dvt4hk3vu11m1m4.apps.googleusercontent.com` ya está configurado como valor predeterminado en la app y el API. Si usas otro ID, reemplázalo en `GOOGLE_OAUTH_CLIENT_IDS` del servicio API y al compilar la app con `MUSKL_GOOGLE_SERVER_CLIENT_ID`. Para aceptar varias audiencias, sepáralas con comas en la variable del API.
+
+**Apple (Android)**
+
+1. En Apple Developer crea un **App ID** con Sign in with Apple habilitado, una clave Sign in with Apple y un **Services ID** asociado a ese App ID. Habilita Sign in with Apple en el Services ID y registra como dominio el host HTTPS público del API.
+2. Registra como Return URL exactamente `https://TU_API/api/v1/auth/apple/callback` (sin barra final). En la configuración del servicio API establece `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_SERVICE_ID`, `APPLE_REDIRECT_URI` con esa misma URL y `APPLE_PRIVATE_KEY` con el contenido de la clave `.p8`. La app Android usa `APPLE_SERVICE_ID` como `MUSKL_APPLE_SERVICE_ID` y la misma Return URL como `MUSKL_APPLE_REDIRECT_URI`.
+3. La migración `025_social_identities.sql` se aplica al desplegar el API mediante el comando de migraciones del servicio.
+
+Guarda las claves privadas solo en el entorno del API y los argumentos locales de compilación; no las agregues a Git ni compartas la clave `.p8`. Los IDs de cliente OAuth son identificadores públicos. Con las variables de Apple configuradas, compila desde `muskl` así:
+
+```bash
+flutter build apk --release \
+  --dart-define=MUSKL_API_URL=https://TU_API \
+  --dart-define=MUSKL_GOOGLE_SERVER_CLIENT_ID=TU_CLIENTE_WEB.apps.googleusercontent.com \
+  --dart-define=MUSKL_APPLE_SERVICE_ID=TU_SERVICES_ID \
+  --dart-define=MUSKL_APPLE_REDIRECT_URI=https://TU_API/api/v1/auth/apple/callback
+```
+
+Apple exige una cuenta de Apple Developer activa para crear Services IDs y claves. La API intercambia el código de Apple y valida el token firmado; la clave privada permanece en el servidor. En iOS la autenticación nativa de Apple requiere además habilitar la capacidad Sign in with Apple en el proyecto Xcode.
+
 El archivo `backend/.env` es para desarrollo local y está excluido de Git. En GitHub guarda secretos solo en la configuración de Actions/Deploy, nunca en commits, documentación ni en el APK.
 
 El usuario admin inicial es el único que se crea automáticamente; no hay contraseñas demo en el código. Las contraseñas se almacenan como hash, nunca en texto plano.

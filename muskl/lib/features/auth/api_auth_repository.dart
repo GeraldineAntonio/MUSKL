@@ -303,16 +303,17 @@ class ApiAuthRepository implements AuthRepository {
       double? heightCm,
       String? limitations}) async {
     final result = await _request('POST', '/api/v1/client/onboarding',
-        authenticated: true, body: {
-      'plan_id': planId,
-      'trainer_id': trainerId,
-      'goal': goal,
-      'experience_level': experienceLevel,
-      'days_per_week': daysPerWeek,
-      'weight_kg': weightKg,
-      'height_cm': heightCm,
-      'limitations': limitations,
-    });
+        authenticated: true,
+        body: {
+          'plan_id': planId,
+          'trainer_id': trainerId,
+          'goal': goal,
+          'experience_level': experienceLevel,
+          'days_per_week': daysPerWeek,
+          'weight_kg': weightKg,
+          'height_cm': heightCm,
+          'limitations': limitations,
+        });
     return _sessionFromResponse(Map<String, dynamic>.from(result as Map));
   }
 
@@ -1017,6 +1018,25 @@ class ApiAuthRepository implements AuthRepository {
       'password': password,
     });
     return _sessionFromResponse(Map<String, dynamic>.from(result as Map));
+  }
+
+  @override
+  Future<Session> signInWithProvider({
+    required String provider,
+    String? identityToken,
+    String? authorizationCode,
+  }) async {
+    final result = await _request(
+      'POST',
+      '/api/v1/auth/social/${Uri.encodeComponent(provider)}',
+      body: {
+        if (identityToken != null) 'identity_token': identityToken,
+        if (authorizationCode != null) 'authorization_code': authorizationCode,
+      },
+    );
+    final session =
+        await _sessionFromResponse(Map<String, dynamic>.from(result as Map));
+    return session;
   }
 
   @override

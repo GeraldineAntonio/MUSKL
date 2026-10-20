@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:go_router/go_router.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/muskl_button.dart';
@@ -16,8 +18,20 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  static const _googleServerClientId =
+      String.fromEnvironment(
+        'MUSKL_GOOGLE_SERVER_CLIENT_ID',
+        defaultValue:
+            '355323290179-5t96b3a4efp9lqju4dvt4hk3vu11m1m4.apps.googleusercontent.com',
+      );
+  static const _appleServiceId =
+      String.fromEnvironment('MUSKL_APPLE_SERVICE_ID');
+  static const _appleRedirectUri =
+      String.fromEnvironment('MUSKL_APPLE_REDIRECT_URI');
+
   final _id = TextEditingController();
   final _pass = TextEditingController();
+  Future<void>? _googleInitialization;
   bool _loading = false;
   String? _error;
   AuthErrorType? _errorType;
@@ -80,12 +94,81 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _social(String provider) {
-    // Pendiente: tras entrar con Google/Apple hay que pedir los datos
-    // que asigna el gimnasio (membresía, número de socio).
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Acceso con $provider: pendiente de integrar.')),
-    );
+  Future<void> _signInGoogle() async {
+    if (_googleServerClientId.isEmpty) {
+      setState(() => _error =
+          'Falta configurar el acceso de Google para esta versión de MUSKL.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+      _errorType = null;
+    });
+    try {
+      final google = GoogleSignIn.instance;
+      _googleInitialization ??=
+          google.initialize(serverClientId: _googleServerClientId);
+      await _googleInitialization;
+      final account = await google.authenticate();
+      final token = account.authentication.idToken;
+      if (token == null || token.isEmpty) {
+        throw const AuthException(
+            AuthErrorType.server, 'Google no devolvió un token de acceso.');
+      }
+      await authController.signInWithProvider(
+          provider: 'google', identityToken: token);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error is AuthException
+            ? error.message
+            : 'No se pudo iniciar sesión con Google: ${error.toString().replaceFirst('Exception: ', '')}';
+        _errorType = error is AuthException ? error.type : AuthErrorType.server;
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _signInApple() async {
+    if (_appleServiceId.isEmpty || _appleRedirectUri.isEmpty) {
+      setState(() => _error =
+          'Falta configurar el acceso de Apple para esta versión de MUSKL.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+      _errorType = null;
+    });
+    try {
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: const [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+        webAuthenticationOptions: WebAuthenticationOptions(
+          clientId: _appleServiceId,
+          redirectUri: Uri.parse(_appleRedirectUri),
+        ),
+      );
+      await authController.signInWithProvider(
+        provider: 'apple',
+        identityToken: credential.identityToken,
+        authorizationCode: credential.authorizationCode,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error is AuthException
+            ? error.message
+            : 'No se pudo iniciar sesión con Apple: ${error.toString().replaceFirst('Exception: ', '')}';
+        _errorType = error is AuthException ? error.type : AuthErrorType.server;
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -174,7 +257,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 label: 'Google',
                 icon: Icons.g_mobiledata,
                 style: MusklButtonStyle.light,
-                onPressed: () => _social('Google'),
+                loading: _loading,
+                onPressed: _loading ? null : _signInGoogle,
               ),
             ),
             const SizedBox(width: 12),
@@ -183,7 +267,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 label: 'Apple',
                 icon: Icons.apple,
                 style: MusklButtonStyle.secondary,
-                onPressed: () => _social('Apple'),
+                loading: _loading,
+                onPressed: _loading ? null : _signInApple,
               ),
             ),
           ],

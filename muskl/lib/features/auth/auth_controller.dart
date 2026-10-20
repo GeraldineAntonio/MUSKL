@@ -405,6 +405,19 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> signInWithProvider({
+    required String provider,
+    String? identityToken,
+    String? authorizationCode,
+  }) async {
+    _session = await repository.signInWithProvider(
+      provider: provider,
+      identityToken: identityToken,
+      authorizationCode: authorizationCode,
+    );
+    notifyListeners();
+  }
+
   Future<void> signOut() async {
     try {
       await repository.signOut();

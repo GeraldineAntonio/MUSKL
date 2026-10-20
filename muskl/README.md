@@ -12,6 +12,8 @@ flutter pub get
 flutter run -d ID_DEL_DISPOSITIVO --dart-define=MUSKL_API_URL=http://IP_DE_TU_PC:8000
 ```
 
+Para habilitar Google y Apple en Android, consulta la sección **Inicio de sesión con Google y Apple** en `backend/README.md`. El ID OAuth Web de Google ya está configurado en la app y el ejemplo del API; falta crear el cliente OAuth Android con el paquete y la huella SHA-1 de la firma. Apple requiere su configuración de Apple Developer y sus variables de compilación.
+
 En un emulador Android, usa `http://10.0.2.2:8000`; en un teléfono físico usa la IP LAN de la computadora. La dirección predeterminada `127.0.0.1` solo sirve cuando Flutter y el API corren en el mismo dispositivo.
 
 El usuario administrador inicial se crea con el comando interactivo documentado en `backend/README.md`. No hay cuentas de prueba disponibles en la app conectada.
@@ -28,7 +30,7 @@ Para generar un APK instalable de depuración:
 flutter build apk --debug
 ```
 
-El archivo queda en `build/app/outputs/flutter-apk/app-debug.apk`. Los botones de Google y Apple, correo SMTP y push necesitan credenciales/configuración propias; el acceso por correo y contraseña y las notificaciones internas funcionan con el API.
+El archivo queda en `build/app/outputs/flutter-apk/app-debug.apk`. El acceso por correo y contraseña y las notificaciones internas funcionan con el API.
 
 ## Flujos conectados
 
@@ -44,7 +46,7 @@ El archivo queda en `build/app/outputs/flutter-apk/app-debug.apk`. Los botones d
 
 - La recuperación de contraseña envía correo por SMTP. Sin SMTP, en modo desarrollo el código aparece en el log del contenedor API.
 - Las notificaciones se guardan en la base; falta conectar un proveedor de push.
-- Los botones de Google y Apple no autentican todavía.
+- Google y Apple autentican cuentas MUSKL existentes cuyo correo verificado coincide con el proveedor; consulta `backend/README.md` para configurar las credenciales.
 - Las certificaciones se guardan en el volumen local `backend/uploads`; para despliegue se necesita almacenamiento privado y HTTPS.
 
 ## Estructura

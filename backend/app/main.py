@@ -13,6 +13,7 @@ import secrets
 import smtplib
 import urllib.request
 import uuid
+from urllib.parse import urlencode
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, date, datetime, timedelta
 from email.message import EmailMessage
@@ -22,7 +23,9 @@ from typing import Annotated, Literal
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import (BackgroundTasks, Depends, FastAPI, File, Form, HTTPException,
+                     Query, Request, UploadFile)
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import AfterValidator, BaseModel, EmailStr, Field, field_validator
@@ -448,6 +451,11 @@ class PasswordChangeRequest(BaseModel):
 class LoginRequest(BaseModel):
     identifier: str = Field(min_length=1, max_length=200)
     password: str = Field(min_length=1, max_length=128)
+
+
+class SocialLoginRequest(BaseModel):
+    identity_token: str | None = Field(default=None, min_length=20, max_length=10000)
+    authorization_code: str | None = Field(default=None, min_length=10, max_length=4096)
 
 
 class RefreshRequest(BaseModel):
@@ -943,6 +951,162 @@ def login(payload: LoginRequest) -> dict:
         raise _problem(403, 'EMAIL_NOT_VERIFIED',
                        'Verifica tu correo antes de iniciar sesión. Puedes solicitar otro código desde el registro.')
     return response
+
+
+def _google_identity(identity_token: str) -> tuple[str, str, bool]:
+    allowed_audiences = {
+        value.strip()
+        for value in os.getenv(
+            'GOOGLE_OAUTH_CLIENT_IDS',
+            '355323290179-5t96b3a4efp9lqju4dvt4hk3vu11m1m4.apps.googleusercontent.com',
+        ).split(',')
+        if value.strip()
+    }
+    if not allowed_audiences:
+        raise _problem(503, 'GOOGLE_LOGIN_NOT_CONFIGURED',
+                       'El acceso con Google todavía no está configurado en el servicio.')
+    request = urllib.request.Request(
+        'https://oauth2.googleapis.com/tokeninfo?' + urlencode({'id_token': identity_token}),
+        headers={'Accept': 'application/json'},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            claims = json.loads(response.read())
+    except Exception:
+        raise _problem(401, 'INVALID_SOCIAL_TOKEN',
+                       'Google no pudo verificar esta sesión. Intenta de nuevo.')
+    audience = claims.get('aud')
+    issuer = claims.get('iss')
+    if (audience not in allowed_audiences
+            or issuer not in ('accounts.google.com', 'https://accounts.google.com')
+            or int(claims.get('exp', 0)) <= int(datetime.now(UTC).timestamp())
+            or claims.get('email_verified') not in (True, 'true')):
+        raise _problem(401, 'INVALID_SOCIAL_TOKEN',
+                       'La identidad de Google no es válida para MUSKL.')
+    subject = str(claims.get('sub') or '')
+    email = str(claims.get('email') or '').strip().lower()
+    if not subject or not email:
+        raise _problem(401, 'INVALID_SOCIAL_TOKEN',
+                       'Google no entregó un correo verificado.')
+    return subject, email, True
+
+
+def _apple_identity(authorization_code: str) -> tuple[str, str | None, bool]:
+    team_id = os.getenv('APPLE_TEAM_ID', '').strip()
+    key_id = os.getenv('APPLE_KEY_ID', '').strip()
+    service_id = os.getenv('APPLE_SERVICE_ID', '').strip()
+    redirect_uri = os.getenv('APPLE_REDIRECT_URI', '').strip()
+    private_key = os.getenv('APPLE_PRIVATE_KEY', '').replace('\\n', '\n').strip()
+    if not all((team_id, key_id, service_id, redirect_uri, private_key)):
+        raise _problem(503, 'APPLE_LOGIN_NOT_CONFIGURED',
+                       'El acceso con Apple todavía no está configurado en el servicio.')
+    now = datetime.now(UTC)
+    client_secret = jwt.encode(
+        {'iss': team_id, 'iat': now, 'exp': now + timedelta(minutes=5),
+         'aud': 'https://appleid.apple.com', 'sub': service_id},
+        private_key, algorithm='ES256', headers={'kid': key_id})
+    body = urlencode({
+        'client_id': service_id,
+        'client_secret': client_secret,
+        'code': authorization_code,
+        'grant_type': 'authorization_code',
+        'redirect_uri': redirect_uri,
+    }).encode()
+    request = urllib.request.Request(
+        'https://appleid.apple.com/auth/token', data=body,
+        headers={'Content-Type': 'application/x-www-form-urlencoded',
+                 'Accept': 'application/json'}, method='POST')
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            token_response = json.loads(response.read())
+        identity_token = token_response['id_token']
+        signing_key = jwt.PyJWKClient('https://appleid.apple.com/auth/keys').get_signing_key_from_jwt(
+            identity_token).key
+        claims = jwt.decode(
+            identity_token, signing_key, algorithms=['RS256'],
+            audience=service_id, issuer='https://appleid.apple.com',
+            options={'require': ['exp', 'iat', 'sub', 'iss', 'aud']})
+    except Exception:
+        log.info('Apple authorization code could not be verified')
+        raise _problem(401, 'INVALID_SOCIAL_TOKEN',
+                       'Apple no pudo verificar esta sesión. Intenta de nuevo.')
+    subject = str(claims.get('sub') or '')
+    email = str(claims['email']).strip().lower() if claims.get('email') else None
+    email_verified = claims.get('email_verified') in (True, 'true')
+    if not subject:
+        raise _problem(401, 'INVALID_SOCIAL_TOKEN',
+                       'Apple no entregó una identidad válida.')
+    return subject, email, email_verified
+
+
+def _social_session(provider: str, subject: str, email: str | None,
+                    email_verified: bool) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            identity = cur.execute(
+                'SELECT user_id FROM social_identities WHERE provider = %s AND subject = %s FOR UPDATE',
+                (provider, subject)).fetchone()
+            if identity:
+                user = cur.execute("""SELECT u.*, concat_ws(' ', a.first_name, a.last_name) AS deactivated_by_name
+                    FROM users u LEFT JOIN users a ON a.id = u.deactivated_by
+                    WHERE u.id = %s AND u.gym_id = %s FOR UPDATE OF u""",
+                    (identity['user_id'], GYM_ID)).fetchone()
+            elif email and email_verified:
+                user = cur.execute("""SELECT u.*, concat_ws(' ', a.first_name, a.last_name) AS deactivated_by_name
+                    FROM users u LEFT JOIN users a ON a.id = u.deactivated_by
+                    WHERE u.gym_id = %s AND lower(u.email) = %s AND u.email_verified = true
+                    FOR UPDATE OF u""", (GYM_ID, email)).fetchone()
+                if user is not None:
+                    cur.execute("""INSERT INTO social_identities (provider, subject, user_id)
+                        VALUES (%s, %s, %s) ON CONFLICT (provider, subject) DO NOTHING""",
+                        (provider, subject, user['id']))
+                    linked = cur.execute(
+                        'SELECT user_id FROM social_identities WHERE provider = %s AND subject = %s',
+                        (provider, subject)).fetchone()
+                    if linked is None or linked['user_id'] != user['id']:
+                        raise _problem(409, 'SOCIAL_IDENTITY_LINKED',
+                                       'Esta cuenta de proveedor ya está vinculada a otro perfil MUSKL.')
+            else:
+                user = None
+            if user is None:
+                raise _problem(404, 'SOCIAL_ACCOUNT_NOT_FOUND',
+                               'No encontramos una cuenta MUSKL con este correo. Regístrate primero y vuelve a intentarlo.')
+            if user['status'] == 'deactivated':
+                raise _problem(403, 'ACCOUNT_DEACTIVATED',
+                               'Esta cuenta está desactivada. Contacta al gimnasio para reactivarla.')
+            if not user.get('email_verified', True):
+                raise _problem(403, 'EMAIL_NOT_VERIFIED',
+                               'Verifica el correo de tu cuenta MUSKL antes de continuar.')
+            return _session_response(cur, user)
+
+
+@app.post('/api/v1/auth/social/{provider}')
+def social_login(provider: Literal['google', 'apple'], payload: SocialLoginRequest) -> dict:
+    if provider == 'google':
+        if not payload.identity_token:
+            raise _problem(422, 'SOCIAL_TOKEN_REQUIRED',
+                           'No recibimos el token de Google.')
+        subject, email, email_verified = _google_identity(payload.identity_token)
+    else:
+        if not payload.authorization_code:
+            raise _problem(422, 'SOCIAL_TOKEN_REQUIRED',
+                           'No recibimos el código de Apple.')
+        subject, email, email_verified = _apple_identity(payload.authorization_code)
+    return _social_session(provider, subject, email, email_verified)
+
+
+@app.post('/api/v1/auth/apple/callback')
+async def apple_android_callback(request: Request) -> RedirectResponse:
+    form = await request.form()
+    params = {key: str(form.get(key, '')) for key in
+              ('code', 'state', 'id_token', 'error', 'error_description')
+              if form.get(key) is not None}
+    if not params or not (params.get('code') or params.get('error')):
+        raise _problem(400, 'APPLE_CALLBACK_INVALID',
+                       'Apple no devolvió los datos esperados.')
+    target = ('intent://callback?' + urlencode(params)
+              + '#Intent;package=mx.muskl.muskl;scheme=signinwithapple;end')
+    return RedirectResponse(target, status_code=303)
 
 
 @app.post('/api/v1/auth/member-lookup')

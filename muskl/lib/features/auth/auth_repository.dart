@@ -189,6 +189,11 @@ abstract class AuthRepository {
       {required String requestId, required bool approved, String? note});
   Future<Session> signIn(
       {required String identifier, required String password});
+  Future<Session> signInWithProvider({
+    required String provider,
+    String? identityToken,
+    String? authorizationCode,
+  });
   Future<void> sendResetCode(String email);
   Future<void> resendRegistrationEmailCode(String email);
   Future<Session> verifyRegistrationEmail({
@@ -1128,6 +1133,15 @@ class FakeAuthRepository implements AuthRepository {
       memberNumber: 'MSK-0142',
     );
   }
+
+  @override
+  Future<Session> signInWithProvider({
+    required String provider,
+    String? identityToken,
+    String? authorizationCode,
+  }) async =>
+      throw const AuthException(AuthErrorType.server,
+          'El acceso social solo está disponible con el servicio MUSKL conectado.');
 
   @override
   Future<void> sendResetCode(String email) async {

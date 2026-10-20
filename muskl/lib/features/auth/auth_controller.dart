@@ -334,8 +334,10 @@ class AuthController extends ChangeNotifier {
   Future<void> markTrainerNotificationRead({required String notificationId}) =>
       repository.markTrainerNotificationRead(notificationId: notificationId);
 
-  Future<Map<String, dynamic>> completeClientWorkout({int? durationSeconds}) =>
-      repository.completeClientWorkout(durationSeconds: durationSeconds);
+  Future<Map<String, dynamic>> completeClientWorkout(
+          {int? durationSeconds, int? dayNumber}) =>
+      repository.completeClientWorkout(
+          durationSeconds: durationSeconds, dayNumber: dayNumber);
 
   Future<void> requestAccountDeletion() => repository.requestAccountDeletion();
 

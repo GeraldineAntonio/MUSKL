@@ -1721,7 +1721,8 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
             ],
           ]),
         1 => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            const Text('Elige un entrenador ahora o solicítalo después desde tu panel.'),
+            const Text(
+                'Elige un entrenador ahora o continúa sin uno. Al finalizar tu perfil, le enviaremos la solicitud y podrá aceptarte o rechazarla.'),
             const SizedBox(height: 14),
             if (_trainers.isEmpty)
               const MusklCard(
@@ -1861,6 +1862,44 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                         },
                       ))
                   .toList(),
+            ),
+            const SizedBox(height: 20),
+            const Text('Entrenador'),
+            const SizedBox(height: 4),
+            const Text(
+              'Si eliges uno, recibirá tu solicitud y deberá aceptarla para asignarte una rutina.',
+              style: TextStyle(color: AppColors.textMuted),
+            ),
+            const SizedBox(height: 8),
+            if (_trainers.isEmpty)
+              const MusklCard(
+                child: Text(
+                    'No hay entrenadores activos disponibles. Puedes solicitar uno después desde tu panel.'),
+              ),
+            for (final trainer in _trainers)
+              _option(
+                '${trainer['first_name']} ${trainer['last_name']}',
+                subtitle: trainer['specialty']?.toString(),
+                selected: _trainerId == trainer['id'].toString(),
+                onTap: () {
+                  setState(() {
+                    _trainerId = trainer['id'].toString();
+                    _error = null;
+                  });
+                  _saveDraft();
+                },
+              ),
+            _option(
+              'Elegir después',
+              subtitle: 'Puedes solicitar un entrenador desde tu panel.',
+              selected: _trainerId == null,
+              onTap: () {
+                setState(() {
+                  _trainerId = null;
+                  _error = null;
+                });
+                _saveDraft();
+              },
             ),
             const SizedBox(height: 20),
             const Text('Datos físicos'),
@@ -2008,10 +2047,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                                     ? 'Agregar integrantes'
                                     : 'Continuar',
                     loading: _saving,
-                    onPressed:
-                        _plans.isEmpty || (_step == 1 && _trainers.isEmpty)
-                            ? null
-                            : _continue),
+                    onPressed: _plans.isEmpty ? null : _continue),
               ]),
       );
 }

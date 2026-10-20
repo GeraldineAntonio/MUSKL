@@ -120,6 +120,10 @@ GoRouter buildRouter(AuthController auth) {
           path: '/home/password',
           builder: (_, __) => const ChangePasswordScreen()),
       GoRoute(
+          path: '/home/email',
+          builder: (_, state) => ChangeEmailScreen(
+              currentEmail: state.uri.queryParameters['email'] ?? '')),
+      GoRoute(
           path: '/home/trainers',
           builder: (_, __) => const ClientTrainerSelectionScreen()),
       GoRoute(
@@ -195,6 +199,10 @@ GoRouter buildRouter(AuthController auth) {
           path: '/trainer/password',
           builder: (_, __) => const ChangePasswordScreen()),
       GoRoute(
+          path: '/trainer/email',
+          builder: (_, state) => ChangeEmailScreen(
+              currentEmail: state.uri.queryParameters['email'] ?? '')),
+      GoRoute(
           path: '/trainer/phases',
           builder: (_, state) => TrainerPhasesScreen(
               routineId: state.uri.queryParameters['id'] ?? '')),
@@ -202,6 +210,10 @@ GoRouter buildRouter(AuthController auth) {
       GoRoute(
           path: '/admin/password',
           builder: (_, __) => const ChangePasswordScreen()),
+      GoRoute(
+          path: '/admin/email',
+          builder: (_, state) => ChangeEmailScreen(
+              currentEmail: state.uri.queryParameters['email'] ?? '')),
       GoRoute(
           path: '/admin/users', builder: (_, __) => const AdminUsersScreen()),
       GoRoute(

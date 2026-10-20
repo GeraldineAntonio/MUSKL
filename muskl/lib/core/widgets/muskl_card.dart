@@ -22,7 +22,6 @@ class MusklCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: selected ? AppColors.red : AppColors.surface,
-      borderRadius: BorderRadius.circular(AppTheme.radius + 4),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppTheme.radius + 4),
         side: BorderSide(

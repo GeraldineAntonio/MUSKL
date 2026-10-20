@@ -883,8 +883,11 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
     try {
       final durationSeconds =
           _workoutClock.elapsed.inSeconds.clamp(1, 86400).toInt();
+      final dayNumber = int.tryParse(
+              (data['scheduled_day_number'] ?? _day).toString()) ??
+          _day;
       final completion = await authController.completeClientWorkout(
-          durationSeconds: durationSeconds);
+          durationSeconds: durationSeconds, dayNumber: dayNumber);
       _workoutFinished = true;
       _workoutClock.stop();
       await _stopEncouragementAudio();
@@ -1056,7 +1059,9 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                     final exercise = entry.value;
                     final exerciseId = exercise['id'].toString();
                     final isCompleted = completedIds.contains(exerciseId);
-                    final canCompleteExercise =
+                    final canCompleteToday =
+                        data['can_complete_today'] == true;
+                    final canCompleteExercise = canCompleteToday &&
                         data['completed_today'] != true;
                     return _record(
                       exercise['name'].toString(),
@@ -1067,6 +1072,25 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                           ? Icons.check_circle
                           : Icons.fitness_center,
                       onTap: () async {
+                        if (!canCompleteToday &&
+                            data['completed_today'] != true) {
+                          final routineDay = int.tryParse(
+                                  (exercise['day_number'] ??
+                                          data['scheduled_day_number'] ??
+                                          _day)
+                                      .toString()) ??
+                              _day;
+                          final dayLabel = routineDay >= 1 && routineDay <= 7
+                              ? _weekDays[routineDay - 1]
+                              : 'el día programado';
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                  'No puedes acceder todavía. Tu rutina toca el $dayLabel.'),
+                            ),
+                          );
+                          return;
+                        }
                         final finished = await context.push<bool>(
                             Uri(path: '/home/exercise', queryParameters: {
                           'id': exerciseId,
@@ -1108,7 +1132,8 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                       loading: _saving,
                       onPressed: exercises.isEmpty ||
                               data['completed_today'] == true ||
-                              data['scheduled_for_date'] == null
+                              (data['scheduled_for_date'] == null &&
+                                  completedCount == 0)
                           ? null
                           : _complete),
                 ]);
@@ -1151,10 +1176,7 @@ class ExerciseDetailScreen extends StatefulWidget {
 class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
   bool _saving = false;
   bool _exerciseFinished = false;
-  bool _setFeedbackVisible = false;
-  String _setFeedback = '';
   final AudioPlayer _completionPlayer = AudioPlayer();
-  final FlutterTts _speech = FlutterTts();
   late int _setsCompleted = widget.setsCompleted;
 
   @override
@@ -1162,22 +1184,15 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
     super.initState();
     _exerciseFinished = _setsCompleted >= (int.tryParse(widget.sets) ?? 1);
     _completionPlayer.setReleaseMode(ReleaseMode.stop);
-    _speech.setLanguage('es-MX');
-    _speech.setSpeechRate(0.48);
   }
 
-  Future<void> _celebrate(String message, {bool applause = false}) async {
-    HapticFeedback.mediumImpact();
+  Future<void> _playSetApplause() async {
     try {
-      if (applause) {
-        await _completionPlayer.play(AssetSource('audio/applause.wav'),
-            volume: 0.65);
-      } else {
-        await SystemSound.play(SystemSoundType.click);
-      }
-      await _speech.speak(message);
+      await _completionPlayer.stop();
+      await _completionPlayer.play(AssetSource('audio/applause.wav'),
+          volume: 0.65);
     } catch (_) {
-      // Animation and on-screen feedback remain available without audio.
+      // Set progress remains available if audio cannot be played.
     }
   }
 
@@ -1194,21 +1209,15 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
       setState(() {
         _setsCompleted = savedSets;
         _exerciseFinished = savedSets >= totalSets;
-        _setFeedback = _exerciseFinished
-            ? '¡Ejercicio completado! Excelente trabajo.'
-            : '¡Bien hecho! Te ${totalSets - savedSets == 1 ? 'queda' : 'quedan'} ${totalSets - savedSets} ${totalSets - savedSets == 1 ? 'serie' : 'series'}. ¡Sigue así!';
-        _setFeedbackVisible = true;
       });
-      await _celebrate(_setFeedback, applause: _exerciseFinished);
-      if (!_exerciseFinished) {
-        Future<void>.delayed(const Duration(seconds: 3), () {
-          if (mounted) setState(() => _setFeedbackVisible = false);
-        });
-      }
+      await _playSetApplause();
     } catch (error) {
       if (mounted) {
+        final message = error is AuthException
+            ? error.message
+            : error.toString().replaceFirst('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('No se pudo finalizar el ejercicio: $error'),
+          content: Text('No se pudo finalizar el ejercicio: $message'),
         ));
       }
     } finally {
@@ -1219,7 +1228,6 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
   @override
   void dispose() {
     _completionPlayer.dispose();
-    _speech.stop();
     super.dispose();
   }
 
@@ -1285,31 +1293,6 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
                         label: Text('Serie ${i + 1}')),
                 ]),
               ],
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 400),
-                transitionBuilder: (child, animation) => FadeTransition(
-                  opacity: animation,
-                  child: ScaleTransition(scale: animation, child: child),
-                ),
-                child: _setFeedbackVisible
-                    ? Padding(
-                        key: ValueKey(_setFeedback),
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: MusklCard(
-                          selected: true,
-                          child: Row(children: [
-                            const Icon(Icons.celebration,
-                                color: AppColors.accent, size: 30),
-                            const SizedBox(width: 10),
-                            Expanded(
-                                child: Text(_setFeedback,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w800))),
-                          ]),
-                        ),
-                      )
-                    : const SizedBox.shrink(key: ValueKey('no-set-feedback')),
-              ),
               if (widget.canMarkComplete &&
                   _setsCompleted < (int.tryParse(widget.sets) ?? 1))
                 MusklButton(
@@ -1736,25 +1719,33 @@ class _ClientProfileWorkspaceScreenState
   }
 
   Future<void> _editContact(String field, String current) async {
-    final label = switch (field) {
-      'email' => 'Correo electrónico',
-      'bio' => 'Biografía',
-      _ => 'Teléfono',
-    };
-    final values = await _editFields(
-        context, 'EDITAR $label', [label], [current],
-        multiline: field == 'bio' ? const {0} : const {});
-    if (!mounted || values == null) return;
     if (field == 'email') {
-      final email = values.first.trim();
-      if (email.toLowerCase() != current.toLowerCase() &&
-          !await _verifyEmailChange(context, email)) return;
-      await _saveClientProfile(email: email);
-    } else if (field == 'bio') {
-      await _saveClientProfile(bio: values.first.trim());
-    } else {
-      await _saveClientProfile(phone: values.first.trim());
+      final changed = await context.push<bool>(Uri(
+        path: '/home/email',
+        queryParameters: {'email': current},
+      ).toString());
+      if (changed == true && mounted) {
+        setState(() => _profile = authController.clientDashboard());
+      }
+      return;
     }
+    const label = 'Teléfono';
+    final values = await _editFields(
+        context, 'EDITAR $label', [label], [current]);
+    if (!mounted || values == null) return;
+    await _saveClientProfile(phone: values.first.trim());
+  }
+
+  Future<void> _editBio(String current) async {
+    final values = await _editFields(
+      context,
+      'MI BIOGRAFÍA',
+      ['Cuéntanos sobre ti'],
+      [current],
+      multiline: const {0},
+    );
+    if (!mounted || values == null) return;
+    await _saveClientProfile(bio: values.first);
   }
 
   Future<void> _pickProfilePhoto() async {
@@ -1765,7 +1756,7 @@ class _ClientProfileWorkspaceScreenState
           photoData: base64Encode(selected.bytes),
           photoMime: selected.mimeType);
     } catch (e) {
-      _showProfileMessage(e.toString().replaceFirst('FormatException: ', ''));
+      _showProfileMessage(_readableProfileError(e));
     }
   }
 
@@ -1794,7 +1785,8 @@ class _ClientProfileWorkspaceScreenState
         _showProfileMessage('Perfil actualizado.');
       }
     } catch (error) {
-      _showProfileMessage('No se pudo actualizar el perfil: $error');
+      _showProfileMessage(
+          'No se pudo actualizar el perfil: ${_readableProfileError(error)}');
     } finally {
       if (mounted) setState(() => _savingProfile = false);
     }
@@ -1806,6 +1798,10 @@ class _ClientProfileWorkspaceScreenState
           .showSnackBar(SnackBar(content: Text(message)));
     }
   }
+
+  String _readableProfileError(Object error) => error is AuthException
+      ? error.message
+      : error.toString().replaceFirst('Exception: ', '');
 
   Future<void> _chooseTrainer() async {
     await context.push('/home/trainers');
@@ -1892,10 +1888,15 @@ class _ClientProfileWorkspaceScreenState
               photo is String && photo.isNotEmpty ? base64Decode(photo) : null;
           final photoUrl = data['profile_photo_url']?.toString();
           final openingHours = data['gym_opening_hours'];
-          final openingHoursText = openingHours is Map
-              ? (openingHours['display']?.toString() ??
-                  _formatGymHours(Map<String, dynamic>.from(openingHours)))
-              : '';
+          final gymAddress = (data['gym_address'] ?? '').toString().trim();
+          final gymPhone = (data['gym_phone'] ?? '').toString().trim();
+          final gymHours = openingHours is Map
+              ? _readGymHours(Map<String, dynamic>.from(openingHours))
+              : <String, String>{};
+          final hasGymHours = openingHours is Map &&
+              (openingHours['display']?.toString().trim().isNotEmpty == true ||
+                  _weekDays.any((day) =>
+                      openingHours[day]?.toString().trim().isNotEmpty == true));
           return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -1932,12 +1933,37 @@ class _ClientProfileWorkspaceScreenState
                             style: const TextStyle(color: AppColors.textMuted)),
                         Text('Objetivo · ${data['goal'] ?? 'Pendiente'}',
                             style: const TextStyle(color: AppColors.textMuted)),
-                        if ((data['bio'] ?? '').toString().trim().isNotEmpty)
-                          Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(data['bio'].toString())),
                       ])),
                 ])),
+            _section('Mi biografía'),
+            MusklCard(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.notes_outlined, color: AppColors.accent),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      (data['bio'] ?? '').toString().trim().isEmpty
+                          ? 'Agrega una descripción para que tu entrenador te conozca mejor.'
+                          : data['bio'].toString(),
+                      style: TextStyle(
+                        color: (data['bio'] ?? '').toString().trim().isEmpty
+                            ? AppColors.textMuted
+                            : AppColors.white,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Editar biografía',
+                    onPressed: _savingProfile
+                        ? null
+                        : () => _editBio((data['bio'] ?? '').toString()),
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
+                ],
+              ),
+            ),
             _section('Contacto y detalles'),
             _record('Correo', (data['email'] ?? '').toString(),
                 icon: Icons.mail_outline,
@@ -1958,34 +1984,138 @@ class _ClientProfileWorkspaceScreenState
                 icon: Icons.person_outline,
                 editable: true,
                 onTap: () => _editTrainer(data)),
-            _record('Biografía',
-                (data['bio'] ?? 'Agrega una descripción').toString(),
-                icon: Icons.notes_outlined,
-                editable: true,
-                onTap: _savingProfile
-                    ? null
-                    : () =>
-                        _editContact('bio', (data['bio'] ?? '').toString())),
             if ((data['gym_name'] ?? '').toString().isNotEmpty ||
-                (data['gym_address'] ?? '').toString().isNotEmpty ||
-                (data['gym_phone'] ?? '').toString().isNotEmpty ||
-                openingHoursText.isNotEmpty) ...[
+                gymAddress.isNotEmpty ||
+                gymPhone.isNotEmpty ||
+                hasGymHours) ...[
               _section('Gimnasio'),
               MusklCard(
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                    Text((data['gym_name'] ?? 'Gimnasio').toString(),
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                    if ((data['gym_address'] ?? '').toString().isNotEmpty)
-                      Text(data['gym_address'].toString()),
-                    if ((data['gym_phone'] ?? '').toString().isNotEmpty)
-                      Text('Tel. ${data['gym_phone']}'),
-                    if (openingHoursText.isNotEmpty)
-                      Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(openingHoursText)),
+                  padding: const EdgeInsets.all(18),
+                  child: Row(children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: AppColors.red.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(Icons.fitness_center,
+                          color: AppColors.red),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('TU GIMNASIO',
+                              style: TextStyle(
+                                  color: AppColors.textMuted,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.1)),
+                          const SizedBox(height: 3),
+                          Text(
+                            (data['gym_name'] ?? 'Gimnasio').toString(),
+                            style: const TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.w800),
+                          ),
+                        ],
+                      ),
+                    ),
                   ])),
+              if (gymAddress.isNotEmpty || gymPhone.isNotEmpty) ...[
+                const SizedBox(height: 9),
+                MusklCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        const Icon(Icons.location_on_outlined,
+                            color: AppColors.accent, size: 20),
+                        const SizedBox(width: 8),
+                        Text('DIRECCIÓN',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(
+                                    color: AppColors.textMuted,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1)),
+                      ]),
+                      if (gymAddress.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(gymAddress,
+                            style: const TextStyle(
+                                fontSize: 15, height: 1.35)),
+                      ],
+                      if (gymPhone.isNotEmpty) ...[
+                        if (gymAddress.isNotEmpty)
+                          const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Divider(height: 1)),
+                        Row(children: [
+                          const Icon(Icons.phone_outlined,
+                              color: AppColors.textMuted, size: 18),
+                          const SizedBox(width: 8),
+                          Text('Tel. $gymPhone',
+                              style: const TextStyle(
+                                  color: AppColors.textMuted)),
+                        ]),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+              if (hasGymHours) ...[
+                const SizedBox(height: 9),
+                MusklCard(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        const Icon(Icons.schedule_outlined,
+                            color: AppColors.accent, size: 20),
+                        const SizedBox(width: 8),
+                        Text('HORARIOS',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(
+                                    color: AppColors.textMuted,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1)),
+                      ]),
+                      const SizedBox(height: 10),
+                      for (var i = 0; i < _weekDays.length; i++) ...[
+                        if (i > 0) const Divider(height: 1),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          child: Row(children: [
+                            Expanded(
+                              child: Text(_weekDays[i],
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                            Text(
+                              gymHours[_weekDays[i]] ?? 'Cerrado',
+                              style: TextStyle(
+                                color: (gymHours[_weekDays[i]] ?? 'Cerrado')
+                                            .toLowerCase() ==
+                                        'cerrado'
+                                    ? AppColors.textMuted
+                                    : AppColors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ]),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
             ],
             if ((data['trainer_name'] ?? '').toString().isEmpty)
               _setting(
@@ -3168,18 +3298,20 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
 
   Future<void> _editTrainerContact(String field) async {
     final emailField = field == 'email';
-    final label = emailField ? 'Correo electrónico' : 'Teléfono';
+    if (emailField) {
+      final changed = await context.push<bool>(Uri(
+        path: '/trainer/email',
+        queryParameters: {'email': _value('email')},
+      ).toString());
+      if (changed == true && mounted) await _load();
+      return;
+    }
+    const label = 'Teléfono';
     final oldValue = _value(field);
     final result =
         await _editFields(context, 'EDITAR $label', [label], [oldValue]);
     if (result == null) return;
-    if (emailField) {
-      if (result[0].toLowerCase() == oldValue.toLowerCase()) return;
-      if (!await _verifyEmailChange(context, result[0])) return;
-      await _save(email: result[0]);
-    } else {
-      await _save(phone: result[0]);
-    }
+    await _save(phone: result[0]);
   }
 
   Future<void> _editSpecialties() async {
@@ -3429,66 +3561,6 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
             ]));
 }
 
-Future<bool> _verifyEmailChange(BuildContext context, String newEmail) async {
-  final codeController = TextEditingController();
-  final passwordController = TextEditingController();
-  try {
-    await authController.requestEmailChangeCode(newEmail: newEmail.trim());
-    if (!context.mounted) return false;
-    final credentials = await showDialog<List<String>>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Verifica tu nuevo correo'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('Escribimos un código de 6 dígitos a $newEmail.'),
-          const SizedBox(height: 14),
-          TextField(
-            controller: codeController,
-            keyboardType: TextInputType.number,
-            maxLength: 6,
-            decoration: const InputDecoration(labelText: 'Código'),
-          ),
-          TextField(
-            controller: passwordController,
-            obscureText: true,
-            decoration: const InputDecoration(labelText: 'Contraseña actual'),
-          ),
-        ]),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancelar')),
-          FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, [
-                    codeController.text.trim(),
-                    passwordController.text,
-                  ]),
-              child: const Text('Verificar y cambiar')),
-        ],
-      ),
-    );
-    if (credentials == null || !context.mounted) return false;
-    await authController.confirmEmailChange(
-      currentPassword: credentials[1],
-      code: credentials[0],
-    );
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Correo verificado y actualizado.')));
-    }
-    return true;
-  } catch (error) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo cambiar el correo: $error')));
-    }
-    return false;
-  } finally {
-    codeController.dispose();
-    passwordController.dispose();
-  }
-}
-
 Future<Map<String, dynamic>?> _routineExerciseValues(BuildContext context) {
   var sets = 4;
   var rest = const Duration(minutes: 1);
@@ -3726,6 +3798,243 @@ Widget _setting(String title, String subtitle, IconData icon,
             title: Text(title),
             subtitle: Text(subtitle),
             trailing: const Icon(Icons.chevron_right)));
+
+class ChangeEmailScreen extends StatefulWidget {
+  const ChangeEmailScreen({super.key, required this.currentEmail});
+
+  final String currentEmail;
+
+  @override
+  State<ChangeEmailScreen> createState() => _ChangeEmailScreenState();
+}
+
+class _ChangeEmailScreenState extends State<ChangeEmailScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+  final _newEmail = TextEditingController();
+  final _code = TextEditingController();
+  final _currentPassword = TextEditingController();
+  int _furthestStep = 0;
+  bool _loading = false;
+  String? _error;
+  String? _deliveryMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(length: 3, vsync: this)
+      ..addListener(() {
+        if (_tabs.index > _furthestStep) _tabs.index = _furthestStep;
+        if (mounted) setState(() {});
+      });
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    _newEmail.dispose();
+    _code.dispose();
+    _currentPassword.dispose();
+    super.dispose();
+  }
+
+  String _readableError(Object error) => error is AuthException
+      ? error.message
+      : error.toString().replaceFirst('Exception: ', '');
+
+  Future<void> _continue() async {
+    setState(() => _error = null);
+    if (_tabs.index == 0) {
+      final email = _newEmail.text.trim();
+      if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+        setState(() => _error = 'Escribe un correo electrónico válido.');
+        return;
+      }
+      if (email.toLowerCase() == widget.currentEmail.toLowerCase()) {
+        setState(() => _error = 'Ese ya es el correo de tu cuenta.');
+        return;
+      }
+      setState(() => _loading = true);
+      try {
+        await authController.requestEmailChangeCode(newEmail: email);
+        if (!mounted) return;
+        setState(() {
+          _deliveryMessage = 'Enviamos un código de 6 dígitos a $email.';
+          _furthestStep = 1;
+          _tabs.animateTo(1);
+        });
+      } catch (error) {
+        if (mounted) setState(() => _error = _readableError(error));
+      } finally {
+        if (mounted) setState(() => _loading = false);
+      }
+      return;
+    }
+
+    if (_tabs.index == 1) {
+      if (!RegExp(r'^\d{6}$').hasMatch(_code.text.trim())) {
+        setState(() => _error = 'Escribe el código de seguridad de 6 dígitos.');
+        return;
+      }
+      setState(() {
+        _furthestStep = 2;
+        _tabs.animateTo(2);
+      });
+      return;
+    }
+
+    if (_currentPassword.text.isEmpty) {
+      setState(() => _error = 'Escribe tu contraseña actual.');
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      await authController.confirmEmailChange(
+        currentPassword: _currentPassword.text,
+        code: _code.text.trim(),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Correo verificado y actualizado.')));
+      context.pop(true);
+    } catch (error) {
+      if (mounted) setState(() => _error = _readableError(error));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Widget _emailStep() => SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Elige tu nuevo correo',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text('Correo actual: ${widget.currentEmail}'),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _newEmail,
+              keyboardType: TextInputType.emailAddress,
+              autocorrect: false,
+              decoration: const InputDecoration(
+                labelText: 'Nuevo correo electrónico',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Widget _codeStep() => SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Verifica tu nuevo correo',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(_deliveryMessage ?? 'Escribe el código que enviamos.'),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _code,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              decoration: const InputDecoration(
+                labelText: 'Código de 6 dígitos',
+                border: OutlineInputBorder(),
+                counterText: '',
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Widget _passwordStep() => SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Confirma tu identidad',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            const Text(
+                'Para proteger tu cuenta, confirma el cambio con tu contraseña actual.'),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _currentPassword,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Contraseña actual',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final step = _tabs.index;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Cambiar correo'),
+        bottom: TabBar(
+          controller: _tabs,
+          onTap: (index) {
+            if (index > _furthestStep) _tabs.animateTo(_furthestStep);
+          },
+          tabs: const [
+            Tab(text: 'Nuevo', icon: Icon(Icons.mail_outline)),
+            Tab(text: 'Código', icon: Icon(Icons.verified_user_outlined)),
+            Tab(text: 'Confirmar', icon: Icon(Icons.lock_outline)),
+          ],
+        ),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('PASO ${step + 1} DE 3',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            color: AppColors.red,
+                            fontWeight: FontWeight.bold,
+                          )),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabs,
+                      physics: const NeverScrollableScrollPhysics(),
+                      children: [_emailStep(), _codeStep(), _passwordStep()],
+                    ),
+                  ),
+                  if (_error != null) ...[
+                    Text(_error!, style: const TextStyle(color: AppColors.red)),
+                    const SizedBox(height: 12),
+                  ],
+                  MusklButton(
+                    label: _loading
+                        ? 'Procesando...'
+                        : step == 0
+                            ? 'Enviar código'
+                            : step == 1
+                                ? 'Continuar'
+                                : 'Verificar y cambiar correo',
+                    loading: _loading,
+                    onPressed: _loading ? null : _continue,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -4611,33 +4920,26 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     final values = await _editFields(context, 'DATOS PERSONALES', [
       'Nombre',
       'Apellidos',
-      'Correo electrónico',
       'Teléfono',
       'Biografía'
     ], [
       (_ownProfile['first_name'] ?? '').toString(),
       (_ownProfile['last_name'] ?? '').toString(),
-      (_ownProfile['email'] ?? '').toString(),
       (_ownProfile['phone'] ?? '').toString(),
       (_ownProfile['bio'] ?? '').toString(),
     ], multiline: const {
-      4
+      3
     });
     if (!mounted || values == null) return;
-    final nextEmail = values[2].trim();
-    final currentEmail = (_ownProfile['email'] ?? '').toString();
-    if (nextEmail.toLowerCase() != currentEmail.toLowerCase() &&
-        !await _verifyEmailChange(context, nextEmail)) return;
     try {
       final profile = await authController.updateOwnProfile(
           firstName: values[0],
           lastName: values[1],
-          phone: values[3],
-          bio: values[4]);
+          phone: values[2],
+          bio: values[3]);
       if (mounted) {
         setState(() => _ownProfile = {
               ...profile,
-              'email': nextEmail,
               'profile_photo_url': _ownProfile['profile_photo_url']
             });
         _showLocalMessage('Perfil actualizado.');
@@ -4645,6 +4947,14 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     } catch (e) {
       _showLocalMessage('No se pudo actualizar el perfil: $e');
     }
+  }
+
+  Future<void> _changeAdminEmail() async {
+    final changed = await context.push<bool>(Uri(
+      path: '/admin/email',
+      queryParameters: {'email': (_ownProfile['email'] ?? '').toString()},
+    ).toString());
+    if (changed == true && mounted) await _loadOwnProfile();
   }
 
   Future<void> _loadAdminPreferences() async {
@@ -5029,6 +5339,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               onPressed: _editAdminProfile,
               icon: const Icon(Icons.edit_outlined)),
         ])),
+        _setting(
+            'Correo electrónico',
+            (_ownProfile['email'] ?? '').toString(),
+            Icons.mail_outline,
+            onTap: _changeAdminEmail),
         _SwitchSetting(
             label: 'Notificaciones de nuevas solicitudes',
             value: _newRequestNotifications,

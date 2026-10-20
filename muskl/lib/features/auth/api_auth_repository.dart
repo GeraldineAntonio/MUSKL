@@ -1206,9 +1206,13 @@ class ApiAuthRepository implements AuthRepository {
 
   @override
   Future<Map<String, dynamic>> completeClientWorkout(
-      {int? durationSeconds}) async {
+      {int? durationSeconds, int? dayNumber}) async {
     final result = await _request('POST', '/api/v1/client/routine/complete',
-        authenticated: true, body: {'duration_seconds': durationSeconds});
+        authenticated: true,
+        body: {
+          'duration_seconds': durationSeconds,
+          'day_number': dayNumber,
+        });
     return Map<String, dynamic>.from(result as Map);
   }
 

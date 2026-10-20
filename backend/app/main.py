@@ -413,6 +413,7 @@ class RoutinePhaseCreateRequest(BaseModel):
 
 class WorkoutCompletionRequest(BaseModel):
     duration_seconds: int | None = Field(default=None, ge=1, le=86400)
+    day_number: int | None = Field(default=None, ge=1, le=7)
 
 
 class WorkoutSetProgressRequest(BaseModel):
@@ -2781,11 +2782,11 @@ def update_client_profile(payload: ClientProfileUpdate,
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
-                details_changed = (first_name != client['first_name']
-                                   or last_name != client['last_name']
-                                   or phone != client.get('phone')
-                                   or bio != client.get('bio'))
-                if details_changed:
+                identity_changed = (first_name != client['first_name']
+                                    or last_name != client['last_name']
+                                    or phone != client.get('phone'))
+                details_changed = identity_changed or bio != client.get('bio')
+                if identity_changed:
                     _ensure_profile_edit_window(cur, client['id'])
                 if fields & {'first_name', 'last_name'}:
                     identity_row = cur.execute('SELECT birth_date, member_registry_id FROM client_profiles WHERE user_id = %s',
@@ -2819,7 +2820,7 @@ def update_client_profile(payload: ClientProfileUpdate,
                     email = %s, phone = %s, bio = %s,
                     profile_details_updated_at = CASE WHEN %s THEN now() ELSE profile_details_updated_at END,
                     updated_at = now() WHERE id = %s""",
-                    (first_name, last_name, email, phone, bio, details_changed, client['id']))
+                    (first_name, last_name, email, phone, bio, identity_changed, client['id']))
                 if fields & {'first_name', 'last_name'}:
                     cur.execute("""UPDATE client_member_registry SET first_name = %s,
                         last_name = %s, updated_at = now() WHERE linked_user_id = %s""",
@@ -3120,7 +3121,27 @@ def complete_client_workout(payload: WorkoutCompletionRequest,
             due_session = _next_due_routine_session(
                 cur, client['id'], row['current_phase_id'], row['started_on'], row['today'])
             if due_session is None:
-                raise _problem(409, 'NO_DUE_WORKOUT', 'Hoy no hay una rutina pendiente para finalizar.')
+                if payload.day_number is None:
+                    raise _problem(409, 'NO_DUE_WORKOUT', 'Hoy no hay una rutina pendiente para finalizar.')
+                has_exercises = cur.execute("""SELECT 1 FROM routine_exercises
+                    WHERE phase_id = %s AND day_number = %s LIMIT 1""",
+                    (row['current_phase_id'], payload.day_number)).fetchone()
+                if has_exercises is None:
+                    raise _problem(409, 'REST_DAY', 'Ese día no tiene ejercicios programados en tu rutina.')
+                has_progress = cur.execute("""SELECT 1
+                    FROM workout_exercise_completions c
+                    JOIN routine_exercises re ON re.id = c.exercise_id
+                    WHERE c.client_id = %s AND c.phase_id = %s
+                      AND c.workout_date = %s AND c.sets_completed > 0
+                      AND re.day_number = %s LIMIT 1""",
+                    (client['id'], row['current_phase_id'], row['today'],
+                     payload.day_number)).fetchone()
+                if has_progress is None:
+                    raise _problem(409, 'NO_DUE_WORKOUT', 'No hay progreso guardado para finalizar la rutina de ese día.')
+                due_session = {
+                    'scheduled_for_date': row['today'],
+                    'day_number': payload.day_number,
+                }
             scheduled_count = cur.execute("SELECT count(*) AS total FROM routine_exercises WHERE phase_id = %s AND day_number = %s",
                                           (row['current_phase_id'], due_session['day_number'])).fetchone()['total']
             if scheduled_count == 0:

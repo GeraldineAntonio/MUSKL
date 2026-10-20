@@ -1443,16 +1443,19 @@ def update_own_profile(payload: OwnProfileUpdate,
     bio = payload.bio.strip() if payload.bio and payload.bio.strip() else None
     changed = (first_name != user['first_name'] or last_name != user['last_name']
                or phone != user.get('phone') or bio != user.get('bio'))
+    identity_changed = (first_name != user['first_name']
+                        or last_name != user['last_name']
+                        or phone != user.get('phone'))
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            if changed:
+            if identity_changed:
                 _ensure_profile_edit_window(cur, user['id'])
             _ensure_unique_person_name(cur, user['gym_id'], first_name, last_name, user['id'])
             cur.execute("""UPDATE users SET first_name = %s, last_name = %s,
                 phone = %s, bio = %s,
                 profile_details_updated_at = CASE WHEN %s THEN now() ELSE profile_details_updated_at END,
                 updated_at = now() WHERE id = %s""",
-                (first_name, last_name, phone, bio, changed, user['id']))
+                (first_name, last_name, phone, bio, identity_changed, user['id']))
             if changed:
                 cur.execute("""INSERT INTO account_audit_events
                     (gym_id, actor_id, subject_id, event_type)
@@ -1729,12 +1732,13 @@ def update_trainer_profile(payload: TrainerProfileUpdate,
                         tp.specialty, tp.bio
                     FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id
                     WHERE u.id = %s FOR UPDATE OF u""", (trainer['id'],)).fetchone()
-                details_changed = bool(before and (
+                identity_changed = bool(before and (
                     before['first_name'] != first_name or before['last_name'] != last_name
-                    or before['phone'] != (payload.phone.strip() if payload.phone else None)
-                    or before['specialty'] != (payload.specialty.strip() if payload.specialty else None)
-                    or before['bio'] != (payload.bio.strip() if payload.bio else None)))
-                if details_changed:
+                    or before['phone'] != (payload.phone.strip() if payload.phone else None)))
+                details_changed = bool(identity_changed or (before and (
+                    before['specialty'] != (payload.specialty.strip() if payload.specialty else None)
+                    or before['bio'] != (payload.bio.strip() if payload.bio else None))))
+                if identity_changed:
                     _ensure_profile_edit_window(cur, trainer['id'])
                 _ensure_unique_person_name(cur, trainer['gym_id'], first_name,
                                            last_name, trainer['id'])
@@ -1744,7 +1748,7 @@ def update_trainer_profile(payload: TrainerProfileUpdate,
                     updated_at = now() WHERE id = %s""",
                     (first_name, last_name,
                      str(payload.email).lower(), payload.phone.strip() if payload.phone else None,
-                     details_changed, trainer['id']))
+                     identity_changed, trainer['id']))
                 cur.execute("""UPDATE trainer_profiles SET specialty = %s, bio = %s,
                     notification_preferences = %s, updated_at = now() WHERE user_id = %s""",
                     (payload.specialty.strip() if payload.specialty else None,

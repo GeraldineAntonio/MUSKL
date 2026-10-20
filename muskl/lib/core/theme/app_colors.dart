@@ -11,6 +11,7 @@ class AppColors {
   static const red = Color(0xFFFF3040);
   static const accent = Color(0xFF42D6D2);
   static const white = Color(0xFFFFFFFF);
-  static const textMuted = Color(0xFF9A9AA2);
+  // Keep secondary copy readable on both dark surfaces and colored cards.
+  static const textMuted = Color(0xFFB8B8C0);
   static const success = Color(0xFF3DDC84);
 }

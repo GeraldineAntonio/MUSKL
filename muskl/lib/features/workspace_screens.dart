@@ -306,8 +306,12 @@ Widget _metric(String value, String label,
             const SizedBox(height: 4),
             Text(label.toUpperCase(),
                 textAlign: TextAlign.center,
-                style:
-                    const TextStyle(color: AppColors.textMuted, fontSize: 11))
+                style: TextStyle(
+                    color: background.computeLuminance() > 0.28
+                        ? AppColors.bgDeep.withValues(alpha: .78)
+                        : AppColors.textMuted,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11))
           ])),
     );
 
@@ -754,7 +758,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
   final FlutterTts _speech = FlutterTts();
   final Set<String> _completedExerciseIds = {};
   Timer? _ticker;
-  int _nextEncouragementSeconds = 20 * 60;
+  int _nextEncouragementSeconds = 5 * 60;
   int _encouragementIndex = 0;
   bool _isForeground = true;
   bool _workoutFinished = false;
@@ -807,7 +811,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
     if (!_isForeground || _workoutFinished) return;
     final elapsed = _workoutClock.elapsed.inSeconds;
     if (elapsed >= _nextEncouragementSeconds) {
-      _nextEncouragementSeconds += 20 * 60;
+      _nextEncouragementSeconds += 5 * 60;
       _showEncouragement();
     }
   }
@@ -900,7 +904,8 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
           'fully_completed':
               completion['fully_completed'] == true ? 'true' : 'false',
           'scheduled_exercise_count':
-              completion['scheduled_exercise_count']?.toString() ?? '0',
+              completion['scheduled_exercise_count']?.toString() ??
+                  total.toString(),
           if (completion['duration_seconds'] != null)
             'duration_seconds': completion['duration_seconds'].toString(),
           'date': completion['date']?.toString() ?? '',

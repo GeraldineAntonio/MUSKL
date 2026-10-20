@@ -194,6 +194,15 @@ abstract class AuthRepository {
     String? identityToken,
     String? authorizationCode,
   });
+  Future<Session> registerGoogleClient({
+    required String identityToken,
+    required String firstName,
+    required String lastName,
+    required String memberNumber,
+    required DateTime birthDate,
+    String? phone,
+    String? memberRegistryId,
+  });
   Future<void> sendResetCode(String email);
   Future<void> resendRegistrationEmailCode(String email);
   Future<Session> verifyRegistrationEmail({
@@ -1142,6 +1151,19 @@ class FakeAuthRepository implements AuthRepository {
   }) async =>
       throw const AuthException(AuthErrorType.server,
           'El acceso social solo está disponible con el servicio MUSKL conectado.');
+
+  @override
+  Future<Session> registerGoogleClient({
+    required String identityToken,
+    required String firstName,
+    required String lastName,
+    required String memberNumber,
+    required DateTime birthDate,
+    String? phone,
+    String? memberRegistryId,
+  }) async =>
+      throw const AuthException(AuthErrorType.server,
+          'El registro con Google requiere el servicio MUSKL conectado.');
 
   @override
   Future<void> sendResetCode(String email) async {

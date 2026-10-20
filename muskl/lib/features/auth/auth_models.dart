@@ -43,9 +43,11 @@ enum AuthErrorType {
 }
 
 class AuthException implements Exception {
-  const AuthException(this.type, [this._detail]);
+  const AuthException(this.type, [this._detail]) : code = null;
+  const AuthException.withCode(this.type, this._detail, {this.code});
   final AuthErrorType type;
   final String? _detail;
+  final String? code;
 
   String get message =>
       _detail ??

@@ -418,6 +418,27 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> registerGoogleClient({
+    required String identityToken,
+    required String firstName,
+    required String lastName,
+    required String memberNumber,
+    required DateTime birthDate,
+    String? phone,
+    String? memberRegistryId,
+  }) async {
+    _session = await repository.registerGoogleClient(
+      identityToken: identityToken,
+      firstName: firstName,
+      lastName: lastName,
+      memberNumber: memberNumber,
+      birthDate: birthDate,
+      phone: phone,
+      memberRegistryId: memberRegistryId,
+    );
+    notifyListeners();
+  }
+
   Future<void> signOut() async {
     try {
       await repository.signOut();

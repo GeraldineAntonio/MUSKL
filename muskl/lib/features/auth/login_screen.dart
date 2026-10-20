@@ -18,12 +18,11 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  static const _googleServerClientId =
-      String.fromEnvironment(
-        'MUSKL_GOOGLE_SERVER_CLIENT_ID',
-        defaultValue:
-            '355323290179-5t96b3a4efp9lqju4dvt4hk3vu11m1m4.apps.googleusercontent.com',
-      );
+  static const _googleServerClientId = String.fromEnvironment(
+    'MUSKL_GOOGLE_SERVER_CLIENT_ID',
+    defaultValue:
+        '355323290179-5t96b3a4efp9lqju4dvt4hk3vu11m1m4.apps.googleusercontent.com',
+  );
   static const _appleServiceId =
       String.fromEnvironment('MUSKL_APPLE_SERVICE_ID');
   static const _appleRedirectUri =
@@ -105,6 +104,9 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
       _errorType = null;
     });
+    String? googleIdentityToken;
+    var googleEmail = '';
+    var googleName = '';
     try {
       final google = GoogleSignIn.instance;
       _googleInitialization ??=
@@ -116,9 +118,24 @@ class _LoginScreenState extends State<LoginScreen> {
         throw const AuthException(
             AuthErrorType.server, 'Google no devolvió un token de acceso.');
       }
+      googleIdentityToken = token;
+      googleEmail = account.email.trim().toLowerCase();
+      googleName = account.displayName?.trim() ?? '';
       await authController.signInWithProvider(
           provider: 'google', identityToken: token);
     } catch (error) {
+      if (error is AuthException &&
+          error.code == 'SOCIAL_ACCOUNT_NOT_FOUND' &&
+          googleIdentityToken != null &&
+          googleEmail.isNotEmpty &&
+          mounted) {
+        context.push('/register/google', extra: {
+          'identity_token': googleIdentityToken,
+          'email': googleEmail,
+          'name': googleName,
+        });
+        return;
+      }
       if (!mounted) return;
       setState(() {
         _error = error is AuthException

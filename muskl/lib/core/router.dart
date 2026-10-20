@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/auth/auth_models.dart';
 import '../features/auth/forgot_password_screen.dart';
+import '../features/auth/google_client_registration_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/new_password_screen.dart';
 import '../features/auth/reset_success_screen.dart';
@@ -86,6 +87,12 @@ GoRouter buildRouter(AuthController auth) {
       GoRoute(
         path: '/register',
         builder: (_, __) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: '/register/google',
+        builder: (_, state) => GoogleClientRegistrationScreen(
+          googleData: Map<String, String>.from(state.extra as Map),
+        ),
       ),
       GoRoute(
         path: '/verify-email',

@@ -888,6 +888,9 @@ class ApiAuthRepository implements AuthRepository {
         final code = detail is Map ? detail['code']?.toString() : null;
         final message =
             detail is Map ? detail['message']?.toString() : detail?.toString();
+        final unknownApiRoute = response.statusCode == 404 &&
+            (code == null || code.isEmpty) &&
+            (message == null || message.toLowerCase() == 'not found');
         if (response.statusCode == 401 &&
             authenticated &&
             !retriedAfterRefresh &&
@@ -904,9 +907,16 @@ class ApiAuthRepository implements AuthRepository {
           'NOT_FOUND' => AuthErrorType.notFound,
           'INVALID_CODE' => AuthErrorType.invalidCode,
           'EMAIL_NOT_VERIFIED' => AuthErrorType.emailNotVerified,
+          _ when response.statusCode == 404 => AuthErrorType.notFound,
           _ => AuthErrorType.server,
         };
-        throw AuthException(errorType, message);
+        throw AuthException.withCode(
+          errorType,
+          unknownApiRoute
+              ? 'El API de MUSKL no tiene activa esta función. Actualiza el servicio e inténtalo de nuevo.'
+              : message,
+          code: code,
+        );
       }
       return decoded;
     } on SocketException catch (e) {
@@ -1037,6 +1047,31 @@ class ApiAuthRepository implements AuthRepository {
     final session =
         await _sessionFromResponse(Map<String, dynamic>.from(result as Map));
     return session;
+  }
+
+  Future<Session> registerGoogleClient({
+    required String identityToken,
+    required String firstName,
+    required String lastName,
+    required String memberNumber,
+    required DateTime birthDate,
+    String? phone,
+    String? memberRegistryId,
+  }) async {
+    final result = await _request(
+      'POST',
+      '/api/v1/auth/social/google/register-client',
+      body: {
+        'identity_token': identityToken,
+        'first_name': firstName,
+        'last_name': lastName,
+        'phone': phone,
+        'member_number': memberNumber.trim(),
+        'birth_date': birthDate.toIso8601String().substring(0, 10),
+        if (memberRegistryId != null) 'member_registry_id': memberRegistryId,
+      },
+    );
+    return _sessionFromResponse(Map<String, dynamic>.from(result as Map));
   }
 
   @override

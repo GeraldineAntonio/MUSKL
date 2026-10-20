@@ -1316,7 +1316,6 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
   final List<_GroupMemberFields> _groupMembers = [];
   bool _editingGroupMembers = false;
   bool _groupRegistered = false;
-  DateTime? _birthDate;
   final _limitations = TextEditingController();
 
   String? get _draftKey {
@@ -1353,7 +1352,6 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         _weightKg.text = draft['weight_kg']?.toString() ?? '';
         _heightCm.text = draft['height_cm']?.toString() ?? '';
         _limitations.text = draft['limitations']?.toString() ?? '';
-        _birthDate = DateTime.tryParse(draft['birth_date']?.toString() ?? '');
       });
     } catch (_) {
       await _draftStorage.delete(key: key);
@@ -1376,7 +1374,6 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         'weight_kg': _weightKg.text,
         'height_cm': _heightCm.text,
         'limitations': _limitations.text,
-        'birth_date': _birthDate?.toIso8601String(),
       }),
     );
   }
@@ -1433,7 +1430,6 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         _trainers = (data['trainers'] as List)
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
-        _birthDate = DateTime.tryParse(data['birth_date']?.toString() ?? '');
         _trainerId ??= data['assigned_trainer_id']?.toString();
         final groupPlanId = data['group_plan_id']?.toString();
         if (groupPlanId != null) {
@@ -1487,7 +1483,9 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
         : double.tryParse(_heightCm.text.replaceAll(',', '.'));
     final valid = switch (_step) {
       0 => _planId != null,
-      1 => _trainerId != null,
+      // Trainer selection is optional. A client can finish setup and request
+      // one later from the dashboard when the gym has none available.
+      1 => true,
       2 => _goal != null,
       3 => _level != null &&
           _days != null &&
@@ -1501,9 +1499,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
     if (!valid) {
       setState(() => _error = _step == 3
           ? 'Indica tu peso (20–350 kg) y, si agregas estatura, usa 100–250 cm.'
-          : _step == 1 && _trainers.isEmpty
-              ? 'No hay entrenadores disponibles. Contacta al gimnasio para continuar.'
-              : 'Selecciona una opción para continuar.');
+          : 'Selecciona una opción para continuar.');
       return;
     }
     await _saveDraft();
@@ -1725,12 +1721,12 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
             ],
           ]),
         1 => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            const Text('Elige el entrenador al que enviarás tu solicitud'),
+            const Text('Elige un entrenador ahora o solicítalo después desde tu panel.'),
             const SizedBox(height: 14),
             if (_trainers.isEmpty)
               const MusklCard(
                   child: Text(
-                      'No hay entrenadores activos disponibles en este momento.')),
+                      'No hay entrenadores activos disponibles. Puedes finalizar tu perfil y solicitar uno después.')),
             for (final trainer in _trainers)
               _option('${trainer['first_name']} ${trainer['last_name']}',
                   subtitle: trainer['specialty']?.toString(),
@@ -1738,6 +1734,14 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                 setState(() => _trainerId = trainer['id'].toString());
                 _saveDraft();
               }),
+            _option('Elegir después',
+                subtitle:
+                    'Podrás enviar una solicitud desde el panel cuando quieras.',
+                selected: _trainerId == null,
+                onTap: () {
+                  setState(() => _trainerId = null);
+                  _saveDraft();
+                }),
           ]),
         2 => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const Text('¿Cuál es tu objetivo?'),
@@ -1861,32 +1865,17 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
             const SizedBox(height: 20),
             const Text('Datos físicos'),
             const SizedBox(height: 8),
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(
-                child: MusklTextField(
-                    label: 'Peso (kg)',
-                    hint: 'Ej. 68.5',
-                    controller: _weightKg,
-                    icon: Icons.monitor_weight_outlined,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    onChanged: (_) {
-                      setState(() => _error = null);
-                      _saveDraft();
-                    }),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Edad',
-                    prefixIcon: Icon(Icons.cake_outlined),
-                    border: OutlineInputBorder(),
-                  ),
-                  child: Text(_ageFromBirthDate()?.toString() ?? 'Sin fecha'),
-                ),
-              ),
-            ]),
+            MusklTextField(
+                label: 'Peso (kg)',
+                hint: 'Ej. 68.5',
+                controller: _weightKg,
+                icon: Icons.monitor_weight_outlined,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) {
+                  setState(() => _error = null);
+                  _saveDraft();
+                }),
             const SizedBox(height: 12),
             MusklTextField(
                 label: 'Estatura en centímetros (opcional)',
@@ -1907,18 +1896,6 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
           ]),
         _ => const SizedBox.shrink(),
       };
-
-  int? _ageFromBirthDate() {
-    final birthDate = _birthDate;
-    if (birthDate == null) return null;
-    final today = DateTime.now();
-    var age = today.year - birthDate.year;
-    if (today.month < birthDate.month ||
-        (today.month == birthDate.month && today.day < birthDate.day)) {
-      age--;
-    }
-    return age;
-  }
 
   Widget _groupMemberForm(int index) {
     final member = _groupMembers[index];

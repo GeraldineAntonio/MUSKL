@@ -2447,15 +2447,13 @@ def complete_client_onboarding(payload: ClientOnboardingRequest,
                 (client['id'],)).fetchone()
             selected_trainer_id = payload.trainer_id or (
                 current_assignment['trainer_id'] if current_assignment else None)
-            if selected_trainer_id is None:
-                raise _problem(422, 'TRAINER_REQUIRED',
-                               'Elige un entrenador para completar tu registro.')
-            trainer = cur.execute("""SELECT id FROM users WHERE id = %s AND gym_id = %s
-                AND role = 'trainer' AND status = 'active'""",
-                (selected_trainer_id, client['gym_id'])).fetchone()
-            if trainer is None:
-                raise _problem(404, 'TRAINER_NOT_AVAILABLE',
-                               'El entrenador seleccionado ya no está disponible.')
+            if selected_trainer_id is not None:
+                trainer = cur.execute("""SELECT id FROM users WHERE id = %s AND gym_id = %s
+                    AND role = 'trainer' AND status = 'active'""",
+                    (selected_trainer_id, client['gym_id'])).fetchone()
+                if trainer is None:
+                    raise _problem(404, 'TRAINER_NOT_AVAILABLE',
+                                   'El entrenador seleccionado ya no está disponible.')
             chosen_plan_id = group['plan_id'] if group and group['plan_id'] else payload.plan_id
             if group and group['plan_id'] and payload.plan_id != group['plan_id']:
                 raise _problem(409, 'GROUP_PLAN_LOCKED', 'Todos los integrantes deben conservar el plan del grupo.')
@@ -2472,7 +2470,7 @@ def complete_client_onboarding(payload: ClientOnboardingRequest,
             if group and group['plan_id'] is None:
                 cur.execute('UPDATE client_groups SET plan_id = %s WHERE id = %s',
                             (plan['id'], group['id']))
-            if current_assignment is None:
+            if current_assignment is None and selected_trainer_id is not None:
                 pending_request = cur.execute("""SELECT id FROM client_trainer_requests
                     WHERE client_id = %s AND status = 'pending' FOR UPDATE""",
                     (client['id'],)).fetchone()
@@ -2497,7 +2495,7 @@ def complete_client_onboarding(payload: ClientOnboardingRequest,
                  payload.weight_kg, payload.height_cm, payload.limitations, client['id']))
             updated = cur.execute("UPDATE users SET status = 'active' WHERE id = %s RETURNING *", (client['id'],)).fetchone()
             cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, subject_id, event_type, details) VALUES (%s, %s, %s, %s, %s)",
-                        (client['gym_id'], client['id'], client['id'], 'client_onboarding_completed', Jsonb({'plan_id': str(plan['id']), 'trainer_id': str(selected_trainer_id), 'trainer_request_created': current_assignment is None})))
+                        (client['gym_id'], client['id'], client['id'], 'client_onboarding_completed', Jsonb({'plan_id': str(plan['id']), 'trainer_id': str(selected_trainer_id) if selected_trainer_id else None, 'trainer_request_created': current_assignment is None and selected_trainer_id is not None})))
     return {'user': _public_user(updated)}
 
 

@@ -483,7 +483,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                       Expanded(
                           child: Text(data['pending_trainer_id'] != null
                               ? 'Solicitud enviada a ${data['pending_trainer_name'] ?? 'tu entrenador'}. Espera su aceptación.'
-                              : 'Elige un entrenador durante tu registro para enviarle una solicitud.')),
+                              : 'Puedes solicitar un entrenador desde tu perfil cuando quieras.')),
                     ]),
                   ),
                 ),

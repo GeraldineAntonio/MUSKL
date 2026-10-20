@@ -33,7 +33,6 @@ class _StatusLayout extends StatelessWidget {
     required this.message,
     this.details = const [],
     this.buttonLabel = 'Entendido',
-    this.onExit,
     this.returnHomeOnBack = false,
   });
 
@@ -43,12 +42,11 @@ class _StatusLayout extends StatelessWidget {
   final String message;
   final List<(String, String)> details;
   final String buttonLabel;
-  final Future<void> Function()? onExit;
   final bool returnHomeOnBack;
 
   Future<void> _leave(BuildContext context) async {
     try {
-      await (onExit ?? authController.signOut)();
+      await authController.signOut();
     } catch (_) {
       // La sesión local también se elimina si el servidor no responde.
     } finally {

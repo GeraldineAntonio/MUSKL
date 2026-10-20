@@ -52,9 +52,6 @@ class _GoogleClientRegistrationScreenState
     super.dispose();
   }
 
-  String _dateLabel(DateTime date) =>
-      '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
-
   Future<void> _pickBirthDate() async {
     final today = DateTime.now();
     final picked = await showDatePicker(

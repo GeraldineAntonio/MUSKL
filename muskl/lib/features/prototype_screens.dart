@@ -164,7 +164,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _memberPaymentDueOn;
   bool _memberLookupDone = false;
   bool _memberLookupLoading = false;
-  bool _registeringAdditionalGroupMember = false;
   late String _role;
 
   @override
@@ -236,7 +235,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _registryMatches = [];
       _memberRegistryId = null;
       _memberPaymentDueOn = null;
-      _registeringAdditionalGroupMember = false;
       _error = null;
     });
     try {
@@ -302,7 +300,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() {
       _memberRegistryId = member['registry_id']?.toString();
       _memberPaymentDueOn = member['payment_due_on']?.toString();
-      _registeringAdditionalGroupMember = false;
       _name.text = member['first_name']?.toString() ?? '';
       _lastName.text = member['last_name']?.toString() ?? '';
       _phone.text = member['phone']?.toString() ?? '';
@@ -315,7 +312,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() {
       _memberRegistryId = null;
       _memberPaymentDueOn = null;
-      _registeringAdditionalGroupMember = true;
       _name.clear();
       _lastName.clear();
       _birthDate = null;

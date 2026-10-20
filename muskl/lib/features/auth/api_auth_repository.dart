@@ -805,7 +805,7 @@ class ApiAuthRepository implements AuthRepository {
             !retriedAfterRefresh &&
             _refreshToken != null) {
           if (await _refreshAccessToken()) {
-            return _uploadOwnTrainerCertification(
+            return await _uploadOwnTrainerCertification(
                 certificationId: certificationId,
                 filename: filename,
                 bytes: bytes,
@@ -1049,6 +1049,7 @@ class ApiAuthRepository implements AuthRepository {
     return session;
   }
 
+  @override
   Future<Session> registerGoogleClient({
     required String identityToken,
     required String firstName,

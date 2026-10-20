@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 60754)
-Total output lines: 4198
-
 from __future__ import annotations
 
 import asyncio
@@ -1303,7 +1300,1962 @@ def register_client(payload: ClientRegistration) -> dict:
                         FROM client_member_registry WHERE gym_id = %s
                           AND upper(trim(regexp_replace(member_number, '[[:space:]]+', ' ', 'g'))) = %s
                         ORDER BY first_name, last_name FOR UPDATE""",
-…30754 tokens truncated…) AT TIME ZONE g.timezone)::date
+                        (GYM_ID, member_number)).fetchall()
+                    if len(candidates) == 1:
+                        registry = candidates[0]
+                    elif len(candidates) > 1:
+                        raise _problem(409, 'MEMBER_SELECTION_REQUIRED',
+                                       'Ese número tiene varios integrantes. Busca el número y selecciona tu ficha.')
+
+                if registry and registry['linked_user_id']:
+                    raise _problem(409, 'MEMBER_ALREADY_REGISTERED',
+                                   'Ese socio ya tiene una cuenta vinculada. Inicia sesión o recupera tu contraseña.')
+                first_name = registry['first_name'] if registry else payload.first_name
+                last_name = registry['last_name'] if registry else payload.last_name
+                birth_date = registry['birth_date'] if registry else payload.birth_date
+                if registry is None:
+                    same_person = cur.execute("""SELECT member_number FROM client_member_registry
+                        WHERE gym_id = %s
+                          AND lower(trim(regexp_replace(first_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                          AND lower(trim(regexp_replace(last_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                          AND birth_date = %s LIMIT 1""",
+                        (GYM_ID, _normalize_person_name(first_name, 'nombre'),
+                         _normalize_person_name(last_name, 'apellido'), birth_date)).fetchone()
+                    if same_person:
+                        raise _problem(409, 'PERSON_NAME_IN_USE',
+                                       'Ya existe una ficha con ese nombre y fecha de nacimiento. Revisa el número de socio.')
+                user = _create_user(cur, role='client', status='active_no_onboarding',
+                                    first_name=first_name, last_name=last_name,
+                                    email=str(payload.email),
+                                    phone=payload.phone or (registry['phone'] if registry else None),
+                                    password=payload.password, member_number=member_number,
+                                    email_verified=False, birth_date=birth_date)
+                user_id = user['id']
+                storage_key = _store_registration_photo(user['id'], photo)
+                if storage_key:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
+                        profile_photo_mime = %s WHERE id = %s""",
+                        (storage_key, photo[1], user['id']))
+                if registry is None:
+                    payment_due_on = cur.execute("SELECT (now() AT TIME ZONE timezone)::date AS date FROM gyms WHERE id = %s",
+                                                 (GYM_ID,)).fetchone()['date']
+                    registry = cur.execute("""INSERT INTO client_member_registry
+                        (gym_id, member_number, first_name, last_name, birth_date,
+                         phone, payment_due_on, linked_user_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                        (GYM_ID, member_number, user['first_name'], user['last_name'],
+                         birth_date, user['phone'], payment_due_on, user['id'])).fetchone()
+                    registry_id = registry['id']
+                else:
+                    payment_due_on = registry['payment_due_on']
+                    cur.execute("""UPDATE client_member_registry SET linked_user_id = %s,
+                        updated_at = now() WHERE id = %s AND linked_user_id IS NULL""",
+                        (user['id'], registry['id']))
+                    registry_id = registry['id']
+                cur.execute('INSERT INTO client_profiles (user_id, birth_date, member_registry_id) VALUES (%s, %s, %s)',
+                            (user['id'], birth_date, registry_id))
+                group = cur.execute('''INSERT INTO client_groups (gym_id, member_number)
+                    VALUES (%s, %s) ON CONFLICT (member_number) DO UPDATE
+                    SET gym_id = EXCLUDED.gym_id RETURNING id''',
+                            (GYM_ID, member_number))
+                group = group.fetchone()
+                current_members = cur.execute('SELECT count(*) AS count FROM client_group_members WHERE group_id = %s',
+                                              (group['id'],)).fetchone()['count']
+                cur.execute('INSERT INTO client_group_members (group_id, user_id, is_primary) VALUES (%s, %s, %s)',
+                            (group['id'], user['id'], current_members == 0))
+                verification_code = _new_registration_email_code(cur, user['id'])
+    except HTTPException:
+        _cleanup_profile_photo(storage_key)
+        raise
+    except StorageNotConfigured as exc:
+        _cleanup_profile_photo(storage_key)
+        raise _problem(503, 'PROFILE_PHOTO_STORAGE_NOT_CONFIGURED', str(exc))
+    except StorageWriteError as exc:
+        _cleanup_profile_photo(storage_key)
+        raise _problem(503, 'PROFILE_PHOTO_STORAGE_UNAVAILABLE', str(exc))
+    except Exception:
+        _cleanup_profile_photo(storage_key)
+        raise
+    email_sent = _deliver_registration_email_code(str(payload.email).lower(), verification_code)
+    return {'status': 'verification_required', 'email_sent': email_sent,
+            'message': 'Te enviamos un código para verificar tu correo.'}
+
+
+@app.post('/api/v1/auth/register/trainer', status_code=202)
+def register_trainer(
+    first_name: Annotated[str, Form(min_length=1, max_length=80)],
+    last_name: Annotated[str, Form(min_length=1, max_length=100)],
+    email: Annotated[EmailStr, Form()],
+    password: Annotated[str, Form(min_length=8, max_length=128)],
+    specialty: Annotated[str | None, Form(max_length=120)] = None,
+    phone: Annotated[str | None, Form(max_length=30)] = None,
+    photo_data: Annotated[str | None, Form(max_length=2_800_000)] = None,
+    photo_mime: Annotated[Literal['image/jpeg', 'image/png'] | None, Form()] = None,
+    certification: UploadFile | None = File(None),
+) -> dict:
+    try:
+        _validate_strong_password(password)
+    except ValueError as exc:
+        raise _problem(422, 'WEAK_PASSWORD', str(exc))
+    photo = _decode_profile_photo(photo_data, photo_mime)
+    ext = None
+    data = None
+    allowed = {'.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
+    if certification is not None and certification.filename:
+        ext = Path(certification.filename).suffix.lower()
+        if ext not in allowed or certification.content_type != allowed[ext]:
+            raise _problem(415, 'INVALID_CERTIFICATION', 'Adjunta una certificación PDF, PNG o JPG.')
+        data = certification.file.read(10 * 1024 * 1024 + 1)
+        if not data or len(data) > 10 * 1024 * 1024:
+            raise _problem(413, 'CERTIFICATION_SIZE', 'El archivo debe pesar hasta 10 MB.')
+        signatures = {
+            '.pdf': data.startswith(b'%PDF-'),
+            '.png': data.startswith(b'\x89PNG\r\n\x1a\n'),
+            '.jpg': data.startswith(b'\xff\xd8\xff'),
+            '.jpeg': data.startswith(b'\xff\xd8\xff'),
+        }
+        if not signatures[ext]:
+            raise _problem(415, 'INVALID_CERTIFICATION', 'El contenido del archivo no coincide con su formato.')
+    storage_key = None
+    profile_photo_key = None
+    verification_code = None
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                if cur.execute('SELECT 1 FROM users WHERE gym_id = %s AND email = %s',
+                               (GYM_ID, str(email).lower())).fetchone():
+                    raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado.')
+                user = _create_user(cur, role='trainer', status='pending', first_name=first_name,
+                                    last_name=last_name, email=str(email), phone=phone,
+                                    password=password, email_verified=False)
+                verification_code = _new_registration_email_code(cur, user['id'])
+                profile_photo_key = _store_registration_photo(user['id'], photo)
+                if profile_photo_key:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
+                        profile_photo_mime = %s WHERE id = %s""",
+                        (profile_photo_key, photo[1], user['id']))
+                cur.execute('INSERT INTO trainer_profiles (user_id, specialty) VALUES (%s, %s)',
+                            (user['id'], specialty.strip() if specialty and specialty.strip() else None))
+                if certification is not None and ext and data:
+                    key = f'certifications/{GYM_ID}/{user["id"]}/{uuid.uuid4()}{ext}'
+                    storage_key = put_certificate(key, data, allowed[ext], UPLOAD_DIR)
+                    cur.execute('INSERT INTO trainer_certifications (trainer_id, title, storage_key) VALUES (%s, %s, %s)',
+                                (user['id'], Path(certification.filename or 'Certificación').name, storage_key))
+                cur.execute('INSERT INTO account_audit_events (gym_id, subject_id, event_type) VALUES (%s, %s, %s)',
+                            (GYM_ID, user['id'], 'trainer_registration_submitted'))
+                _notify_admins_of_staff_request(cur, GYM_ID, user)
+    except HTTPException:
+        if storage_key:
+            try:
+                delete_certificate(storage_key)
+                if storage_key.startswith('local://'):
+                    (UPLOAD_DIR / storage_key.removeprefix('local://')).unlink(missing_ok=True)
+            except Exception:
+                log.exception('Could not clean up certificate object after registration failure')
+        _cleanup_profile_photo(profile_photo_key)
+        raise
+    except StorageNotConfigured as exc:
+        if storage_key:
+            delete_certificate(storage_key)
+        _cleanup_profile_photo(profile_photo_key)
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', str(exc))
+    except StorageWriteError:
+        log.exception('Certificate upload failed')
+        if storage_key:
+            delete_certificate(storage_key)
+        _cleanup_profile_photo(profile_photo_key)
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', 'No se pudo guardar el certificado. Intenta más tarde.')
+    except Exception:
+        if storage_key:
+            try:
+                delete_certificate(storage_key)
+                if storage_key.startswith('local://'):
+                    (UPLOAD_DIR / storage_key.removeprefix('local://')).unlink(missing_ok=True)
+            except Exception:
+                log.exception('Could not clean up certificate object after registration failure')
+        _cleanup_profile_photo(profile_photo_key)
+        raise
+    email_sent = _deliver_registration_email_code(str(email).lower(), verification_code)
+    return {'status': 'verification_required', 'email_sent': email_sent,
+            'message': 'Te enviamos un código para verificar tu correo. Después, tu solicitud quedará en revisión.'}
+
+
+@app.post('/api/v1/auth/register/admin', status_code=202)
+def register_admin(payload: AdminRegistration) -> dict:
+    photo = _decode_profile_photo(payload.photo_data, payload.photo_mime)
+    profile_photo_key = None
+    verification_code = None
+    token_hash = hashlib.sha256(payload.invite_token.strip().encode()).hexdigest()
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                invite = cur.execute(
+                """SELECT id FROM admin_invite_tokens
+                   WHERE gym_id = %s AND token_hash = %s AND revoked_at IS NULL AND used_at IS NULL
+                     AND (expires_at IS NULL OR expires_at > now()) FOR UPDATE""",
+                (GYM_ID, token_hash)).fetchone()
+                if invite is None:
+                    raise _problem(400, 'INVALID_INVITE', 'El token no es válido o ya fue usado.')
+                if cur.execute('SELECT 1 FROM users WHERE gym_id = %s AND email = %s',
+                               (GYM_ID, str(payload.email).lower())).fetchone():
+                    raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado.')
+                user = _create_user(cur, role='admin', status='pending', first_name=payload.first_name,
+                                    last_name=payload.last_name, email=str(payload.email), phone=payload.phone,
+                                    password=payload.password, email_verified=False)
+                verification_code = _new_registration_email_code(cur, user['id'])
+                profile_photo_key = _store_registration_photo(user['id'], photo)
+                if profile_photo_key:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
+                        profile_photo_mime = %s WHERE id = %s""",
+                        (profile_photo_key, photo[1], user['id']))
+                cur.execute('UPDATE admin_invite_tokens SET used_at = now() WHERE id = %s', (invite['id'],))
+                cur.execute('INSERT INTO account_audit_events (gym_id, subject_id, event_type) VALUES (%s, %s, %s)',
+                            (GYM_ID, user['id'], 'admin_registration_submitted'))
+                _notify_admins_of_staff_request(cur, GYM_ID, user)
+    except HTTPException:
+        _cleanup_profile_photo(profile_photo_key)
+        raise
+    except StorageNotConfigured as exc:
+        _cleanup_profile_photo(profile_photo_key)
+        raise _problem(503, 'PROFILE_PHOTO_STORAGE_NOT_CONFIGURED', str(exc))
+    except StorageWriteError as exc:
+        _cleanup_profile_photo(profile_photo_key)
+        raise _problem(503, 'PROFILE_PHOTO_STORAGE_UNAVAILABLE', str(exc))
+    except Exception:
+        _cleanup_profile_photo(profile_photo_key)
+        raise
+    email_sent = _deliver_registration_email_code(str(payload.email).lower(), verification_code)
+    return {'status': 'verification_required', 'email_sent': email_sent,
+            'message': 'Te enviamos un código para verificar tu correo. Después, tu solicitud quedará en revisión.'}
+
+
+def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> dict:
+    if credentials is None:
+        raise _problem(401, 'AUTH_REQUIRED', 'Inicia sesión para continuar.')
+    try:
+        claims = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id, sid = uuid.UUID(claims['sub']), uuid.UUID(claims['sid'])
+    except (jwt.PyJWTError, KeyError, ValueError):
+        raise _problem(401, 'INVALID_SESSION', 'La sesión venció. Inicia sesión de nuevo.')
+    with pool.connection() as conn:
+        user = conn.execute(
+            """SELECT u.*, concat_ws(' ', a.first_name, a.last_name) AS deactivated_by_name
+               FROM users u JOIN auth_sessions s ON s.user_id = u.id
+               LEFT JOIN users a ON a.id = u.deactivated_by
+               WHERE u.id = %s AND s.id = %s AND s.revoked_at IS NULL
+                 AND s.expires_at > now() AND s.session_version = u.session_version
+                 AND u.session_version = %s""",
+            (user_id, sid, claims.get('ver'))).fetchone()
+    if user is None:
+        raise _problem(401, 'INVALID_SESSION', 'La sesión venció. Inicia sesión de nuevo.')
+    user['session_id'] = sid
+    return user
+
+
+def active_admin(user: dict = Depends(current_user)) -> dict:
+    if user['role'] != 'admin' or user['status'] != 'active':
+        raise _problem(403, 'ADMIN_REQUIRED', 'Esta acción requiere una cuenta admin activa.')
+    return user
+
+
+def active_client(user: dict = Depends(current_user)) -> dict:
+    if user['role'] != 'client' or user['status'] not in ('active_no_onboarding', 'active'):
+        raise _problem(403, 'CLIENT_REQUIRED', 'Esta opción requiere una cuenta cliente activa.')
+    return _repair_completed_client_onboarding(user)
+
+
+def _repair_completed_client_onboarding(user: dict) -> dict:
+    """Correct legacy clients whose saved onboarding was not reflected in status."""
+    if user['role'] != 'client' or user['status'] != 'active_no_onboarding':
+        return user
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            completed = cur.execute("""SELECT cp.onboarding_completed_at,
+                    cp.goal, cp.days_per_week, cp.weight_kg,
+                    EXISTS (SELECT 1 FROM memberships m WHERE m.client_id = u.id
+                        AND m.status = 'active') AS has_membership
+                FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id
+                WHERE u.id = %s""", (user['id'],)).fetchone()
+            profile_is_complete = (completed is not None
+                and completed['goal'] is not None
+                and completed['days_per_week'] is not None
+                and completed['weight_kg'] is not None
+                and completed['has_membership'])
+            if completed and (completed['onboarding_completed_at'] or profile_is_complete):
+                cur.execute("""UPDATE client_profiles SET
+                    onboarding_completed_at = COALESCE(onboarding_completed_at, now()),
+                    updated_at = now() WHERE user_id = %s""", (user['id'],))
+                return cur.execute("""UPDATE users SET status = 'active', updated_at = now()
+                    WHERE id = %s RETURNING *""", (user['id'],)).fetchone()
+    return user
+
+
+@app.post('/api/v1/client/group-members', status_code=201)
+def register_client_group_members(payload: ClientGroupRegistration,
+                                  background_tasks: BackgroundTasks,
+                                  client: dict = Depends(active_client)) -> dict:
+    pending_codes: list[tuple[str, str]] = []
+    emails = [str(member.email).lower() for member in payload.members]
+    if len(set(emails)) != len(emails):
+        raise _problem(422, 'DUPLICATE_GROUP_EMAIL', 'Cada integrante debe usar un correo diferente.')
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            group = cur.execute("""SELECT g.id, g.member_number, g.plan_id, m.is_primary,
+                    (SELECT count(*) FROM client_group_members gm WHERE gm.group_id = g.id) AS current_size
+                FROM client_groups g JOIN client_group_members m ON m.group_id = g.id
+                WHERE m.user_id = %s AND g.gym_id = %s FOR UPDATE OF g""",
+                (client['id'], client['gym_id'])).fetchone()
+            if group is None or not group['is_primary']:
+                raise _problem(403, 'GROUP_OWNER_REQUIRED', 'Solo quien inició el grupo puede agregar integrantes.')
+            plan = cur.execute("""SELECT id, name, min_group_size, max_group_size
+                FROM membership_plans WHERE id = %s AND gym_id = %s AND active""",
+                (payload.plan_id, client['gym_id'])).fetchone()
+            if plan is None or plan['min_group_size'] < 2:
+                raise _problem(422, 'NOT_A_GROUP_PLAN', 'El plan seleccionado no admite registro grupal.')
+            target_size = len(payload.members) + 1
+            if not plan['min_group_size'] <= target_size <= plan['max_group_size']:
+                raise _problem(422, 'GROUP_SIZE_INVALID',
+                    f"El plan {plan['name']} requiere de {plan['min_group_size']} a {plan['max_group_size']} integrantes.")
+            if group['current_size'] > 1:
+                if group['plan_id'] == payload.plan_id and group['current_size'] == target_size:
+                    return {'member_number': group['member_number'], 'member_count': target_size, 'created': False}
+                raise _problem(409, 'GROUP_ALREADY_REGISTERED', 'Este grupo ya tiene integrantes registrados.')
+            if cur.execute("SELECT 1 FROM memberships WHERE client_id = %s AND status = 'active'",
+                           (client['id'],)).fetchone():
+                raise _problem(409, 'GROUP_REGISTRATION_CLOSED', 'La membresía ya fue activada para esta cuenta.')
+            for member in payload.members:
+                email = str(member.email).lower()
+                if cur.execute('SELECT 1 FROM users WHERE gym_id = %s AND email = %s',
+                               (client['gym_id'], email)).fetchone():
+                    raise _problem(409, 'EMAIL_IN_USE', f'El correo {email} ya está registrado.')
+                registry = cur.execute("""SELECT id, first_name, last_name, birth_date,
+                        phone, linked_user_id FROM client_member_registry
+                    WHERE gym_id = %s
+                      AND upper(trim(regexp_replace(member_number, '[[:space:]]+', ' ', 'g'))) = %s
+                      AND lower(trim(regexp_replace(first_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                      AND lower(trim(regexp_replace(last_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                      AND birth_date = %s FOR UPDATE""",
+                    (client['gym_id'], group['member_number'], member.first_name,
+                     member.last_name, member.birth_date)).fetchone()
+                if registry and registry['linked_user_id']:
+                    raise _problem(409, 'MEMBER_ALREADY_REGISTERED',
+                                   f'{member.first_name} {member.last_name} ya tiene una cuenta vinculada.')
+                first_name = registry['first_name'] if registry else member.first_name
+                last_name = registry['last_name'] if registry else member.last_name
+                birth_date = registry['birth_date'] if registry else member.birth_date
+                if registry is None:
+                    same_person = cur.execute("""SELECT member_number FROM client_member_registry
+                        WHERE gym_id = %s
+                          AND lower(trim(regexp_replace(first_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                          AND lower(trim(regexp_replace(last_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                          AND birth_date = %s LIMIT 1""",
+                        (client['gym_id'], _normalize_person_name(first_name, 'nombre'),
+                         _normalize_person_name(last_name, 'apellido'), birth_date)).fetchone()
+                    if same_person:
+                        raise _problem(409, 'PERSON_NAME_IN_USE',
+                                       'Ya existe una ficha con ese nombre y fecha de nacimiento.')
+                user = _create_user(cur, role='client', status='active_no_onboarding',
+                    first_name=first_name, last_name=last_name, email=email,
+                    phone=member.phone or (registry['phone'] if registry else None),
+                    password=member.password,
+                    member_number=group['member_number'], email_verified=False,
+                    birth_date=birth_date)
+                pending_codes.append((email, _new_registration_email_code(cur, user['id'])))
+                if registry is None:
+                    payment_due_on = cur.execute("SELECT (now() AT TIME ZONE timezone)::date AS date FROM gyms WHERE id = %s",
+                                                 (client['gym_id'],)).fetchone()['date']
+                    registry = cur.execute("""INSERT INTO client_member_registry
+                        (gym_id, member_number, first_name, last_name, birth_date,
+                         phone, payment_due_on, linked_user_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                        (client['gym_id'], group['member_number'], user['first_name'],
+                         user['last_name'], birth_date, user['phone'], payment_due_on,
+                         user['id'])).fetchone()
+                    registry_id = registry['id']
+                else:
+                    registry_id = registry['id']
+                    cur.execute("""UPDATE client_member_registry SET linked_user_id = %s,
+                        updated_at = now() WHERE id = %s AND linked_user_id IS NULL""",
+                        (user['id'], registry_id))
+                cur.execute('INSERT INTO client_profiles (user_id, birth_date, member_registry_id) VALUES (%s, %s, %s)',
+                            (user['id'], birth_date, registry_id))
+                cur.execute('INSERT INTO client_group_members (group_id, user_id) VALUES (%s, %s)',
+                            (group['id'], user['id']))
+            cur.execute('UPDATE client_groups SET plan_id = %s WHERE id = %s',
+                        (payload.plan_id, group['id']))
+            cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, 'client_group_registered', %s)",
+                        (client['gym_id'], client['id'], Jsonb({'plan_id': str(plan['id']), 'member_count': target_size})))
+    for email, code in pending_codes:
+        background_tasks.add_task(_deliver_registration_email_code, email, code)
+    return {'member_number': group['member_number'], 'member_count': target_size, 'created': True}
+
+
+def active_trainer(user: dict = Depends(current_user)) -> dict:
+    if user['role'] != 'trainer' or user['status'] != 'active':
+        raise _problem(403, 'TRAINER_REQUIRED', 'Esta opción requiere una cuenta entrenador activa.')
+    return user
+
+
+@app.get('/api/v1/auth/me')
+def me(user: dict = Depends(current_user)) -> dict:
+    # A session restore is the first request after login/app launch. Repair
+    # legacy completed client profiles here so the router opens the client home.
+    user = _repair_completed_client_onboarding(user)
+    return {'user': _public_user(user)}
+
+
+def _signed_profile_photo(storage_key: str | None) -> str | None:
+    if not storage_key:
+        return None
+    try:
+        return presigned_profile_photo_url(storage_key, expires_in=600)
+    except (StorageNotConfigured, StorageReadError):
+        log.exception('Could not create temporary profile photo URL')
+        return None
+
+
+@app.get('/api/v1/profile')
+def own_profile(user: dict = Depends(current_user)) -> dict:
+    return {
+        'first_name': user['first_name'],
+        'last_name': user['last_name'],
+        'email': user['email'],
+        'phone': user['phone'],
+        'bio': user.get('bio'),
+        'role': user['role'],
+        'profile_photo_url': _signed_profile_photo(user.get('profile_photo_storage_key')),
+        'profile_photo_mime': user.get('profile_photo_mime'),
+    }
+
+
+@app.patch('/api/v1/profile')
+def update_own_profile(payload: OwnProfileUpdate,
+                       user: dict = Depends(current_user)) -> dict:
+    if user['role'] != 'admin':
+        raise _problem(403, 'PROFILE_ROUTE_ROLE', 'Usa el apartado de perfil de tu cuenta.')
+    first_name = _normalize_person_name(payload.first_name, 'nombre')
+    last_name = _normalize_person_name(payload.last_name, 'apellido')
+    phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
+    bio = payload.bio.strip() if payload.bio and payload.bio.strip() else None
+    changed = (first_name != user['first_name'] or last_name != user['last_name']
+               or phone != user.get('phone') or bio != user.get('bio'))
+    identity_changed = (first_name != user['first_name']
+                        or last_name != user['last_name']
+                        or phone != user.get('phone'))
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            if identity_changed:
+                _ensure_profile_edit_window(cur, user['id'])
+            _ensure_unique_person_name(cur, user['gym_id'], first_name, last_name, user['id'])
+            cur.execute("""UPDATE users SET first_name = %s, last_name = %s,
+                phone = %s, bio = %s,
+                profile_details_updated_at = CASE WHEN %s THEN now() ELSE profile_details_updated_at END,
+                updated_at = now() WHERE id = %s""",
+                (first_name, last_name, phone, bio, identity_changed, user['id']))
+            if changed:
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, subject_id, event_type)
+                    VALUES (%s, %s, %s, 'admin_profile_updated')""",
+                    (user['gym_id'], user['id'], user['id']))
+                cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                    VALUES (%s, 'profile_updated', 'Perfil actualizado',
+                        'Se guardaron cambios en tus datos personales.', %s)""",
+                    (user['id'], Jsonb({'event': 'admin_profile_updated'})))
+    return own_profile({**user, 'first_name': first_name, 'last_name': last_name,
+                        'phone': phone, 'bio': bio})
+
+
+@app.patch('/api/v1/profile/photo')
+def update_own_profile_photo(payload: ProfilePhotoUpdate,
+                             user: dict = Depends(current_user)) -> dict:
+    if user['status'] not in ('active', 'active_no_onboarding'):
+        raise _problem(403, 'ACTIVE_ACCOUNT_REQUIRED', 'La cuenta debe estar activa.')
+    if payload.photo_data is None and payload.photo_mime is None and not payload.remove_photo:
+        raise _problem(422, 'EMPTY_PROFILE_UPDATE', 'Incluye una foto o indica que quieres quitarla.')
+    if payload.photo_data is not None and payload.remove_photo:
+        raise _problem(422, 'INVALID_PROFILE_PHOTO', 'Elige una foto nueva o quita la foto actual.')
+
+    photo_bytes = None
+    if payload.photo_data is not None:
+        if payload.photo_mime is None:
+            raise _problem(415, 'INVALID_PROFILE_PHOTO', 'El formato de la foto no es válido.')
+        try:
+            photo_bytes = base64.b64decode(payload.photo_data, validate=True)
+        except (ValueError, binascii.Error):
+            raise _problem(415, 'INVALID_PROFILE_PHOTO', 'No se pudo leer la imagen seleccionada.')
+        if not photo_bytes or len(photo_bytes) > 2 * 1024 * 1024:
+            raise _problem(413, 'PROFILE_PHOTO_SIZE', 'La foto debe pesar máximo 2 MB.')
+        valid_signature = (
+            payload.photo_mime == 'image/jpeg' and photo_bytes.startswith(b'\xff\xd8\xff')
+        ) or (
+            payload.photo_mime == 'image/png' and photo_bytes.startswith(b'\x89PNG\r\n\x1a\n')
+        )
+        if not valid_signature:
+            raise _problem(415, 'INVALID_PROFILE_PHOTO', 'Usa una imagen JPG o PNG válida.')
+    elif payload.photo_mime is not None:
+        raise _problem(415, 'INVALID_PROFILE_PHOTO', 'Faltan los datos de la foto seleccionada.')
+
+    new_storage_key = None
+    if photo_bytes is not None:
+        extension = 'jpg' if payload.photo_mime == 'image/jpeg' else 'png'
+        try:
+            new_storage_key = put_profile_photo(
+                f"profile-photos/{user['id']}/{uuid.uuid4()}.{extension}",
+                photo_bytes, payload.photo_mime)
+        except StorageNotConfigured as exc:
+            raise _problem(503, 'PROFILE_PHOTO_STORAGE_NOT_CONFIGURED', str(exc))
+        except StorageWriteError as exc:
+            raise _problem(503, 'PROFILE_PHOTO_STORAGE_UNAVAILABLE', str(exc))
+
+    old_storage_key = user.get('profile_photo_storage_key')
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                if payload.remove_photo:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = NULL,
+                        profile_photo_mime = NULL, updated_at = now() WHERE id = %s""",
+                        (user['id'],))
+                elif new_storage_key:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
+                        profile_photo_mime = %s, updated_at = now() WHERE id = %s""",
+                        (new_storage_key, payload.photo_mime, user['id']))
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, subject_id, event_type, details)
+                    VALUES (%s, %s, %s, 'profile_photo_updated', %s)""",
+                    (user['gym_id'], user['id'], user['id'],
+                     Jsonb({'removed': payload.remove_photo})))
+    except Exception:
+        if new_storage_key:
+            try:
+                delete_profile_photo(new_storage_key)
+            except Exception:
+                log.exception('Could not clean up profile photo after database update failed')
+        raise
+    if old_storage_key and (payload.remove_photo or new_storage_key):
+        try:
+            delete_profile_photo(old_storage_key)
+        except Exception:
+            log.exception('Could not remove replaced profile photo from R2')
+    return own_profile({**user,
+                        'profile_photo_storage_key': None if payload.remove_photo else new_storage_key,
+                        'profile_photo_mime': None if payload.remove_photo else payload.photo_mime})
+
+
+@app.post('/api/v1/auth/refresh')
+def refresh_session(payload: RefreshRequest) -> dict:
+    now = datetime.now(UTC)
+    next_access_expires = now + timedelta(minutes=ACCESS_TOKEN_MINUTES)
+    next_refresh_token = secrets.token_urlsafe(48)
+    next_refresh_expires = now + timedelta(days=REFRESH_TOKEN_DAYS)
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            session = cur.execute("""SELECT s.id AS session_id, u.*,
+                    concat_ws(' ', a.first_name, a.last_name) AS deactivated_by_name
+                FROM auth_sessions s JOIN users u ON u.id = s.user_id
+                LEFT JOIN users a ON a.id = u.deactivated_by
+                WHERE s.refresh_token_hash = %s AND s.revoked_at IS NULL
+                  AND s.refresh_expires_at > now()
+                  AND s.session_version = u.session_version
+                FOR UPDATE OF s""", (_refresh_hash(payload.refresh_token),)).fetchone()
+            if session is None:
+                raise _problem(401, 'INVALID_REFRESH_TOKEN', 'La sesión venció. Inicia sesión de nuevo.')
+            cur.execute("""UPDATE auth_sessions SET expires_at = %s,
+                refresh_token_hash = %s, refresh_expires_at = %s WHERE id = %s""",
+                (next_access_expires, _refresh_hash(next_refresh_token),
+                 next_refresh_expires, session['session_id']))
+            response = {
+                'access_token': _token_for(session, session['session_id'], next_access_expires),
+                'refresh_token': next_refresh_token,
+                'token_type': 'Bearer',
+                'expires_at': next_access_expires.isoformat(),
+                'user': _public_user(session),
+            }
+    return response
+
+
+@app.post('/api/v1/auth/session-status')
+def deactivated_session_status(payload: RefreshRequest) -> dict:
+    """Return only a deactivation notice for a revoked session's owner."""
+    with pool.connection() as conn:
+        user = conn.execute("""SELECT u.*, concat_ws(' ', a.first_name, a.last_name)
+                AS deactivated_by_name
+            FROM auth_sessions s JOIN users u ON u.id = s.user_id
+            LEFT JOIN users a ON a.id = u.deactivated_by
+            WHERE s.refresh_token_hash = %s AND s.revoked_at IS NOT NULL
+              AND s.refresh_expires_at > now() AND u.status = 'deactivated'
+            LIMIT 1""", (_refresh_hash(payload.refresh_token),)).fetchone()
+    if user is None:
+        raise _problem(401, 'INVALID_SESSION_STATUS', 'La sesión venció. Inicia sesión de nuevo.')
+    return {'user': {
+        'role': user['role'],
+        'status': user['status'],
+        'member_number': user['member_number'],
+        'status_reason': user['status_reason'],
+        'deactivation_reason': user['deactivation_reason'],
+        'deactivated_at': user['deactivated_at'].isoformat() if user['deactivated_at'] else None,
+        'deactivated_by': user['deactivated_by_name'],
+        'reactivation_until': user['reactivation_until'].isoformat() if user['reactivation_until'] else None,
+    }}
+
+
+@app.get('/api/v1/trainer/profile')
+def trainer_profile(trainer: dict = Depends(active_trainer)) -> dict:
+    with pool.connection() as conn:
+        profile = conn.execute("""SELECT u.first_name, u.last_name, u.email, u.phone,
+                u.profile_photo_storage_key, u.profile_photo_mime,
+                tp.specialty, tp.bio, tp.notification_preferences,
+                coalesce((SELECT jsonb_agg(jsonb_build_object('id', tc.id, 'title', tc.title,
+                    'verified_at', tc.verified_at) ORDER BY tc.created_at)
+                    FROM trainer_certifications tc WHERE tc.trainer_id = u.id), '[]'::jsonb) AS certifications
+            FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id WHERE u.id = %s""",
+            (trainer['id'],)).fetchone()
+    result = dict(profile)
+    result['profile_photo_url'] = _signed_profile_photo(result.pop('profile_photo_storage_key'))
+    return result
+
+
+@app.get('/api/v1/trainer/certifications/{certification_id}/download')
+def trainer_certification_download(
+    certification_id: uuid.UUID,
+    trainer: dict = Depends(active_trainer),
+) -> dict:
+    with pool.connection() as conn:
+        certificate = conn.execute(
+            'SELECT storage_key FROM trainer_certifications WHERE id = %s AND trainer_id = %s',
+            (certification_id, trainer['id'])).fetchone()
+    if certificate is None:
+        raise _problem(404, 'CERTIFICATION_NOT_FOUND', 'No encontramos ese certificado.')
+    if not certificate['storage_key'].startswith('r2://'):
+        raise _problem(410, 'CERTIFICATION_NEEDS_MIGRATION',
+                       'Este certificado aún no está en el almacenamiento privado.')
+    try:
+        url = presigned_certificate_url(certificate['storage_key'], expires_in=600)
+    except StorageNotConfigured:
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', 'El almacenamiento privado no está disponible.')
+    except StorageReadError:
+        log.exception('Could not create trainer certificate link')
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', 'No se pudo generar el enlace temporal.')
+    return {'url': url, 'expires_in': 600}
+
+
+@app.put('/api/v1/trainer/certifications/{certification_id}')
+def replace_trainer_certification(
+    certification_id: uuid.UUID,
+    certification: UploadFile = File(...),
+    trainer: dict = Depends(active_trainer),
+) -> dict:
+    ext = Path(certification.filename or '').suffix.lower()
+    allowed = {
+        '.pdf': ('application/pdf', b'%PDF-'),
+        '.png': ('image/png', b'\x89PNG\r\n\x1a\n'),
+        '.jpg': ('image/jpeg', b'\xff\xd8\xff'),
+        '.jpeg': ('image/jpeg', b'\xff\xd8\xff'),
+    }
+    file_type = allowed.get(ext)
+    if file_type is None or certification.content_type != file_type[0]:
+        raise _problem(415, 'INVALID_CERTIFICATION', 'Adjunta una certificación PDF, PNG o JPG.')
+    data = certification.file.read(10 * 1024 * 1024 + 1)
+    if not data or len(data) > 10 * 1024 * 1024:
+        raise _problem(413, 'CERTIFICATION_SIZE', 'El archivo debe pesar hasta 10 MB.')
+    if not data.startswith(file_type[1]):
+        raise _problem(415, 'INVALID_CERTIFICATION', 'El contenido del archivo no coincide con su formato.')
+
+    new_storage_key = None
+    old_storage_key = None
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                certificate = cur.execute(
+                    'SELECT storage_key FROM trainer_certifications WHERE id = %s AND trainer_id = %s FOR UPDATE',
+                    (certification_id, trainer['id'])).fetchone()
+                if certificate is None:
+                    raise _problem(404, 'CERTIFICATION_NOT_FOUND', 'No encontramos ese certificado.')
+                old_storage_key = certificate['storage_key']
+                object_key = f"certifications/{GYM_ID}/{trainer['id']}/{uuid.uuid4()}{ext}"
+                new_storage_key = put_certificate(object_key, data, file_type[0], UPLOAD_DIR)
+                cur.execute("""UPDATE trainer_certifications
+                    SET title = %s, storage_key = %s, verified_at = NULL, verified_by = NULL
+                    WHERE id = %s AND trainer_id = %s""",
+                    (Path(certification.filename or 'Certificación').name,
+                     new_storage_key, certification_id, trainer['id']))
+    except HTTPException:
+        if new_storage_key:
+            try:
+                delete_certificate(new_storage_key)
+                if new_storage_key.startswith('local://'):
+                    (UPLOAD_DIR / new_storage_key.removeprefix('local://')).unlink(missing_ok=True)
+            except Exception:
+                log.exception('Could not clean up replacement certificate after failure')
+        raise
+    except StorageNotConfigured as exc:
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', str(exc))
+    except StorageWriteError:
+        log.exception('Replacement certificate upload failed')
+        raise _problem(503, 'CERT_STORAGE_UNAVAILABLE', 'No se pudo guardar el certificado. Intenta más tarde.')
+    except Exception:
+        if new_storage_key:
+            try:
+                delete_certificate(new_storage_key)
+                if new_storage_key.startswith('local://'):
+                    (UPLOAD_DIR / new_storage_key.removeprefix('local://')).unlink(missing_ok=True)
+            except Exception:
+                log.exception('Could not clean up replacement certificate after failure')
+        raise
+
+    if old_storage_key and old_storage_key.startswith('r2://'):
+        try:
+            delete_certificate(old_storage_key)
+        except Exception:
+            log.exception('Could not remove replaced certificate object')
+    return {'message': 'Certificado actualizado. Está pendiente de verificación.'}
+
+
+@app.patch('/api/v1/trainer/profile')
+def update_trainer_profile(payload: TrainerProfileUpdate,
+                           trainer: dict = Depends(active_trainer)) -> dict:
+    if str(payload.email).lower() != trainer['email']:
+        raise _problem(409, 'EMAIL_CHANGE_VERIFICATION_REQUIRED',
+                       'Verifica el nuevo correo antes de guardar el cambio.')
+    allowed_preferences = {'client_activity', 'routine_expiry', 'daily_reminder'}
+    preferences = {key: payload.notification_preferences.get(key, False)
+                   for key in allowed_preferences}
+    first_name = _normalize_person_name(payload.first_name, 'nombre')
+    last_name = _normalize_person_name(payload.last_name, 'apellido')
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                before = cur.execute("""SELECT u.first_name, u.last_name, u.phone,
+                        tp.specialty, tp.bio
+                    FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id
+                    WHERE u.id = %s FOR UPDATE OF u""", (trainer['id'],)).fetchone()
+                identity_changed = bool(before and (
+                    before['first_name'] != first_name or before['last_name'] != last_name
+                    or before['phone'] != (payload.phone.strip() if payload.phone else None)))
+                details_changed = bool(identity_changed or (before and (
+                    before['specialty'] != (payload.specialty.strip() if payload.specialty else None)
+                    or before['bio'] != (payload.bio.strip() if payload.bio else None))))
+                if identity_changed:
+                    _ensure_profile_edit_window(cur, trainer['id'])
+                _ensure_unique_person_name(cur, trainer['gym_id'], first_name,
+                                           last_name, trainer['id'])
+                cur.execute("""UPDATE users SET first_name = %s, last_name = %s,
+                    email = %s, phone = %s,
+                    profile_details_updated_at = CASE WHEN %s THEN now() ELSE profile_details_updated_at END,
+                    updated_at = now() WHERE id = %s""",
+                    (first_name, last_name,
+                     str(payload.email).lower(), payload.phone.strip() if payload.phone else None,
+                     identity_changed, trainer['id']))
+                cur.execute("""UPDATE trainer_profiles SET specialty = %s, bio = %s,
+                    notification_preferences = %s, updated_at = now() WHERE user_id = %s""",
+                    (payload.specialty.strip() if payload.specialty else None,
+                     payload.bio.strip() if payload.bio else None, Jsonb(preferences), trainer['id']))
+                cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, 'trainer_profile_updated', %s)",
+                    (trainer['gym_id'], trainer['id'], Jsonb({'email': str(payload.email)})))
+                if details_changed:
+                    cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                        VALUES (%s, 'profile_updated', 'Perfil actualizado',
+                            'Se guardaron cambios en tus datos personales o profesionales.', %s)""",
+                        (trainer['id'], Jsonb({'event': 'trainer_profile_updated'})))
+    except Exception as exc:
+        constraint = getattr(getattr(exc, 'diag', None), 'constraint_name', '')
+        if constraint == 'users_email_per_gym_uq':
+            raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado en el gimnasio.')
+        raise
+    return trainer_profile(trainer)
+
+
+@app.post('/api/v1/auth/email-change/code', status_code=202)
+def send_email_change_code(payload: EmailChangeRequest,
+                           user: dict = Depends(current_user)) -> dict:
+    new_email = str(payload.new_email).lower()
+    if new_email == user['email']:
+        raise _problem(409, 'EMAIL_UNCHANGED', 'Ese correo ya está asociado a tu cuenta.')
+    code = f'{secrets.randbelow(1_000_000):06d}'
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM users WHERE id = %s FOR UPDATE', (user['id'],))
+            cur.execute("DELETE FROM email_change_codes WHERE created_at < now() - interval '2 days'")
+            if cur.execute('SELECT 1 FROM users WHERE gym_id = %s AND email = %s',
+                           (user['gym_id'], new_email)).fetchone():
+                raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado en el gimnasio.')
+            recent = cur.execute("""SELECT count(*) AS n FROM email_change_codes
+                WHERE user_id = %s AND created_at > now() - interval '1 hour'""",
+                (user['id'],)).fetchone()['n']
+            if recent >= 3:
+                raise _problem(429, 'CODE_RATE_LIMIT',
+                               'Ya solicitaste varios códigos. Intenta de nuevo más tarde.')
+            cur.execute("""UPDATE email_change_codes SET consumed_at = now()
+                WHERE user_id = %s AND consumed_at IS NULL""", (user['id'],))
+            cur.execute("""INSERT INTO email_change_codes
+                (user_id, new_email, code_hash, expires_at)
+                VALUES (%s, %s, %s, now() + interval '10 minutes')""",
+                (user['id'], new_email, _email_hash_code(code)))
+    try:
+        channel = _deliver_auth_code(new_email, code, 'email_change')
+    except Exception:
+        with pool.connection() as conn:
+            conn.execute("""UPDATE email_change_codes SET consumed_at = now()
+                WHERE user_id = %s AND consumed_at IS NULL""", (user['id'],))
+        log.exception('Could not deliver email change code for user %s', user['id'])
+        raise _problem(503, 'CODE_DELIVERY_UNAVAILABLE',
+                       'No se pudo enviar el código. Intenta de nuevo más tarde.')
+    return {'message': 'Enviamos un código al nuevo correo.', 'channel': channel}
+
+
+@app.post('/api/v1/auth/email-change/confirm')
+def confirm_email_change(payload: EmailChangeConfirmRequest,
+                         user: dict = Depends(current_user)) -> dict:
+    try:
+        password_hasher.verify(user['password_hash'], payload.current_password)
+    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        raise _problem(400, 'CURRENT_PASSWORD_INVALID', 'La contraseña actual no es correcta.')
+
+    invalid_code = False
+    email_in_use = False
+    changed_email = None
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            pending = cur.execute("""SELECT id, new_email, code_hash, attempts
+                FROM email_change_codes WHERE user_id = %s AND consumed_at IS NULL
+                  AND expires_at > now() AND attempts < 5
+                ORDER BY created_at DESC LIMIT 1 FOR UPDATE""", (user['id'],)).fetchone()
+            if pending is None or not secrets.compare_digest(
+                    pending['code_hash'], _email_hash_code(payload.code)):
+                if pending is not None:
+                    cur.execute('UPDATE email_change_codes SET attempts = attempts + 1 WHERE id = %s',
+                                (pending['id'],))
+                invalid_code = True
+            elif cur.execute('SELECT 1 FROM users WHERE gym_id = %s AND email = %s AND id <> %s',
+                             (user['gym_id'], pending['new_email'], user['id'])).fetchone():
+                cur.execute('UPDATE email_change_codes SET consumed_at = now() WHERE id = %s',
+                            (pending['id'],))
+                email_in_use = True
+            else:
+                changed_email = pending['new_email']
+                cur.execute('UPDATE users SET email = %s, updated_at = now() WHERE id = %s',
+                            (changed_email, user['id']))
+                cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                    VALUES (%s, 'profile_updated', 'Correo actualizado',
+                        'Tu correo electrónico se verificó y actualizó correctamente.', %s)""",
+                    (user['id'], Jsonb({'event': 'email_updated'})))
+                cur.execute('UPDATE email_change_codes SET consumed_at = now() WHERE id = %s',
+                            (pending['id'],))
+                cur.execute("""UPDATE auth_sessions SET revoked_at = now()
+                    WHERE user_id = %s AND id <> %s AND revoked_at IS NULL""",
+                    (user['id'], user['session_id']))
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, subject_id, event_type, details)
+                    VALUES (%s, %s, %s, 'email_changed', %s)""",
+                    (user['gym_id'], user['id'], user['id'], Jsonb({'email_changed': True})))
+    if invalid_code:
+        raise _problem(400, 'INVALID_CODE', 'El código es incorrecto o ya venció.')
+    if email_in_use:
+        raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado en el gimnasio.')
+    _deliver_notice_email(user['email'], 'Cambio de correo en MUSKL',
+                          f'El correo de tu cuenta cambió a {changed_email}. Si no hiciste este cambio, contacta al gimnasio.')
+    _deliver_notice_email(changed_email, 'Correo actualizado en MUSKL',
+                          'Este correo quedó vinculado a tu cuenta MUSKL.')
+    return {'status': 'updated', 'email': changed_email}
+
+
+@app.patch('/api/v1/auth/password')
+def change_password(payload: PasswordChangeRequest,
+                    user: dict = Depends(current_user)) -> dict:
+    try:
+        password_hasher.verify(user['password_hash'], payload.current_password)
+    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        raise _problem(400, 'CURRENT_PASSWORD_INVALID', 'La contraseña actual no es correcta.')
+    code_valid = False
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            code_valid = _valid_reset_code(
+                cur, user['email'], payload.code, purpose='change', consume=True)
+            if code_valid:
+                cur.execute('UPDATE users SET password_hash = %s, updated_at = now() WHERE id = %s',
+                    (password_hasher.hash(payload.new_password), user['id']))
+                cur.execute('UPDATE auth_sessions SET revoked_at = now() WHERE user_id = %s AND id <> %s AND revoked_at IS NULL',
+                    (user['id'], user['session_id']))
+                cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type) VALUES (%s, %s, 'password_changed')",
+                    (user['gym_id'], user['id']))
+    if not code_valid:
+        raise _problem(400, 'INVALID_CODE', 'El código es incorrecto o ya venció.')
+    _deliver_account_notice(
+        user.get('email'), 'Tu contraseña cambió · MUSKL',
+        'La contraseña de tu cuenta MUSKL fue actualizada. Si no hiciste este cambio, contacta al gimnasio de inmediato.')
+    return {'status': 'updated'}
+
+
+@app.post('/api/v1/auth/password/change-code', status_code=202)
+def send_password_change_code(payload: PasswordChangeCodeRequest,
+                             user: dict = Depends(current_user)) -> dict:
+    try:
+        password_hasher.verify(user['password_hash'], payload.current_password)
+    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        raise _problem(400, 'CURRENT_PASSWORD_INVALID', 'La contraseña actual no es correcta.')
+    code = f'{secrets.randbelow(1_000_000):06d}'
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                recent = cur.execute(
+                    """SELECT count(*) AS n FROM password_reset_codes
+                       WHERE user_id = %s AND purpose = 'change'
+                         AND created_at > now() - interval '1 hour'""",
+                    (user['id'],)).fetchone()['n']
+                if recent >= 3:
+                    raise _problem(429, 'CODE_RATE_LIMIT',
+                                   'Ya solicitaste varios códigos. Intenta de nuevo más tarde.')
+                cur.execute("""UPDATE password_reset_codes SET consumed_at = now()
+                    WHERE user_id = %s AND purpose = 'change' AND consumed_at IS NULL""",
+                    (user['id'],))
+                cur.execute("""INSERT INTO password_reset_codes
+                    (user_id, purpose, code_hash, expires_at)
+                    VALUES (%s, 'change', %s, now() + interval '10 minutes')""",
+                    (user['id'], _email_hash_code(code)))
+        channel = _deliver_auth_code(user['email'], code, 'change')
+    except HTTPException:
+        raise
+    except Exception:
+        with pool.connection() as conn:
+            conn.execute("""UPDATE password_reset_codes SET consumed_at = now()
+                WHERE user_id = %s AND purpose = 'change' AND consumed_at IS NULL""",
+                (user['id'],))
+        log.exception('Could not deliver password change code for user %s', user['id'])
+        raise _problem(503, 'CODE_DELIVERY_UNAVAILABLE',
+                       'No se pudo enviar el código. Configura Brevo, Resend o SMTP e inténtalo de nuevo.')
+    return {'message': 'Si tienes acceso al correo vinculado, recibirás un código.',
+            'channel': channel}
+
+
+@app.post('/api/v1/auth/password/change-verify')
+def verify_password_change_code(payload: PasswordChangeCodeVerifyRequest,
+                                user: dict = Depends(current_user)) -> dict:
+    try:
+        password_hasher.verify(user['password_hash'], payload.current_password)
+    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        raise _problem(400, 'CURRENT_PASSWORD_INVALID', 'La contraseña actual no es correcta.')
+    with pool.connection() as conn:
+        valid = _valid_reset_code(conn.cursor(), user['email'], payload.code,
+                                  purpose='change', consume=False)
+    if not valid:
+        raise _problem(400, 'INVALID_CODE', 'El código es incorrecto o ya venció.')
+    return {'valid': True}
+
+
+@app.get('/api/v1/client/onboarding/options')
+def client_onboarding_options(client: dict = Depends(active_client)) -> dict:
+    with pool.connection() as conn:
+        birth_date = conn.execute(
+            "SELECT birth_date FROM client_profiles WHERE user_id = %s",
+            (client['id'],)).fetchone()
+        group = conn.execute("""SELECT g.plan_id, g.member_number,
+                (SELECT count(*) FROM client_group_members gm WHERE gm.group_id = g.id) AS member_count
+            FROM client_groups g JOIN client_group_members m ON m.group_id = g.id
+            WHERE m.user_id = %s""", (client['id'],)).fetchone()
+        plans = conn.execute("""SELECT id, name, price_mxn, duration_days, min_group_size, max_group_size
+            FROM membership_plans WHERE gym_id = %s AND active ORDER BY created_at, name""",
+            (client['gym_id'],)).fetchall()
+        trainers = conn.execute("""SELECT u.id, u.first_name, u.last_name, tp.specialty
+            FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id
+            WHERE u.gym_id = %s AND u.role = 'trainer' AND u.status = 'active'
+            ORDER BY u.first_name, u.last_name""", (client['gym_id'],)).fetchall()
+        assigned_trainer = conn.execute("""SELECT trainer_id FROM trainer_client_assignments
+            WHERE client_id = %s AND ends_at IS NULL""", (client['id'],)).fetchone()
+    result = {'plans': [{**p, 'id': str(p['id']), 'price_mxn': str(p['price_mxn']) if p['price_mxn'] is not None else None} for p in plans],
+              'trainers': [{**t, 'id': str(t['id'])} for t in trainers]}
+    result.update({'group_plan_id': str(group['plan_id']) if group and group['plan_id'] else None,
+                   'birth_date': birth_date['birth_date'].isoformat()
+                   if birth_date and birth_date['birth_date'] else None,
+                   'group_member_number': group['member_number'] if group else None,
+                   'group_member_count': group['member_count'] if group else 1,
+                   'assigned_trainer_id': str(assigned_trainer['trainer_id'])
+                   if assigned_trainer else None})
+    return result
+
+
+@app.get('/api/v1/client/trainers')
+def client_trainers(client: dict = Depends(active_client)) -> dict:
+    with pool.connection() as conn:
+        trainers = conn.execute("""SELECT u.id, u.first_name, u.last_name, tp.specialty
+            FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id
+            WHERE u.gym_id = %s AND u.role = 'trainer' AND u.status = 'active'
+            ORDER BY u.first_name, u.last_name""", (client['gym_id'],)).fetchall()
+        assigned = conn.execute("""SELECT tca.trainer_id, concat_ws(' ', t.first_name, t.last_name) AS name
+            FROM trainer_client_assignments tca JOIN users t ON t.id = tca.trainer_id
+            WHERE tca.client_id = %s AND tca.ends_at IS NULL LIMIT 1""",
+            (client['id'],)).fetchone()
+        request = conn.execute("""SELECT r.id, r.trainer_id, r.status, r.requested_at,
+                concat_ws(' ', t.first_name, t.last_name) AS trainer_name
+            FROM client_trainer_requests r JOIN users t ON t.id = r.trainer_id
+            WHERE r.client_id = %s AND r.status = 'pending'
+            ORDER BY r.requested_at DESC LIMIT 1""", (client['id'],)).fetchone()
+    return {
+        'trainers': [{**row, 'id': str(row['id'])} for row in trainers],
+        'assigned_trainer_id': str(assigned['trainer_id']) if assigned else None,
+        'assigned_trainer_name': assigned['name'] if assigned else None,
+        'pending_request': ({**request, 'id': str(request['id']),
+                             'trainer_id': str(request['trainer_id']),
+                             'requested_at': request['requested_at'].isoformat()}
+                            if request else None),
+    }
+
+
+@app.post('/api/v1/client/trainer-requests', status_code=201)
+def request_client_trainer(payload: TrainerRequestCreate,
+                           client: dict = Depends(active_client)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            assigned = cur.execute("""SELECT 1 FROM trainer_client_assignments
+                WHERE client_id = %s AND ends_at IS NULL""", (client['id'],)).fetchone()
+            if assigned:
+                raise _problem(409, 'TRAINER_ALREADY_ASSIGNED',
+                               'Ya tienes entrenador asignado. Contacta al gimnasio si necesitas cambiarlo.')
+            trainer = cur.execute("""SELECT id FROM users WHERE id = %s AND gym_id = %s
+                AND role = 'trainer' AND status = 'active'""",
+                (payload.trainer_id, client['gym_id'])).fetchone()
+            if trainer is None:
+                raise _problem(404, 'TRAINER_NOT_AVAILABLE', 'Ese entrenador ya no está disponible.')
+            request = cur.execute("""SELECT id FROM client_trainer_requests
+                WHERE client_id = %s AND status = 'pending' FOR UPDATE""",
+                (client['id'],)).fetchone()
+            if request:
+                cur.execute("""UPDATE client_trainer_requests SET trainer_id = %s,
+                    requested_at = now() WHERE id = %s""",
+                    (payload.trainer_id, request['id']))
+                request_id = request['id']
+            else:
+                request_id = cur.execute("""INSERT INTO client_trainer_requests
+                    (gym_id, client_id, trainer_id) VALUES (%s, %s, %s) RETURNING id""",
+                    (client['gym_id'], client['id'], payload.trainer_id)).fetchone()['id']
+            cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                VALUES (%s, 'trainer_request', 'Nueva solicitud de entrenador', %s, %s)""",
+                (payload.trainer_id,
+                 f"{client['first_name']} {client['last_name']} quiere que seas su entrenador.",
+                 Jsonb({'request_id': str(request_id), 'client_id': str(client['id'])})))
+    return {'id': str(request_id), 'status': 'pending'}
+
+
+@app.get('/api/v1/client/onboarding/routines')
+def client_onboarding_routines(goal: Literal['Bajar de peso', 'Masa muscular', 'Resistencia', 'Fuerza'],
+                               days_per_week: int = Query(ge=3, le=6),
+                               trainer_id: uuid.UUID | None = None,
+                               client: dict = Depends(active_client)) -> list[dict]:
+    with pool.connection() as conn:
+        rows = conn.execute("""SELECT r.id, r.name, r.goal, r.days_per_week,
+                concat_ws(' ', u.first_name, u.last_name) AS trainer_name,
+                rp.id AS phase_id, rp.duration_weeks,
+                (SELECT count(*) FROM routine_exercises re WHERE re.phase_id = rp.id) AS exercise_count
+            FROM routines r JOIN users u ON u.id = r.trainer_id
+            JOIN routine_phases rp ON rp.routine_id = r.id AND rp.phase_number = 1 AND rp.status = 'published'
+            WHERE r.gym_id = %s AND r.active AND u.status = 'active'
+              AND r.goal = %s AND r.days_per_week = %s
+              AND (%s::uuid IS NULL OR r.trainer_id = %s)
+            ORDER BY r.updated_at DESC LIMIT 3""",
+            (client['gym_id'], goal, days_per_week, trainer_id, trainer_id)).fetchall()
+    return [{**row, 'id': str(row['id']), 'phase_id': str(row['phase_id'])} for row in rows]
+
+
+@app.get('/api/v1/trainer/clients')
+def trainer_clients(search: str = Query(default='', max_length=100),
+                    trainer: dict = Depends(active_trainer)) -> list[dict]:
+    term = f'%{search.strip()}%'
+    with pool.connection() as conn:
+        rows = conn.execute("""SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.member_number,
+                p.name AS membership_plan, m.ends_on AS membership_ends_on,
+                r.name AS routine_name, cp.goal, cp.days_per_week,
+                (SELECT count(*) FROM attendance a WHERE a.client_id = u.id AND a.local_date >= (now() AT TIME ZONE g.timezone)::date - 6) AS attendance_7d
+            FROM trainer_client_assignments tca
+            JOIN users u ON u.id = tca.client_id AND u.status IN ('active', 'active_no_onboarding')
+            JOIN gyms g ON g.id = u.gym_id
+            LEFT JOIN client_profiles cp ON cp.user_id = u.id
+            LEFT JOIN LATERAL (SELECT plan_id, ends_on FROM memberships WHERE client_id = u.id AND status = 'active' ORDER BY ends_on DESC LIMIT 1) m ON true
+            LEFT JOIN membership_plans p ON p.id = m.plan_id
+            LEFT JOIN LATERAL (SELECT r.name FROM client_routine_assignments cra JOIN routines r ON r.id = cra.routine_id WHERE cra.client_id = u.id AND cra.ended_at IS NULL LIMIT 1) r ON true
+            WHERE tca.trainer_id = %s AND tca.ends_at IS NULL
+              AND (concat_ws(' ', u.first_name, u.last_name) ILIKE %s OR u.member_number ILIKE %s)
+            ORDER BY u.first_name, u.last_name""", (trainer['id'], term, term)).fetchall()
+    return [{**row, 'id': str(row['id']), 'membership_ends_on': row['membership_ends_on'].isoformat() if row['membership_ends_on'] else None} for row in rows]
+
+
+@app.get('/api/v1/trainer/assignment-requests')
+def trainer_assignment_requests(trainer: dict = Depends(active_trainer)) -> list[dict]:
+    with pool.connection() as conn:
+        rows = conn.execute("""SELECT r.id, r.client_id, u.first_name, u.last_name,
+                u.member_number, u.email, r.requested_at
+            FROM client_trainer_requests r JOIN users u ON u.id = r.client_id
+            WHERE r.trainer_id = %s AND r.status = 'pending' AND u.status IN ('active', 'active_no_onboarding')
+            ORDER BY r.requested_at""", (trainer['id'],)).fetchall()
+    return [{**row, 'id': str(row['id']), 'client_id': str(row['client_id']),
+             'requested_at': row['requested_at'].isoformat()} for row in rows]
+
+
+@app.post('/api/v1/trainer/assignment-requests/{request_id}/accept')
+def accept_trainer_assignment_request(request_id: uuid.UUID,
+                                      payload: TrainerRequestAcceptance,
+                                      trainer: dict = Depends(active_trainer)) -> dict:
+    if (payload.routine_id is None) != (payload.phase_id is None):
+        raise _problem(422, 'INVALID_ROUTINE_SELECTION',
+                       'Selecciona la rutina y la fase publicada.')
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            request = cur.execute("""SELECT id, client_id FROM client_trainer_requests
+                WHERE id = %s AND trainer_id = %s AND status = 'pending' FOR UPDATE""",
+                (request_id, trainer['id'])).fetchone()
+            if request is None:
+                raise _problem(404, 'TRAINER_REQUEST_NOT_FOUND', 'La solicitud ya fue atendida o no existe.')
+            client = cur.execute("""SELECT id, first_name, last_name FROM users
+                WHERE id = %s AND gym_id = %s AND role = 'client'
+                  AND status IN ('active', 'active_no_onboarding') FOR UPDATE""",
+                (request['client_id'], trainer['gym_id'])).fetchone()
+            if client is None:
+                raise _problem(404, 'CLIENT_NOT_AVAILABLE', 'El socio ya no está disponible.')
+            current = cur.execute("""SELECT id FROM trainer_client_assignments
+                WHERE client_id = %s AND ends_at IS NULL FOR UPDATE""",
+                (client['id'],)).fetchone()
+            if current:
+                raise _problem(409, 'CLIENT_ALREADY_ASSIGNED', 'El socio ya tiene un entrenador asignado.')
+            cur.execute("""INSERT INTO trainer_client_assignments
+                (trainer_id, client_id, assigned_by) VALUES (%s, %s, %s)""",
+                (trainer['id'], client['id'], trainer['id']))
+            assigned_routine = None
+            if payload.routine_id is not None:
+                assigned_routine = cur.execute("""SELECT r.id, rp.id AS phase_id
+                    FROM routines r JOIN routine_phases rp ON rp.routine_id = r.id
+                    WHERE r.id = %s AND r.trainer_id = %s AND r.gym_id = %s
+                      AND r.active AND rp.id = %s AND rp.status = 'published'""",
+                    (payload.routine_id, trainer['id'], trainer['gym_id'],
+                     payload.phase_id)).fetchone()
+                if assigned_routine is None:
+                    raise _problem(404, 'ROUTINE_NOT_AVAILABLE',
+                                   'La rutina publicada ya no está disponible.')
+                cur.execute("""UPDATE client_routine_assignments SET ended_at = now()
+                    WHERE client_id = %s AND ended_at IS NULL""", (client['id'],))
+                assignment = cur.execute("""INSERT INTO client_routine_assignments
+                    (client_id, routine_id, current_phase_id, assigned_by)
+                    VALUES (%s, %s, %s, %s) RETURNING id""",
+                    (client['id'], assigned_routine['id'], assigned_routine['phase_id'],
+                     trainer['id'])).fetchone()
+                cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                    VALUES (%s, 'routine_assigned', 'Tu rutina está lista', %s, %s)""",
+                    (client['id'], 'Tu entrenador te aceptó y te asignó una rutina. Ya puedes consultarla en Inicio.',
+                     Jsonb({'routine_id': str(assigned_routine['id'])})))
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, subject_id, event_type, details)
+                    VALUES (%s, %s, %s, 'routine_assigned', %s)""",
+                    (trainer['gym_id'], trainer['id'], client['id'],
+                     Jsonb({'routine_id': str(assigned_routine['id']),
+                            'assignment_id': str(assignment['id'])})))
+            cur.execute("UPDATE client_trainer_requests SET status = 'accepted', reviewed_at = now() WHERE id = %s",
+                        (request_id,))
+            cur.execute("""UPDATE client_trainer_requests SET status = 'cancelled', reviewed_at = now()
+                WHERE client_id = %s AND id <> %s AND status = 'pending'""",
+                (client['id'], request_id))
+            cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                VALUES (%s, 'trainer_accepted', 'Entrenador asignado', %s, %s)""",
+                (client['id'], f"{trainer['first_name']} {trainer['last_name']} aceptó tu solicitud.",
+                 Jsonb({'trainer_id': str(trainer['id']),
+                        'routine_id': str(assigned_routine['id']) if assigned_routine else None})))
+    return {'request_id': str(request_id), 'client_id': str(client['id']),
+            'status': 'accepted',
+            'routine_id': str(assigned_routine['id']) if assigned_routine else None}
+
+
+@app.post('/api/v1/trainer/assignment-requests/{request_id}/reject')
+def reject_trainer_assignment_request(request_id: uuid.UUID,
+                                      trainer: dict = Depends(active_trainer)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            request = cur.execute("""UPDATE client_trainer_requests SET status = 'rejected', reviewed_at = now()
+                WHERE id = %s AND trainer_id = %s AND status = 'pending' RETURNING client_id""",
+                (request_id, trainer['id'])).fetchone()
+            if request is None:
+                raise _problem(404, 'TRAINER_REQUEST_NOT_FOUND', 'La solicitud ya fue atendida o no existe.')
+            cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                VALUES (%s, 'trainer_rejected', 'Solicitud de entrenador', %s, %s)""",
+                (request['client_id'], f"{trainer['first_name']} {trainer['last_name']} no pudo aceptar tu solicitud. Puedes elegir otro entrenador.",
+                 Jsonb({'trainer_id': str(trainer['id'])})))
+    return {'request_id': str(request_id), 'status': 'rejected'}
+
+
+@app.get('/api/v1/trainer/clients/{client_id}')
+def trainer_client_detail(client_id: uuid.UUID,
+                          trainer: dict = Depends(active_trainer)) -> dict:
+    with pool.connection() as conn:
+        row = conn.execute("""SELECT u.id, u.first_name, u.last_name, u.email, u.phone,
+                u.member_number, cp.goal, cp.experience_level, cp.days_per_week, cp.limitations,
+                mp.name AS membership_plan, m.ends_on AS membership_ends_on,
+                r.id AS routine_id, r.name AS routine_name, r.goal AS routine_goal,
+                rp.phase_number, cra.phase_started_at,
+                (SELECT count(*) FROM attendance a WHERE a.client_id = u.id) AS attendance_total,
+                (SELECT count(*) FROM workout_completions wc WHERE wc.client_id = u.id) AS workouts_total,
+                (SELECT count(*) FROM workout_completions wc WHERE wc.client_id = u.id
+                    AND wc.workout_date >= (now() AT TIME ZONE g.timezone)::date - 6) AS workouts_7d,
+                coalesce((SELECT jsonb_agg(a.local_date ORDER BY a.local_date)
+                    FROM attendance a WHERE a.client_id = u.id
+                    AND a.local_date >= (now() AT TIME ZONE g.timezone)::date - 6), '[]'::jsonb) AS attendance_7d_dates
+            FROM users u JOIN gyms g ON g.id = u.gym_id
+            JOIN trainer_client_assignments tca ON tca.client_id = u.id
+                AND tca.trainer_id = %s AND tca.ends_at IS NULL
+            LEFT JOIN client_profiles cp ON cp.user_id = u.id
+            LEFT JOIN LATERAL (SELECT plan_id, ends_on FROM memberships WHERE client_id = u.id
+                AND status = 'active' ORDER BY ends_on DESC LIMIT 1) m ON true
+            LEFT JOIN membership_plans mp ON mp.id = m.plan_id
+            LEFT JOIN LATERAL (SELECT routine_id, current_phase_id, phase_started_at
+                FROM client_routine_assignments WHERE client_id = u.id AND ended_at IS NULL LIMIT 1) cra ON true
+            LEFT JOIN routines r ON r.id = cra.routine_id
+            LEFT JOIN routine_phases rp ON rp.id = cra.current_phase_id
+            WHERE u.id = %s AND u.gym_id = %s AND u.role = 'client'
+              AND u.status IN ('active', 'active_no_onboarding')""",
+            (trainer['id'], client_id, trainer['gym_id'])).fetchone()
+    if row is None:
+        raise _problem(404, 'CLIENT_NOT_FOUND', 'No encontramos un cliente activo asignado a tu cuenta.')
+    row['id'] = str(row['id'])
+    if row['routine_id']:
+        row['routine_id'] = str(row['routine_id'])
+    if row['membership_ends_on']:
+        row['membership_ends_on'] = row['membership_ends_on'].isoformat()
+    if row['phase_started_at']:
+        row['phase_started_at'] = row['phase_started_at'].isoformat()
+    return row
+
+
+@app.get('/api/v1/trainer/routines')
+def trainer_routines(trainer: dict = Depends(active_trainer)) -> list[dict]:
+    with pool.connection() as conn:
+        rows = conn.execute("""SELECT r.id, r.name, r.goal, r.days_per_week, r.created_at,
+                rp.id AS phase_id, rp.phase_number, rp.status AS phase_status,
+                (SELECT count(*) FROM client_routine_assignments cra WHERE cra.routine_id = r.id AND cra.ended_at IS NULL) AS assigned_clients,
+                (SELECT count(*) FROM routine_phases phases WHERE phases.routine_id = r.id) AS phases
+            FROM routines r LEFT JOIN routine_phases rp ON rp.routine_id = r.id AND rp.phase_number = 1
+            WHERE r.trainer_id = %s AND r.active ORDER BY r.updated_at DESC""",
+            (trainer['id'],)).fetchall()
+    return [{**row, 'id': str(row['id'])} for row in rows]
+
+
+@app.get('/api/v1/trainer/exercises')
+def trainer_exercise_catalog(search: str = Query(default='', max_length=80),
+                             trainer: dict = Depends(active_trainer)) -> list[dict]:
+    term = search.strip()
+    pattern = f'%{term}%'
+    with pool.connection() as conn:
+        rows = conn.execute("""SELECT id, name, muscle_group, equipment, instructions, media_url
+            FROM exercise_catalog
+            WHERE active AND (%s = '' OR name ILIKE %s OR muscle_group ILIKE %s OR equipment ILIKE %s)
+            ORDER BY name LIMIT 50""",
+            (term, pattern, pattern, pattern)).fetchall()
+    return [{**row, 'id': str(row['id'])} for row in rows]
+
+
+def _resolve_catalog_exercise(
+    cur, exercise: RoutineExerciseInput
+) -> tuple[uuid.UUID | None, str, str | None, str | None]:
+    if exercise.catalog_id is None:
+        return None, exercise.name.strip(), None, None
+    catalog = cur.execute("""SELECT id, name, media_url, instructions FROM exercise_catalog
+        WHERE id = %s AND active""", (exercise.catalog_id,)).fetchone()
+    if catalog is None:
+        raise _problem(422, 'EXERCISE_NOT_AVAILABLE', 'El ejercicio elegido ya no está disponible.')
+    return catalog['id'], catalog['name'], catalog['media_url'], catalog['instructions']
+
+
+@app.post('/api/v1/trainer/routines', status_code=201)
+def create_trainer_routine(payload: RoutineCreateRequest,
+                           trainer: dict = Depends(active_trainer)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            routine = cur.execute("""INSERT INTO routines (gym_id, trainer_id, name, goal, days_per_week)
+                VALUES (%s, %s, %s, %s, %s) RETURNING id, name, goal, days_per_week""",
+                (trainer['gym_id'], trainer['id'], payload.name.strip(), payload.goal, len(payload.days))).fetchone()
+            phase = cur.execute("INSERT INTO routine_phases (routine_id, phase_number, name, duration_weeks, status) VALUES (%s, 1, 'Fase 1', 8, 'draft') RETURNING id",
+                                (routine['id'],)).fetchone()
+            positions: dict[int, int] = {}
+            for exercise in payload.exercises:
+                day_number = exercise.day_number
+                positions[day_number] = positions.get(day_number, 0) + 1
+                catalog_id, exercise_name, media_url, instructions = _resolve_catalog_exercise(cur, exercise)
+                cur.execute("""INSERT INTO routine_exercises
+                    (phase_id, day_number, position, exercise_catalog_id, name, sets, reps,
+                     rest_seconds, media_url, instructions)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (phase['id'], day_number, positions[day_number], catalog_id, exercise_name,
+                     exercise.sets, exercise.reps, exercise.rest_seconds, media_url, instructions))
+            cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, %s, %s)",
+                        (trainer['gym_id'], trainer['id'], 'routine_created', Jsonb({'routine_id': str(routine['id']), 'phase_id': str(phase['id'])})))
+    return {**routine, 'id': str(routine['id']), 'phase_id': str(phase['id']), 'status': 'draft'}
+
+
+@app.get('/api/v1/trainer/routines/{routine_id}')
+def trainer_routine_detail(routine_id: uuid.UUID,
+                           trainer: dict = Depends(active_trainer)) -> dict:
+    with pool.connection() as conn:
+        routine = conn.execute("""SELECT id, name, goal, days_per_week FROM routines
+            WHERE id = %s AND trainer_id = %s AND active""",
+            (routine_id, trainer['id'])).fetchone()
+        if routine is None:
+            raise _problem(404, 'ROUTINE_NOT_FOUND', 'No encontramos esa rutina.')
+        phases = conn.execute("""SELECT rp.id, rp.phase_number, rp.name, rp.duration_weeks,
+                rp.status, rp.published_at,
+                (SELECT count(*) FROM routine_exercises e WHERE e.phase_id = rp.id) AS exercise_count
+            FROM routine_phases rp WHERE rp.routine_id = %s ORDER BY rp.phase_number""",
+            (routine_id,)).fetchall()
+        exercises = conn.execute("""SELECT e.id, e.phase_id, rp.phase_number, e.day_number,
+                e.position, e.name, e.sets, e.reps, e.rest_seconds, e.instructions
+            FROM routine_exercises e JOIN routine_phases rp ON rp.id = e.phase_id
+            WHERE rp.routine_id = %s ORDER BY rp.phase_number, e.day_number, e.position""",
+            (routine_id,)).fetchall()
+    routine['id'] = str(routine['id'])
+    for phase in phases:
+        phase['id'] = str(phase['id'])
+        phase['published_at'] = phase['published_at'].isoformat() if phase['published_at'] else None
+    for exercise in exercises:
+        exercise['id'] = str(exercise['id'])
+        exercise['phase_id'] = str(exercise['phase_id'])
+    return {**routine, 'phases': phases, 'exercises': exercises}
+
+
+@app.post('/api/v1/trainer/routines/{routine_id}/phases', status_code=201)
+def create_routine_phase(routine_id: uuid.UUID, payload: RoutinePhaseCreateRequest,
+                         trainer: dict = Depends(active_trainer)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            routine = cur.execute("SELECT id, days_per_week FROM routines WHERE id = %s AND trainer_id = %s AND active FOR UPDATE",
+                                  (routine_id, trainer['id'])).fetchone()
+            if routine is None:
+                raise _problem(404, 'ROUTINE_NOT_FOUND', 'No encontramos esa rutina.')
+            if len(payload.days) != routine['days_per_week']:
+                raise _problem(422, 'ROUTINE_DAYS_MISMATCH', 'La nueva fase debe conservar los días semanales de la rutina.')
+            latest = cur.execute("SELECT phase_number, status FROM routine_phases WHERE routine_id = %s ORDER BY phase_number DESC LIMIT 1 FOR UPDATE",
+                                 (routine_id,)).fetchone()
+            if latest is None or latest['status'] != 'published':
+                raise _problem(409, 'PREVIOUS_PHASE_NOT_PUBLISHED', 'Publica la fase actual antes de crear la siguiente.')
+            number = latest['phase_number'] + 1
+            phase = cur.execute("""INSERT INTO routine_phases (routine_id, phase_number, name, duration_weeks)
+                VALUES (%s, %s, %s, 8) RETURNING id, phase_number, name, duration_weeks, status""",
+                (routine_id, number, payload.name.strip())).fetchone()
+            positions: dict[int, int] = {}
+            for exercise in payload.exercises:
+                day = exercise.day_number
+                positions[day] = positions.get(day, 0) + 1
+                catalog_id, exercise_name, media_url, instructions = _resolve_catalog_exercise(cur, exercise)
+                cur.execute("""INSERT INTO routine_exercises
+                    (phase_id, day_number, position, exercise_catalog_id, name, sets, reps,
+                     rest_seconds, media_url, instructions)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (phase['id'], day, positions[day], catalog_id, exercise_name, exercise.sets,
+                     exercise.reps, exercise.rest_seconds, media_url, instructions))
+            cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, 'routine_phase_created', %s)",
+                (trainer['gym_id'], trainer['id'], Jsonb({'routine_id': str(routine_id), 'phase_id': str(phase['id']), 'phase_number': number})))
+    return {**phase, 'id': str(phase['id'])}
+
+
+@app.post('/api/v1/trainer/routines/{routine_id}/phases/{phase_id}/publish')
+def publish_routine_phase(routine_id: uuid.UUID, phase_id: uuid.UUID,
+                          trainer: dict = Depends(active_trainer)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            phase = cur.execute("""SELECT rp.id, rp.phase_number, rp.status,
+                    (SELECT max(previous.phase_number) FROM routine_phases previous
+                      WHERE previous.routine_id = r.id AND previous.status = 'published') AS last_published
+                FROM routines r JOIN routine_phases rp ON rp.routine_id = r.id
+                WHERE r.id = %s AND r.trainer_id = %s AND r.active AND rp.id = %s
+                FOR UPDATE OF rp""", (routine_id, trainer['id'], phase_id)).fetchone()
+            if phase is None:
+                raise _problem(404, 'PHASE_NOT_FOUND', 'No encontramos esa fase.')
+            if phase['status'] == 'published':
+                return {'routine_id': str(routine_id), 'phase_id': str(phase_id), 'status': 'published'}
+            if phase['last_published'] is None or phase['phase_number'] != phase['last_published'] + 1:
+                raise _problem(409, 'PHASE_ORDER_INVALID', 'Debes publicar las fases en orden.')
+            has_exercises = cur.execute('SELECT EXISTS (SELECT 1 FROM routine_exercises WHERE phase_id = %s) AS has_exercises',
+                                        (phase_id,)).fetchone()['has_exercises']
+            if not has_exercises:
+                raise _problem(409, 'PHASE_EMPTY', 'Agrega ejercicios antes de publicar la fase.')
+            cur.execute("UPDATE routine_phases SET status = 'published', published_at = now() WHERE id = %s",
+                        (phase_id,))
+            cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, 'routine_phase_published', %s)",
+                (trainer['gym_id'], trainer['id'], Jsonb({'routine_id': str(routine_id), 'phase_id': str(phase_id), 'phase_number': phase['phase_number']})))
+    return {'routine_id': str(routine_id), 'phase_id': str(phase_id), 'status': 'published'}
+
+
+@app.post('/api/v1/trainer/routines/{routine_id}/publish')
+def publish_trainer_routine(routine_id: uuid.UUID,
+                            trainer: dict = Depends(active_trainer)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            phase = cur.execute("""SELECT rp.id, rp.status FROM routine_phases rp
+                JOIN routines r ON r.id = rp.routine_id
+                WHERE r.id = %s AND r.trainer_id = %s AND r.active AND rp.phase_number = 1
+                FOR UPDATE OF rp""", (routine_id, trainer['id'])).fetchone()
+            if phase is None:
+                raise _problem(404, 'routine_not_found', 'No se encontró la rutina.')
+            if phase['status'] != 'published':
+                cur.execute("UPDATE routine_phases SET status = 'published', published_at = now() WHERE id = %s",
+                            (phase['id'],))
+            cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, 'routine_published', %s)",
+                        (trainer['gym_id'], trainer['id'], Jsonb({'routine_id': str(routine_id), 'phase_id': str(phase['id'])})))
+    return {'routine_id': str(routine_id), 'phase_id': str(phase['id']), 'status': 'published'}
+
+
+@app.post('/api/v1/trainer/routines/{routine_id}/assign')
+def assign_trainer_routine(routine_id: uuid.UUID, payload: RoutineAssignmentRequest,
+                           trainer: dict = Depends(active_trainer)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            row = cur.execute("""SELECT r.id AS routine_id, rp.id AS phase_id, u.id AS client_id
+                FROM routines r JOIN routine_phases rp ON rp.routine_id = r.id
+                JOIN users u ON u.id = %s AND u.gym_id = r.gym_id AND u.role = 'client'
+                  AND u.status IN ('active', 'active_no_onboarding')
+                JOIN trainer_client_assignments tca ON tca.client_id = u.id AND tca.trainer_id = r.trainer_id AND tca.ends_at IS NULL
+                WHERE r.id = %s AND r.trainer_id = %s AND r.active AND rp.id = %s AND rp.status = 'published'
+                FOR UPDATE OF u""", (payload.client_id, routine_id, trainer['id'], payload.phase_id)).fetchone()
+            if row is None:
+                raise _problem(404, 'assignment_not_allowed', 'Rutina publicada o cliente asignado no encontrado.')
+            cur.execute("UPDATE client_routine_assignments SET ended_at = now() WHERE client_id = %s AND ended_at IS NULL",
+                        (row['client_id'],))
+            assignment = cur.execute("""INSERT INTO client_routine_assignments
+                (client_id, routine_id, current_phase_id, assigned_by)
+                VALUES (%s, %s, %s, %s) RETURNING id""",
+                (row['client_id'], row['routine_id'], row['phase_id'], trainer['id'])).fetchone()
+            cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                VALUES (%s, 'routine_assigned', 'Tu rutina está lista', %s, %s)""",
+                (row['client_id'], 'Tu entrenador te asignó una rutina. Ya puedes consultarla en Inicio.',
+                 Jsonb({'routine_id': str(row['routine_id'])})))
+            cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, event_type, details) VALUES (%s, %s, 'routine_assigned', %s)",
+                        (trainer['gym_id'], trainer['id'], Jsonb({'client_id': str(row['client_id']), 'routine_id': str(row['routine_id']), 'assignment_id': str(assignment['id'])})))
+    return {'assignment_id': str(assignment['id']), 'client_id': str(row['client_id']), 'routine_id': str(row['routine_id'])}
+
+
+@app.post('/api/v1/client/onboarding')
+def complete_client_onboarding(payload: ClientOnboardingRequest,
+                               client: dict = Depends(active_client)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            locked = cur.execute("""SELECT u.id, u.role, u.status,
+                cp.onboarding_completed_at FROM users u
+                LEFT JOIN client_profiles cp ON cp.user_id = u.id
+                WHERE u.id = %s AND u.gym_id = %s FOR UPDATE OF u""",
+                (client['id'], client['gym_id'])).fetchone()
+            if (locked is not None and locked['role'] == 'client'
+                    and locked['onboarding_completed_at'] is not None):
+                updated = cur.execute("""UPDATE users SET status = 'active', updated_at = now()
+                    WHERE id = %s RETURNING *""", (client['id'],)).fetchone()
+                return {'user': _public_user(updated)}
+            if locked is None or locked['role'] != 'client' or locked['status'] != 'active_no_onboarding':
+                raise _problem(409, 'ONBOARDING_ALREADY_COMPLETED', 'El onboarding ya se completó o la cuenta no está disponible.')
+            group = cur.execute("""SELECT g.id, g.plan_id FROM client_groups g
+                JOIN client_group_members m ON m.group_id = g.id
+                WHERE m.user_id = %s FOR UPDATE OF g""", (client['id'],)).fetchone()
+            current_assignment = cur.execute("""SELECT trainer_id FROM trainer_client_assignments
+                WHERE client_id = %s AND ends_at IS NULL FOR UPDATE""",
+                (client['id'],)).fetchone()
+            selected_trainer_id = payload.trainer_id or (
+                current_assignment['trainer_id'] if current_assignment else None)
+            if selected_trainer_id is not None:
+                trainer = cur.execute("""SELECT id FROM users WHERE id = %s AND gym_id = %s
+                    AND role = 'trainer' AND status = 'active'""",
+                    (selected_trainer_id, client['gym_id'])).fetchone()
+                if trainer is None:
+                    raise _problem(404, 'TRAINER_NOT_AVAILABLE',
+                                   'El entrenador seleccionado ya no está disponible.')
+            chosen_plan_id = group['plan_id'] if group and group['plan_id'] else payload.plan_id
+            if group and group['plan_id'] and payload.plan_id != group['plan_id']:
+                raise _problem(409, 'GROUP_PLAN_LOCKED', 'Todos los integrantes deben conservar el plan del grupo.')
+            plan = cur.execute("SELECT id, duration_days FROM membership_plans WHERE id = %s AND gym_id = %s AND active",
+                               (chosen_plan_id, client['gym_id'])).fetchone()
+            if plan is None:
+                raise _problem(404, 'PLAN_NOT_FOUND', 'Elige un plan de membresía disponible.')
+            if plan['duration_days'] is None:
+                raise _problem(409, 'PLAN_NOT_CONFIGURED', 'Este plan todavía no tiene una duración configurada.')
+            starts = cur.execute("SELECT (now() AT TIME ZONE timezone)::date AS date FROM gyms WHERE id = %s",
+                                 (client['gym_id'],)).fetchone()['date']
+            cur.execute("INSERT INTO memberships (client_id, plan_id, starts_on, ends_on, registered_by) VALUES (%s, %s, %s, %s, %s)",
+                        (client['id'], plan['id'], starts, starts + timedelta(days=plan['duration_days'] - 1), client['id']))
+            if group and group['plan_id'] is None:
+                cur.execute('UPDATE client_groups SET plan_id = %s WHERE id = %s',
+                            (plan['id'], group['id']))
+            if current_assignment is None and selected_trainer_id is not None:
+                pending_request = cur.execute("""SELECT id FROM client_trainer_requests
+                    WHERE client_id = %s AND status = 'pending' FOR UPDATE""",
+                    (client['id'],)).fetchone()
+                if pending_request:
+                    cur.execute("""UPDATE client_trainer_requests SET trainer_id = %s,
+                        requested_at = now() WHERE id = %s""",
+                        (selected_trainer_id, pending_request['id']))
+                    request_id = pending_request['id']
+                else:
+                    request_id = cur.execute("""INSERT INTO client_trainer_requests
+                        (gym_id, client_id, trainer_id) VALUES (%s, %s, %s) RETURNING id""",
+                        (client['gym_id'], client['id'], selected_trainer_id)).fetchone()['id']
+                cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                    VALUES (%s, 'trainer_request', 'Nueva solicitud de entrenador', %s, %s)""",
+                    (selected_trainer_id,
+                     f"{client['first_name']} {client['last_name']} quiere que seas su entrenador.",
+                     Jsonb({'request_id': str(request_id), 'client_id': str(client['id'])})))
+            cur.execute("""UPDATE client_profiles SET goal = %s, experience_level = %s,
+                days_per_week = %s, weight_kg = %s, height_cm = %s, limitations = %s,
+                onboarding_completed_at = now(), updated_at = now() WHERE user_id = %s""",
+                (payload.goal, payload.experience_level, payload.days_per_week,
+                 payload.weight_kg, payload.height_cm, payload.limitations, client['id']))
+            updated = cur.execute("UPDATE users SET status = 'active' WHERE id = %s RETURNING *", (client['id'],)).fetchone()
+            cur.execute("INSERT INTO account_audit_events (gym_id, actor_id, subject_id, event_type, details) VALUES (%s, %s, %s, %s, %s)",
+                        (client['gym_id'], client['id'], client['id'], 'client_onboarding_completed', Jsonb({'plan_id': str(plan['id']), 'trainer_id': str(selected_trainer_id) if selected_trainer_id else None, 'trainer_request_created': current_assignment is None and selected_trainer_id is not None})))
+    return {'user': _public_user(updated)}
+
+
+def _advance_due_client_phase(conn, client_id: uuid.UUID) -> bool:
+    with conn.cursor() as cur:
+        current = cur.execute("""SELECT cra.id AS assignment_id, cra.current_phase_id,
+                cra.phase_started_at, r.id AS routine_id, r.name AS routine_name,
+                r.trainer_id, rp.phase_number, u.gym_id
+            FROM client_routine_assignments cra
+            JOIN routines r ON r.id = cra.routine_id AND r.active
+            JOIN routine_phases rp ON rp.id = cra.current_phase_id AND rp.status = 'published'
+            JOIN users u ON u.id = cra.client_id
+            WHERE cra.client_id = %s AND cra.ended_at IS NULL
+              AND cra.phase_started_at <= now() - interval '8 weeks'
+            ORDER BY cra.started_at DESC LIMIT 1 FOR UPDATE OF cra""",
+            (client_id,)).fetchone()
+        if current is None:
+            return False
+        next_phase = cur.execute("""SELECT id, phase_number, name FROM routine_phases
+            WHERE routine_id = %s AND phase_number = %s AND status = 'published'""",
+            (current['routine_id'], current['phase_number'] + 1)).fetchone()
+        if next_phase is None:
+            enabled = cur.execute("SELECT coalesce((notification_preferences->>'routine_expiry')::boolean, true) AS enabled FROM trainer_profiles WHERE user_id = %s",
+                                  (current['trainer_id'],)).fetchone()
+            if enabled and enabled['enabled']:
+                prior = cur.execute("""SELECT 1 FROM notifications WHERE user_id = %s
+                    AND kind = 'routine_phase_due' AND payload->>'assignment_id' = %s LIMIT 1""",
+                    (current['trainer_id'], str(current['assignment_id']))).fetchone()
+                if prior is None:
+                    cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                        VALUES (%s, 'routine_phase_due', 'Fase próxima por publicar', %s, %s)""",
+                        (current['trainer_id'],
+                         f"{current['routine_name']} ya cumplió ocho semanas para un cliente.",
+                         Jsonb({'assignment_id': str(current['assignment_id']), 'client_id': str(client_id),
+                                'routine_id': str(current['routine_id']), 'phase_number': current['phase_number'] + 1})))
+            return False
+        cur.execute("UPDATE client_routine_assignments SET current_phase_id = %s, phase_started_at = now() WHERE id = %s",
+                    (next_phase['id'], current['assignment_id']))
+        cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+            VALUES (%s, 'new_phase_available', 'Nueva fase disponible', %s, %s)""",
+            (client_id,
+             f"Tu entrenador publicó {next_phase['name']} para {current['routine_name']}.",
+             Jsonb({'routine_id': str(current['routine_id']), 'phase_id': str(next_phase['id']),
+                    'phase_number': next_phase['phase_number'], 'routine_name': current['routine_name']})))
+        return True
+
+
+def _process_due_routine_phases() -> int:
+    """Advance eligible assignments and notify trainers even if clients stay offline."""
+    with pool.connection() as conn:
+        client_ids = conn.execute("""SELECT DISTINCT cra.client_id
+            FROM client_routine_assignments cra
+            JOIN users u ON u.id = cra.client_id AND u.status IN ('active', 'active_no_onboarding')
+            JOIN routine_phases rp ON rp.id = cra.current_phase_id AND rp.status = 'published'
+            WHERE cra.ended_at IS NULL
+              AND cra.phase_started_at <= now() - interval '8 weeks'
+            ORDER BY cra.client_id LIMIT 500""").fetchall()
+        advanced = 0
+        for row in client_ids:
+            if _advance_due_client_phase(conn, row['client_id']):
+                advanced += 1
+        return advanced
+
+
+def _deliver_trainer_daily_reminders() -> int:
+    """Create one in-app morning reminder per trainer and local gym date."""
+    created = 0
+    with pool.connection() as conn:
+        trainers = conn.execute("""SELECT u.id, g.id AS gym_id, g.timezone,
+                (now() AT TIME ZONE g.timezone)::date AS local_date
+            FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id
+            JOIN gyms g ON g.id = u.gym_id
+            WHERE u.role = 'trainer' AND u.status = 'active'
+              AND coalesce((tp.notification_preferences->>'daily_reminder')::boolean, false)
+              AND extract(hour FROM now() AT TIME ZONE g.timezone) >= 8""").fetchall()
+        with conn.cursor() as cur:
+            for trainer in trainers:
+                local_date = trainer['local_date']
+                already_sent = cur.execute("""SELECT 1 FROM notifications
+                    WHERE user_id = %s AND kind = 'daily_reminder'
+                      AND payload->>'local_date' = %s LIMIT 1""",
+                    (trainer['id'], local_date.isoformat())).fetchone()
+                if already_sent:
+                    continue
+                candidates = cur.execute("""SELECT DISTINCT c.id,
+                        cra.current_phase_id,
+                        (cra.phase_started_at AT TIME ZONE g.timezone)::date AS started_on
+                    FROM trainer_client_assignments tca
+                    JOIN users c ON c.id = tca.client_id AND c.status = 'active'
+                    JOIN client_routine_assignments cra ON cra.client_id = c.id AND cra.ended_at IS NULL
+                    JOIN gyms g ON g.id = c.gym_id
+                    WHERE tca.trainer_id = %s AND tca.ends_at IS NULL""",
+                    (trainer['id'],)).fetchall()
+                pending = sum(
+                    _next_due_routine_session(
+                        cur, candidate['id'], candidate['current_phase_id'],
+                        candidate['started_on'], local_date) is not None
+                    for candidate in candidates)
+                if pending == 0:
+                    continue
+                cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                    VALUES (%s, 'daily_reminder', 'Seguimiento de hoy', %s, %s)""",
+                    (trainer['id'],
+                     f'Tienes {pending} cliente(s) con sesión pendiente para hoy.',
+                     Jsonb({'local_date': local_date.isoformat(), 'pending_clients': pending})))
+                created += 1
+    return created
+
+
+def _date_streak(values: set[date], today: date) -> int:
+    cursor = today if today in values else today - timedelta(days=1)
+    count = 0
+    while cursor in values:
+        count += 1
+        cursor -= timedelta(days=1)
+    return count
+
+
+def _routine_streak(values: set[date], today: date) -> int:
+    """Count completed workout days; Sunday is a neutral rest day."""
+    cursor = today if today in values else today - timedelta(days=1)
+    count = 0
+    while True:
+        if cursor.isoweekday() == 7:
+            cursor -= timedelta(days=1)
+            continue
+        if cursor not in values:
+            break
+        count += 1
+        cursor -= timedelta(days=1)
+    return count
+
+
+def _ensure_profile_edit_window(cur, user_id: uuid.UUID) -> None:
+    row = cur.execute("""SELECT profile_details_updated_at,
+            profile_details_updated_at + interval '10 days' AS editable_at
+        FROM users WHERE id = %s FOR UPDATE""", (user_id,)).fetchone()
+    if row and row['editable_at'] and row['editable_at'] > datetime.now(UTC):
+        raise _problem(409, 'PROFILE_EDIT_COOLDOWN',
+                       f"Los datos personales se pueden volver a editar el {row['editable_at'].astimezone().strftime('%d/%m/%Y') }.")
+
+
+@app.get('/api/v1/client/dashboard')
+def client_dashboard(client: dict = Depends(active_client)) -> dict:
+    with pool.connection() as conn:
+        _advance_due_client_phase(conn, client['id'])
+        conn.execute("""INSERT INTO client_app_open_days (client_id, local_date)
+            SELECT %s, (now() AT TIME ZONE g.timezone)::date
+            FROM gyms g WHERE g.id = %s
+            ON CONFLICT (client_id, local_date) DO NOTHING""",
+            (client['id'], client['gym_id']))
+        row = conn.execute("""SELECT u.first_name, u.last_name, u.member_number, u.email, u.phone, u.bio,
+                cp.goal, cp.birth_date, cp.weight_kg, cp.height_cm,
+                cp.trainer_reassignment_required,
+                u.profile_photo_storage_key, u.profile_photo_mime,
+                cp.profile_photo, cp.profile_photo_mime AS legacy_profile_photo_mime,
+                g.timezone, g.name AS gym_name, g.address AS gym_address,
+                g.phone AS gym_phone, g.opening_hours AS gym_opening_hours,
+                p.name AS plan_name, m.ends_on AS membership_ends_on,
+                registry.payment_due_on,
+                concat_ws(' ', t.first_name, t.last_name) AS trainer_name,
+                t.profile_photo_storage_key AS trainer_profile_photo_storage_key,
+                ptr.trainer_id AS pending_trainer_id,
+                concat_ws(' ', pending_trainer.first_name, pending_trainer.last_name) AS pending_trainer_name,
+                r.name AS routine_name, cra.current_phase_id, rp.phase_number,
+                cra.phase_started_at, (now() AT TIME ZONE g.timezone)::date AS today,
+                deletion_request.status AS deletion_request_status,
+                deletion_request.requested_at AS deletion_requested_at,
+                COALESCE((SELECT count(*) FROM attendance a WHERE a.client_id = u.id), 0) AS attendance_total,
+                COALESCE((SELECT count(*) FROM workout_completions wc WHERE wc.client_id = u.id AND wc.workout_date >= (now() AT TIME ZONE g.timezone)::date - 6), 0) AS workouts_7d
+            FROM users u JOIN gyms g ON g.id = u.gym_id
+            LEFT JOIN client_profiles cp ON cp.user_id = u.id
+            LEFT JOIN client_member_registry registry ON registry.id = cp.member_registry_id
+            LEFT JOIN LATERAL (SELECT plan_id, ends_on FROM memberships WHERE client_id = u.id AND status = 'active' ORDER BY ends_on DESC LIMIT 1) m ON true
+            LEFT JOIN membership_plans p ON p.id = m.plan_id
+            LEFT JOIN LATERAL (SELECT trainer_id FROM trainer_client_assignments WHERE client_id = u.id AND ends_at IS NULL LIMIT 1) tca ON true
+            LEFT JOIN users t ON t.id = tca.trainer_id
+            LEFT JOIN LATERAL (SELECT trainer_id FROM client_trainer_requests
+                WHERE client_id = u.id AND status = 'pending' LIMIT 1) ptr ON true
+            LEFT JOIN users pending_trainer ON pending_trainer.id = ptr.trainer_id
+            LEFT JOIN LATERAL (SELECT routine_id, current_phase_id, phase_started_at FROM client_routine_assignments WHERE client_id = u.id AND ended_at IS NULL LIMIT 1) cra ON true
+            LEFT JOIN routines r ON r.id = cra.routine_id
+            LEFT JOIN routine_phases rp ON rp.id = cra.current_phase_id
+            LEFT JOIN LATERAL (SELECT status, requested_at FROM account_deletion_requests
+                WHERE user_id = u.id ORDER BY requested_at DESC LIMIT 1) deletion_request ON true
+            WHERE u.id = %s""", (client['id'],)).fetchone()
+        attendance = conn.execute("SELECT local_date FROM attendance WHERE client_id = %s AND local_date >= %s - 6 AND local_date <= %s ORDER BY local_date",
+                                  (client['id'], row['today'], row['today'])).fetchall()
+        access_dates = conn.execute("""SELECT local_date AS d
+            FROM client_app_open_days WHERE client_id = %s""",
+            (client['id'],)).fetchall()
+        all_attendance_dates = conn.execute("SELECT DISTINCT local_date AS d FROM attendance WHERE client_id = %s",
+                                            (client['id'],)).fetchall()
+        full_routine_dates = conn.execute("""SELECT DISTINCT workout_date AS d FROM workout_completions
+            WHERE client_id = %s AND is_fully_completed""", (client['id'],)).fetchall()
+        phase_notice = conn.execute("""SELECT id, title, body, payload FROM notifications
+            WHERE user_id = %s AND kind = 'new_phase_available' AND read_at IS NULL
+            ORDER BY created_at DESC LIMIT 1""", (client['id'],)).fetchone()
+    attendance_days = {d['local_date'].isoformat() for d in attendance}
+    profile_photo_url = _signed_profile_photo(row['profile_photo_storage_key'])
+    trainer_profile_photo_url = _signed_profile_photo(row['trainer_profile_photo_storage_key'])
+    dashboard = dict(row)
+    dashboard.pop('profile_photo', None)
+    dashboard.pop('profile_photo_storage_key', None)
+    dashboard.pop('trainer_profile_photo_storage_key', None)
+    dashboard.pop('legacy_profile_photo_mime', None)
+    return {**dashboard, 'today': row['today'].isoformat(),
+            'birth_date': row['birth_date'].isoformat() if row['birth_date'] else None,
+            # Legacy photos remain readable until migrate_profile_photos_to_r2 runs.
+            'profile_photo_data': (base64.b64encode(bytes(row['profile_photo'])).decode('ascii')
+                                   if row['profile_photo'] else None),
+            'profile_photo_url': profile_photo_url,
+            'trainer_profile_photo_url': trainer_profile_photo_url,
+            'profile_photo_mime': row['profile_photo_mime'] or row['legacy_profile_photo_mime'],
+            'membership_ends_on': row['membership_ends_on'].isoformat() if row['membership_ends_on'] else None,
+            'pending_trainer_id': str(row['pending_trainer_id']) if row['pending_trainer_id'] else None,
+            'payment_due_on': row['payment_due_on'].isoformat() if row['payment_due_on'] else None,
+            'phase_started_at': row['phase_started_at'].isoformat() if row['phase_started_at'] else None,
+            'deletion_requested_at': row['deletion_requested_at'].isoformat() if row['deletion_requested_at'] else None,
+            'attendance_7d_dates': sorted(attendance_days),
+            'app_login_streak': _date_streak({r['d'] for r in access_dates}, row['today']),
+            'gym_attendance_streak': _date_streak({r['d'] for r in all_attendance_dates}, row['today']),
+            'routine_completion_streak': _routine_streak({r['d'] for r in full_routine_dates}, row['today']),
+            'new_phase_notification': ({**phase_notice, 'id': str(phase_notice['id'])} if phase_notice else None)}
+
+
+@app.patch('/api/v1/client/profile')
+def update_client_profile(payload: ClientProfileUpdate,
+                          client: dict = Depends(active_client)) -> dict:
+    fields = payload.model_fields_set
+    if not (fields & {'first_name', 'last_name', 'email', 'phone', 'bio', 'photo_data', 'photo_mime'}) \
+            and not payload.remove_photo:
+        raise _problem(422, 'EMPTY_PROFILE_UPDATE', 'Incluye al menos un cambio de perfil.')
+    if payload.photo_data is not None and payload.remove_photo:
+        raise _problem(422, 'INVALID_PROFILE_PHOTO', 'Elige una foto nueva o quita la foto actual.')
+
+    photo_bytes = None
+    if payload.photo_data is not None:
+        if payload.photo_mime is None:
+            raise _problem(415, 'INVALID_PROFILE_PHOTO', 'El formato de la foto no es válido.')
+        try:
+            photo_bytes = base64.b64decode(payload.photo_data, validate=True)
+        except (ValueError, binascii.Error):
+            raise _problem(415, 'INVALID_PROFILE_PHOTO', 'No se pudo leer la imagen seleccionada.')
+        if not photo_bytes or len(photo_bytes) > 2 * 1024 * 1024:
+            raise _problem(413, 'PROFILE_PHOTO_SIZE', 'La foto debe pesar máximo 2 MB.')
+        valid_signature = (
+            payload.photo_mime == 'image/jpeg' and photo_bytes.startswith(b'\xff\xd8\xff')
+        ) or (
+            payload.photo_mime == 'image/png'
+            and photo_bytes.startswith(b'\x89PNG\r\n\x1a\n')
+        )
+        if not valid_signature:
+            raise _problem(415, 'INVALID_PROFILE_PHOTO', 'Usa una imagen JPG o PNG válida.')
+    elif payload.photo_mime is not None:
+        raise _problem(415, 'INVALID_PROFILE_PHOTO', 'Faltan los datos de la foto seleccionada.')
+
+    first_name = (_normalize_person_name(payload.first_name, 'nombre') if payload.first_name is not None
+                  else client['first_name'])
+    last_name = (_normalize_person_name(payload.last_name, 'apellido') if payload.last_name is not None
+                 else client['last_name'])
+    email = str(payload.email).lower() if payload.email is not None else client['email']
+    if email != client['email']:
+        raise _problem(409, 'EMAIL_CHANGE_VERIFICATION_REQUIRED',
+                       'Verifica el nuevo correo antes de guardar el cambio.')
+    phone = client['phone']
+    if 'phone' in fields:
+        phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
+    bio = (payload.bio.strip() if payload.bio and payload.bio.strip() else None) if 'bio' in fields else client.get('bio')
+
+    new_storage_key = None
+    if photo_bytes is not None:
+        extension = 'jpg' if payload.photo_mime == 'image/jpeg' else 'png'
+        object_key = f"profile-photos/{client['id']}/{uuid.uuid4()}.{extension}"
+        try:
+            new_storage_key = put_profile_photo(object_key, photo_bytes, payload.photo_mime)
+        except StorageNotConfigured as exc:
+            raise _problem(503, 'PROFILE_PHOTO_STORAGE_NOT_CONFIGURED', str(exc))
+        except StorageWriteError as exc:
+            raise _problem(503, 'PROFILE_PHOTO_STORAGE_UNAVAILABLE', str(exc))
+
+    old_storage_key = None
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                identity_changed = (first_name != client['first_name']
+                                    or last_name != client['last_name']
+                                    or phone != client.get('phone'))
+                details_changed = identity_changed or bio != client.get('bio')
+                if identity_changed:
+                    _ensure_profile_edit_window(cur, client['id'])
+                if fields & {'first_name', 'last_name'}:
+                    identity_row = cur.execute('SELECT birth_date, member_registry_id FROM client_profiles WHERE user_id = %s',
+                                               (client['id'],)).fetchone()
+                    _ensure_unique_person_name(cur, client['gym_id'], first_name,
+                                               last_name, client['id'],
+                                               birth_date=identity_row['birth_date'] if identity_row else None,
+                                               role='client')
+                    if identity_row and identity_row['birth_date']:
+                        duplicate_registry = cur.execute("""SELECT id FROM client_member_registry
+                            WHERE gym_id = %s
+                              AND lower(trim(regexp_replace(first_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                              AND lower(trim(regexp_replace(last_name, '[[:space:]]+', ' ', 'g'))) = lower(%s)
+                              AND birth_date = %s
+                              AND (%s::uuid IS NULL OR id <> %s)
+                            LIMIT 1""",
+                            (client['gym_id'], first_name, last_name,
+                             identity_row['birth_date'],
+                             identity_row['member_registry_id'],
+                             identity_row['member_registry_id'])).fetchone()
+                        if duplicate_registry:
+                            raise _problem(409, 'PERSON_NAME_IN_USE',
+                                           'Ya existe una ficha con ese nombre y fecha de nacimiento.')
+                cur.execute('INSERT INTO client_profiles (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING',
+                            (client['id'],))
+                old_profile = cur.execute(
+                    'SELECT profile_photo_storage_key FROM users WHERE id = %s FOR UPDATE',
+                    (client['id'],)).fetchone()
+                old_storage_key = old_profile['profile_photo_storage_key'] if old_profile else None
+                cur.execute("""UPDATE users SET first_name = %s, last_name = %s,
+                    email = %s, phone = %s, bio = %s,
+                    profile_details_updated_at = CASE WHEN %s THEN now() ELSE profile_details_updated_at END,
+                    updated_at = now() WHERE id = %s""",
+                    (first_name, last_name, email, phone, bio, identity_changed, client['id']))
+                if fields & {'first_name', 'last_name'}:
+                    cur.execute("""UPDATE client_member_registry SET first_name = %s,
+                        last_name = %s, updated_at = now() WHERE linked_user_id = %s""",
+                        (first_name, last_name, client['id']))
+                if payload.remove_photo:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = NULL,
+                        profile_photo_mime = NULL, updated_at = now() WHERE id = %s""",
+                        (client['id'],))
+                    cur.execute("""UPDATE client_profiles SET profile_photo = NULL,
+                        profile_photo_mime = NULL, updated_at = now() WHERE user_id = %s""",
+                        (client['id'],))
+                elif photo_bytes is not None:
+                    cur.execute("""UPDATE users SET profile_photo_storage_key = %s,
+                        profile_photo_mime = %s, updated_at = now() WHERE id = %s""",
+                        (new_storage_key, payload.photo_mime, client['id']))
+                    cur.execute("""UPDATE client_profiles SET profile_photo = NULL,
+                        profile_photo_mime = NULL, updated_at = now() WHERE user_id = %s""",
+                        (client['id'],))
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, subject_id, event_type, details)
+                    VALUES (%s, %s, %s, 'client_profile_updated', %s)""",
+                    (client['gym_id'], client['id'], client['id'],
+                     Jsonb({'email': email, 'photo_changed': photo_bytes is not None or payload.remove_photo})))
+                if details_changed:
+                    cur.execute("""INSERT INTO notifications (user_id, kind, title, body, payload)
+                        VALUES (%s, 'profile_updated', 'Perfil actualizado',
+                            'Se guardaron cambios en tus datos personales.', %s)""",
+                        (client['id'], Jsonb({'event': 'client_profile_updated'})))
+    except Exception as exc:
+        if new_storage_key:
+            try:
+                delete_profile_photo(new_storage_key)
+            except Exception:
+                log.exception('Could not clean up profile photo after database update failed')
+        constraint = getattr(getattr(exc, 'diag', None), 'constraint_name', '')
+        if constraint == 'users_email_per_gym_uq':
+            raise _problem(409, 'EMAIL_IN_USE', 'Ese correo ya está registrado en el gimnasio.')
+        raise
+    if old_storage_key and (payload.remove_photo or new_storage_key):
+        try:
+            delete_profile_photo(old_storage_key)
+        except Exception:
+            log.exception('Could not remove replaced profile photo from R2')
+    return client_dashboard(client)
+
+
+@app.get('/api/v1/client/notifications')
+def client_notifications(client: dict = Depends(active_client)) -> list[dict]:
+    with pool.connection() as conn:
+        rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
+            FROM notifications WHERE user_id = %s AND kind IN ('new_phase_available', 'profile_updated')
+              AND read_at IS NULL ORDER BY created_at DESC LIMIT 10""",
+            (client['id'],)).fetchall()
+    return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()} for row in rows]
+
+
+@app.post('/api/v1/client/notifications/{notification_id}/read', status_code=204)
+def mark_client_notification_read(notification_id: uuid.UUID,
+                                  client: dict = Depends(active_client)) -> None:
+    with pool.connection() as conn:
+        conn.execute("UPDATE notifications SET read_at = now() WHERE id = %s AND user_id = %s AND read_at IS NULL",
+                     (notification_id, client['id']))
+
+
+@app.get('/api/v1/trainer/notifications')
+def trainer_notifications(trainer: dict = Depends(active_trainer)) -> list[dict]:
+    with pool.connection() as conn:
+        rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
+            FROM notifications WHERE user_id = %s
+              AND kind IN ('routine_phase_due', 'client_activity', 'daily_reminder', 'trainer_request', 'profile_updated')
+              AND read_at IS NULL ORDER BY created_at DESC LIMIT 20""",
+            (trainer['id'],)).fetchall()
+    return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()} for row in rows]
+
+
+@app.post('/api/v1/trainer/notifications/{notification_id}/read', status_code=204)
+def mark_trainer_notification_read(notification_id: uuid.UUID,
+                                  trainer: dict = Depends(active_trainer)) -> None:
+    with pool.connection() as conn:
+        conn.execute("UPDATE notifications SET read_at = now() WHERE id = %s AND user_id = %s AND read_at IS NULL",
+                     (notification_id, trainer['id']))
+
+
+@app.get('/api/v1/client/attendance')
+def client_attendance(year: int = Query(ge=2000, le=2200), month: int = Query(ge=1, le=12),
+                      client: dict = Depends(active_client)) -> dict:
+    with pool.connection() as conn:
+        rows = conn.execute("""SELECT local_date, checked_in_at, source FROM attendance
+            WHERE client_id = %s AND extract(year FROM local_date) = %s AND extract(month FROM local_date) = %s
+            ORDER BY local_date""", (client['id'], year, month)).fetchall()
+        gym = conn.execute("""SELECT (now() AT TIME ZONE g.timezone)::date AS today,
+                EXISTS (SELECT 1 FROM memberships m WHERE m.client_id = %s
+                    AND m.status = 'active' AND m.starts_on <= (now() AT TIME ZONE g.timezone)::date
+                    AND m.ends_on >= (now() AT TIME ZONE g.timezone)::date) AS can_check_in
+            FROM gyms g WHERE g.id = %s""", (client['id'], client['gym_id'])).fetchone()
+        routine_days = conn.execute("""SELECT DISTINCT re.day_number
+            FROM client_routine_assignments cra
+            JOIN routine_exercises re ON re.phase_id = cra.current_phase_id
+            WHERE cra.client_id = %s AND cra.ended_at IS NULL
+            ORDER BY re.day_number""", (client['id'],)).fetchall()
+        assignment = conn.execute("""SELECT cra.current_phase_id,
+                (cra.phase_started_at AT TIME ZONE g.timezone)::date AS started_on
+            FROM client_routine_assignments cra
+            JOIN gyms g ON g.id = %s
+            WHERE cra.client_id = %s AND cra.ended_at IS NULL
+            LIMIT 1""", (client['gym_id'], client['id'])).fetchone()
+        next_session = None
+        if assignment:
+            with conn.cursor() as cur:
+                next_session = _next_due_routine_session(
+                    cur, client['id'], assignment['current_phase_id'],
+                    assignment['started_on'], gym['today'])
+    return {
+        'days': [{'date': r['local_date'].isoformat(), 'checked_in_at': r['checked_in_at'].isoformat(), 'source': r['source']} for r in rows],
+        'total': len(rows),
+        'today': gym['today'].isoformat(),
+        'can_check_in': gym['can_check_in'],
+        'routine_days': [row['day_number'] for row in routine_days],
+        'next_session': ({
+            'available_on': gym['today'].isoformat(),
+            'scheduled_for_date': next_session['scheduled_for_date'].isoformat(),
+            'day_number': next_session['day_number'],
+        } if next_session else None),
+    }
+
+
+@app.post('/api/v1/client/attendance/check-in', status_code=201)
+def client_attendance_check_in(client: dict = Depends(active_client)) -> dict:
+    with pool.connection() as conn:
+        membership = conn.execute("""SELECT (now() AT TIME ZONE g.timezone)::date AS today
+            FROM gyms g WHERE g.id = %s AND EXISTS (
+                SELECT 1 FROM memberships m WHERE m.client_id = %s
+                    AND m.status = 'active'
+                    AND m.starts_on <= (now() AT TIME ZONE g.timezone)::date
+                    AND m.ends_on >= (now() AT TIME ZONE g.timezone)::date
             )""", (client['gym_id'], client['id'])).fetchone()
         if membership is None:
             raise _problem(403, 'ACTIVE_MEMBERSHIP_REQUIRED',

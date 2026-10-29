@@ -816,6 +816,7 @@ class ApiAuthRepository implements AuthRepository {
             detail is Map ? detail['message']?.toString() : detail?.toString();
         final type = switch (code) {
           'INVALID_CREDENTIALS' => AuthErrorType.invalidCredentials,
+          'USER_NOT_FOUND' => AuthErrorType.notFound,
           'NOT_FOUND' => AuthErrorType.notFound,
           _ => AuthErrorType.server,
         };
@@ -904,6 +905,7 @@ class ApiAuthRepository implements AuthRepository {
         }
         final errorType = switch (code) {
           'INVALID_CREDENTIALS' => AuthErrorType.invalidCredentials,
+          'USER_NOT_FOUND' => AuthErrorType.notFound,
           'NOT_FOUND' => AuthErrorType.notFound,
           'INVALID_CODE' => AuthErrorType.invalidCode,
           'EMAIL_NOT_VERIFIED' => AuthErrorType.emailNotVerified,

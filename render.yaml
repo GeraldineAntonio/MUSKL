@@ -14,13 +14,3 @@ services:
         generateValue: true
       - key: MUSKL_ENV
         value: production
-  - type: web
-    name: muskl-media-web
-    runtime: static
-    plan: free
-    buildCommand: cd media-web && npm ci && npm run build
-    staticPublishPath: ./media-web/dist
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html

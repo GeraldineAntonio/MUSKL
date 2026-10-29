@@ -8,7 +8,7 @@ El calendario del cliente muestra los días de entrenamiento de su rutina y las 
 
 Cada ejercicio admite `media_url` para imágenes o GIF HTTPS existentes. Los videos nuevos del catálogo se guardan en el bucket privado de R2; PostgreSQL conserva su clave y tipo MIME, y el API entrega enlaces temporales al entrenador y al socio. La app reproduce MP4, MOV y WebM en el detalle del ejercicio. El endpoint de carga limita los videos a 50 MB.
 
-La herramienta web para grabar videos está en `media-web/` y se publica como sitio estático mediante el Blueprint de Render. Antes de desplegar la versión nueva del API, aplica `backend/db/026_exercise_catalog_media.sql` si tu instalación no ejecuta migraciones al arrancar. Configura `MUSKL_CORS_ORIGINS` con el origen de la web, por ejemplo `https://muskl-media-web.onrender.com`; para desarrollo local también admite `http://localhost:5173`.
+La herramienta web para grabar videos se mantiene en un repositorio separado. Antes de desplegar la versión nueva del API, aplica `backend/db/026_exercise_catalog_media.sql` si tu instalación no ejecuta migraciones al arrancar. Configura `MUSKL_CORS_ORIGINS` con el dominio HTTPS de ese sitio; para desarrollo local también admite `http://localhost:5173`.
 
 ## Arranque local
 

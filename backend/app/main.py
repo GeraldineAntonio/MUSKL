@@ -38,10 +38,13 @@ from .object_storage import (
     StorageReadError,
     StorageWriteError,
     delete_certificate,
+    delete_exercise_media,
     delete_profile_photo,
     presigned_certificate_url,
+    presigned_exercise_media_url,
     presigned_profile_photo_url,
     put_certificate,
+    put_exercise_media,
     put_profile_photo,
 )
 
@@ -358,6 +361,34 @@ class OwnProfileUpdate(BaseModel):
     last_name: str = Field(min_length=1, max_length=100)
     phone: str | None = Field(default=None, max_length=30)
     bio: str | None = Field(default=None, max_length=1000)
+
+
+class TrainerExerciseCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    muscle_group: Literal[
+        'Pecho', 'Espalda', 'Hombros', 'Bíceps', 'Tríceps', 'Piernas',
+        'Piernas y glúteos', 'Glúteos', 'Pantorrillas', 'Abdomen', 'Cardio',
+        'Cuerpo completo',
+    ]
+    equipment: Literal[
+        'Peso corporal', 'Mancuernas', 'Barra', 'Barra y discos', 'Discos',
+        'Poleas', 'Máquina', 'Bandas elásticas', 'Kettlebell', 'Otro',
+    ]
+    instructions: str | None = Field(default=None, max_length=2000)
+
+
+class ExerciseCatalogUpdate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    muscle_group: Literal[
+        'Pecho', 'Espalda', 'Hombros', 'Bíceps', 'Tríceps', 'Piernas',
+        'Piernas y glúteos', 'Glúteos', 'Pantorrillas', 'Abdomen', 'Cardio',
+        'Cuerpo completo',
+    ]
+    equipment: Literal[
+        'Peso corporal', 'Mancuernas', 'Barra', 'Barra y discos', 'Discos',
+        'Poleas', 'Máquina', 'Bandas elásticas', 'Kettlebell', 'Otro',
+    ]
+    instructions: str | None = Field(default=None, max_length=2000)
 
 
 class RoutineExerciseInput(BaseModel):
@@ -2537,12 +2568,264 @@ def trainer_exercise_catalog(search: str = Query(default='', max_length=80),
     term = search.strip()
     pattern = f'%{term}%'
     with pool.connection() as conn:
-        rows = conn.execute("""SELECT id, name, muscle_group, equipment, instructions, media_url
+        rows = conn.execute("""SELECT id, name, muscle_group, equipment, instructions,
+                media_url, media_key, media_mime
             FROM exercise_catalog
             WHERE active AND (%s = '' OR name ILIKE %s OR muscle_group ILIKE %s OR equipment ILIKE %s)
             ORDER BY name LIMIT 50""",
             (term, pattern, pattern, pattern)).fetchall()
-    return [{**row, 'id': str(row['id'])} for row in rows]
+    result = []
+    for row in rows:
+        item = {**row, 'id': str(row['id'])}
+        if row.get('media_key'):
+            try:
+                item['media_url'] = presigned_exercise_media_url(row['media_key'])
+            except (StorageNotConfigured, StorageReadError):
+                item['media_url'] = None
+        result.append(item)
+    return result
+
+
+@app.post('/api/v1/trainer/exercises', status_code=201)
+def create_trainer_exercise(
+    payload: TrainerExerciseCreate,
+    trainer: dict = Depends(active_trainer),
+) -> dict:
+    name = payload.name.strip()
+    if len(name) < 2:
+        raise _problem(422, 'INVALID_EXERCISE_NAME', 'Escribe un nombre de al menos 2 caracteres.')
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                exercise = cur.execute("""INSERT INTO exercise_catalog
+                        (name, muscle_group, equipment, instructions)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, name, muscle_group, equipment, instructions,
+                        media_url, media_mime""",
+                    (name, payload.muscle_group, payload.equipment,
+                     payload.instructions.strip() if payload.instructions else None)).fetchone()
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, event_type, details)
+                    VALUES (%s, %s, 'exercise_catalog_created', %s)""",
+                    (trainer['gym_id'], trainer['id'], Jsonb({
+                        'exercise_id': str(exercise['id']),
+                        'name': exercise['name'],
+                    })))
+    except Exception as exc:
+        if getattr(exc, 'sqlstate', None) == '23505':
+            raise _problem(409, 'EXERCISE_NAME_EXISTS',
+                           'Ya existe un ejercicio con ese nombre en el catálogo.')
+        raise
+    return {**exercise, 'id': str(exercise['id'])}
+
+
+@app.post('/api/v1/trainer/exercises/{exercise_id}/media', status_code=200)
+async def upload_trainer_exercise_media(
+    exercise_id: uuid.UUID,
+    video: UploadFile = File(...),
+    trainer: dict = Depends(active_trainer),
+) -> dict:
+    allowed_types = {'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov'}
+    content_type = (video.content_type or '').split(';', 1)[0].lower()
+    extension = allowed_types.get(content_type)
+    if extension is None:
+        raise _problem(415, 'UNSUPPORTED_VIDEO_TYPE', 'Usa un video MP4, MOV o WebM.')
+
+    max_bytes = 50 * 1024 * 1024
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await video.read(1024 * 1024):
+        total += len(chunk)
+        if total > max_bytes:
+            raise _problem(413, 'VIDEO_TOO_LARGE', 'El video debe pesar máximo 50 MB.')
+        chunks.append(chunk)
+    if total == 0:
+        raise _problem(400, 'EMPTY_VIDEO', 'El video está vacío. Graba otra toma.')
+
+    key = f"exercise-media/{trainer['gym_id']}/{exercise_id}/{uuid.uuid4().hex}.{extension}"
+    old_key = None
+    try:
+        stored_key = put_exercise_media(key, b''.join(chunks), content_type)
+        media_url = presigned_exercise_media_url(stored_key)
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                previous = cur.execute("""SELECT media_key FROM exercise_catalog
+                    WHERE id = %s AND active FOR UPDATE""", (exercise_id,)).fetchone()
+                if previous is None:
+                    raise _problem(404, 'EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio.')
+                old_key = previous['media_key']
+                exercise = cur.execute("""UPDATE exercise_catalog SET media_key = %s,
+                        media_mime = %s, media_url = NULL
+                    WHERE id = %s AND active
+                    RETURNING id, name, media_key, media_mime""",
+                    (stored_key, content_type, exercise_id)).fetchone()
+                if exercise is None:
+                    raise _problem(404, 'EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio.')
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, event_type, details)
+                    VALUES (%s, %s, 'exercise_media_uploaded', %s)""",
+                    (trainer['gym_id'], trainer['id'], Jsonb({
+                        'exercise_id': str(exercise_id), 'size_bytes': total,
+                        'content_type': content_type,
+                    })))
+        if old_key and old_key != stored_key:
+            try:
+                delete_exercise_media(old_key)
+            except Exception:
+                log.exception('Could not delete replaced exercise media from R2')
+        return {'id': str(exercise['id']), 'name': exercise['name'],
+                'media_key': stored_key, 'media_mime': content_type,
+                'media_url': media_url, 'size_bytes': total}
+    except HTTPException:
+        try:
+            delete_exercise_media(f'r2://{key}')
+        except Exception:
+            log.exception('Could not clean up rejected exercise media upload')
+        raise
+    except StorageNotConfigured as exc:
+        raise _problem(503, 'EXERCISE_MEDIA_STORAGE_NOT_CONFIGURED', str(exc))
+    except StorageWriteError as exc:
+        raise _problem(503, 'EXERCISE_MEDIA_STORAGE_UNAVAILABLE', str(exc))
+    except Exception:
+        try:
+            delete_exercise_media(f'r2://{key}')
+        except Exception:
+            log.exception('Could not clean up failed exercise media upload')
+        raise
+
+
+@app.get('/api/v1/admin/exercises')
+def admin_exercise_catalog(search: str = Query(default='', max_length=80),
+                           admin: dict = Depends(active_admin)) -> list[dict]:
+    term = search.strip()
+    pattern = f'%{term}%'
+    with pool.connection() as conn:
+        rows = conn.execute("""SELECT id, name, muscle_group, equipment, instructions,
+                media_url, media_key, media_mime
+            FROM exercise_catalog
+            WHERE active AND (%s = '' OR name ILIKE %s OR muscle_group ILIKE %s OR equipment ILIKE %s)
+            ORDER BY name LIMIT 100""",
+            (term, pattern, pattern, pattern)).fetchall()
+    result = []
+    for row in rows:
+        item = {**row, 'id': str(row['id'])}
+        if row.get('media_key'):
+            try:
+                item['media_url'] = presigned_exercise_media_url(row['media_key'])
+            except (StorageNotConfigured, StorageReadError):
+                item['media_url'] = None
+        result.append(item)
+    return result
+
+
+@app.put('/api/v1/admin/exercises/{exercise_id}')
+def update_admin_exercise(exercise_id: uuid.UUID, payload: ExerciseCatalogUpdate,
+                          admin: dict = Depends(active_admin)) -> dict:
+    name = payload.name.strip()
+    if len(name) < 2:
+        raise _problem(422, 'INVALID_EXERCISE_NAME', 'Escribe un nombre de al menos 2 caracteres.')
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                exercise = cur.execute("""UPDATE exercise_catalog
+                    SET name = %s, muscle_group = %s, equipment = %s, instructions = %s
+                    WHERE id = %s AND active
+                    RETURNING id, name, muscle_group, equipment, instructions,
+                        media_url, media_key, media_mime""",
+                    (name, payload.muscle_group, payload.equipment,
+                     payload.instructions.strip() if payload.instructions else None,
+                     exercise_id)).fetchone()
+                if exercise is None:
+                    raise _problem(404, 'EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio.')
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, event_type, details)
+                    VALUES (%s, %s, 'exercise_catalog_updated', %s)""",
+                    (admin['gym_id'], admin['id'], Jsonb({
+                        'exercise_id': str(exercise_id), 'name': exercise['name'],
+                    })))
+    except Exception as exc:
+        if getattr(exc, 'sqlstate', None) == '23505':
+            raise _problem(409, 'EXERCISE_NAME_EXISTS',
+                           'Ya existe un ejercicio con ese nombre en el catálogo.')
+        raise
+    item = {**exercise, 'id': str(exercise['id'])}
+    if exercise.get('media_key'):
+        try:
+            item['media_url'] = presigned_exercise_media_url(exercise['media_key'])
+        except (StorageNotConfigured, StorageReadError):
+            item['media_url'] = None
+    return item
+
+
+@app.post('/api/v1/admin/exercises/{exercise_id}/media', status_code=200)
+async def upload_admin_exercise_media(
+    exercise_id: uuid.UUID,
+    video: UploadFile = File(...),
+    admin: dict = Depends(active_admin),
+) -> dict:
+    allowed_types = {'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov'}
+    content_type = (video.content_type or '').split(';', 1)[0].lower()
+    extension = allowed_types.get(content_type)
+    if extension is None:
+        raise _problem(415, 'UNSUPPORTED_VIDEO_TYPE', 'Usa un video MP4, MOV o WebM.')
+    max_bytes = 50 * 1024 * 1024
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await video.read(1024 * 1024):
+        total += len(chunk)
+        if total > max_bytes:
+            raise _problem(413, 'VIDEO_TOO_LARGE', 'El video debe pesar máximo 50 MB.')
+        chunks.append(chunk)
+    if total == 0:
+        raise _problem(400, 'EMPTY_VIDEO', 'El video está vacío. Elige otro archivo.')
+
+    key = f"exercise-media/{admin['gym_id']}/{exercise_id}/{uuid.uuid4().hex}.{extension}"
+    try:
+        stored_key = put_exercise_media(key, b''.join(chunks), content_type)
+        media_url = presigned_exercise_media_url(stored_key)
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                previous = cur.execute("""SELECT media_key FROM exercise_catalog
+                    WHERE id = %s AND active FOR UPDATE""", (exercise_id,)).fetchone()
+                if previous is None:
+                    raise _problem(404, 'EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio.')
+                old_key = previous['media_key']
+                exercise = cur.execute("""UPDATE exercise_catalog SET media_key = %s,
+                        media_mime = %s, media_url = NULL
+                    WHERE id = %s AND active
+                    RETURNING id, name, media_key, media_mime""",
+                    (stored_key, content_type, exercise_id)).fetchone()
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, event_type, details)
+                    VALUES (%s, %s, 'exercise_media_uploaded', %s)""",
+                    (admin['gym_id'], admin['id'], Jsonb({
+                        'exercise_id': str(exercise_id), 'size_bytes': total,
+                        'content_type': content_type,
+                    })))
+        if old_key and old_key != stored_key:
+            try:
+                delete_exercise_media(old_key)
+            except Exception:
+                log.exception('Could not delete replaced exercise media from R2')
+        return {'id': str(exercise['id']), 'name': exercise['name'],
+                'media_key': stored_key, 'media_mime': content_type,
+                'media_url': media_url, 'size_bytes': total}
+    except HTTPException:
+        try:
+            delete_exercise_media(f'r2://{key}')
+        except Exception:
+            log.exception('Could not clean up rejected admin exercise media upload')
+        raise
+    except StorageNotConfigured as exc:
+        raise _problem(503, 'EXERCISE_MEDIA_STORAGE_NOT_CONFIGURED', str(exc))
+    except StorageWriteError as exc:
+        raise _problem(503, 'EXERCISE_MEDIA_STORAGE_UNAVAILABLE', str(exc))
+    except Exception:
+        try:
+            delete_exercise_media(f'r2://{key}')
+        except Exception:
+            log.exception('Could not clean up failed admin exercise media upload')
+        raise
 
 
 def _resolve_catalog_exercise(
@@ -3332,7 +3615,9 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_c
                     display_day = due_session['day_number']
         exercises = conn.execute("""SELECT re.id, re.day_number, re.position, re.name, re.sets,
                 re.reps, re.rest_seconds, COALESCE(re.instructions, ec.instructions) AS instructions,
-                COALESCE(ec.media_url, re.media_url) AS media_url, ec.muscle_group, re.media_key
+                COALESCE(ec.media_url, re.media_url) AS media_url,
+                ec.media_mime, COALESCE(ec.media_key, re.media_key) AS media_key,
+                ec.muscle_group
             FROM routine_exercises re
             LEFT JOIN exercise_catalog ec ON ec.id = re.exercise_catalog_id
             WHERE re.phase_id = %s AND re.day_number = %s ORDER BY re.position""",
@@ -3347,6 +3632,12 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_c
             FROM workout_exercise_completions
             WHERE client_id = %s AND phase_id = %s AND workout_date = %s""",
             (client['id'], assignment['current_phase_id'], today)).fetchall()
+    for exercise in exercises:
+        if exercise.get('media_key'):
+            try:
+                exercise['media_url'] = presigned_exercise_media_url(exercise['media_key'])
+            except (StorageNotConfigured, StorageReadError):
+                exercise['media_url'] = None
     return {'assigned': True, 'routine_id': str(assignment['routine_id']), 'routine_name': assignment['routine_name'],
             'goal': assignment['goal'], 'days_per_week': assignment['days_per_week'],
             'phase_id': str(assignment['current_phase_id']), 'phase_number': assignment['phase_number'],

@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pdfrx/pdfrx.dart';
+import 'package:video_player/video_player.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/widgets/muskl_bottom_nav.dart';
@@ -1101,6 +1102,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                           'id': exerciseId,
                           'name': exercise['name'].toString(),
                           'media_url': exercise['media_url']?.toString() ?? '',
+                          'media_mime': exercise['media_mime']?.toString() ?? '',
                           'muscle_group':
                               exercise['muscle_group']?.toString() ?? 'Rutina',
                           'instructions':
@@ -1147,12 +1149,73 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
       ]));
 }
 
+class _ExerciseVideo extends StatefulWidget {
+  const _ExerciseVideo({required this.url});
+  final String url;
+
+  @override
+  State<_ExerciseVideo> createState() => _ExerciseVideoState();
+}
+
+class _ExerciseVideoState extends State<_ExerciseVideo> {
+  late final VideoPlayerController _controller;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    _controller.initialize().then((_) {
+      if (mounted) setState(() {});
+    }).catchError((Object error) {
+      if (mounted) setState(() => _error = error);
+    });
+    _controller.addListener(_onVideoChanged);
+  }
+
+  void _onVideoChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onVideoChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null) {
+      return const Icon(Icons.broken_image_outlined,
+          size: 64, color: AppColors.textMuted);
+    }
+    if (!_controller.value.isInitialized) {
+      return const CircularProgressIndicator(color: AppColors.red);
+    }
+    return Stack(alignment: Alignment.center, children: [
+      AspectRatio(
+        aspectRatio: _controller.value.aspectRatio,
+        child: VideoPlayer(_controller),
+      ),
+      IconButton.filledTonal(
+        tooltip: _controller.value.isPlaying ? 'Pausar video' : 'Reproducir video',
+        onPressed: () => _controller.value.isPlaying
+            ? _controller.pause()
+            : _controller.play(),
+        icon: Icon(_controller.value.isPlaying ? Icons.pause : Icons.play_arrow),
+      ),
+    ]);
+  }
+}
+
 class ExerciseDetailScreen extends StatefulWidget {
   const ExerciseDetailScreen({
     super.key,
     this.id = '1',
     this.name = 'Sprint en cinta',
     this.mediaUrl = '',
+    this.mediaMime = '',
     this.muscleGroup = 'Cardio',
     this.instructions = '',
     this.sets = '4',
@@ -1165,6 +1228,7 @@ class ExerciseDetailScreen extends StatefulWidget {
   final String id;
   final String name;
   final String mediaUrl;
+  final String mediaMime;
   final String muscleGroup;
   final String instructions;
   final String sets;
@@ -1254,7 +1318,9 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
                   child: widget.mediaUrl.isEmpty
                       ? const Icon(Icons.fitness_center,
                           size: 70, color: AppColors.red)
-                      : Image.network(
+                      : widget.mediaMime.startsWith('video/')
+                          ? _ExerciseVideo(url: widget.mediaUrl)
+                          : Image.network(
                           widget.mediaUrl,
                           width: double.infinity,
                           height: 220,

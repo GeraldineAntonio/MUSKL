@@ -2619,6 +2619,46 @@ def create_trainer_exercise(
     return {**exercise, 'id': str(exercise['id'])}
 
 
+def _delete_exercise_catalog_entry(exercise_id: uuid.UUID, actor: dict) -> dict:
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                exercise = cur.execute("""SELECT id, name, media_key
+                    FROM exercise_catalog WHERE id = %s AND active FOR UPDATE""",
+                    (exercise_id,)).fetchone()
+                if exercise is None:
+                    raise _problem(404, 'EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio.')
+                media_rows = cur.execute("""SELECT media_key FROM trainer_exercise_media
+                    WHERE exercise_catalog_id = %s""", (exercise_id,)).fetchall()
+                media_keys = [row['media_key'] for row in media_rows]
+                if exercise.get('media_key'):
+                    media_keys.append(exercise['media_key'])
+                cur.execute("DELETE FROM exercise_catalog WHERE id = %s", (exercise_id,))
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, event_type, details)
+                    VALUES (%s, %s, 'exercise_catalog_deleted', %s)""",
+                    (actor['gym_id'], actor['id'], Jsonb({
+                        'exercise_id': str(exercise_id),
+                        'name': exercise['name'],
+                    })))
+    except HTTPException:
+        raise
+    for media_key in media_keys:
+        try:
+            delete_exercise_media(media_key)
+        except Exception:
+            log.exception('Could not delete removed exercise media from R2')
+    return {'deleted': True, 'id': str(exercise_id), 'name': exercise['name']}
+
+
+@app.delete('/api/v1/trainer/exercises/{exercise_id}')
+def delete_trainer_exercise(
+    exercise_id: uuid.UUID,
+    trainer: dict = Depends(active_trainer),
+) -> dict:
+    return _delete_exercise_catalog_entry(exercise_id, trainer)
+
+
 @app.post('/api/v1/trainer/exercises/{exercise_id}/media', status_code=200)
 async def upload_trainer_exercise_media(
     exercise_id: uuid.UUID,
@@ -2749,6 +2789,14 @@ def create_admin_exercise(
                            'Ya existe un ejercicio con ese nombre en el catálogo.')
         raise
     return {**exercise, 'id': str(exercise['id'])}
+
+
+@app.delete('/api/v1/admin/exercises/{exercise_id}')
+def delete_admin_exercise(
+    exercise_id: uuid.UUID,
+    admin: dict = Depends(active_admin),
+) -> dict:
+    return _delete_exercise_catalog_entry(exercise_id, admin)
 
 
 @app.put('/api/v1/admin/exercises/{exercise_id}')

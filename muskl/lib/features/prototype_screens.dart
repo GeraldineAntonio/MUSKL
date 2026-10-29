@@ -25,6 +25,75 @@ const _trainerSpecialties = [
   'Movilidad',
   'Acondicionamiento físico',
 ];
+
+Widget _registrationRoleOption({
+  required String role,
+  required String description,
+  required IconData icon,
+  required bool selected,
+  required VoidCallback onTap,
+}) =>
+    Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.red.withValues(alpha: .12)
+                : AppColors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected ? AppColors.red : AppColors.surfaceHigh,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, color: selected ? AppColors.red : AppColors.textMuted),
+              const SizedBox(height: 7),
+              Text(role,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Text(description,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      color: AppColors.textMuted, fontSize: 10, height: 1.2)),
+            ],
+          ),
+        ),
+      ),
+    );
+
+Widget _profileDetail(String label, String value, {IconData? icon}) =>
+    Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: MusklCard(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(children: [
+          if (icon != null) ...[
+            Icon(icon, color: AppColors.accent, size: 20),
+            const SizedBox(width: 11),
+          ],
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label.toUpperCase(),
+                  style: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: .9)),
+              const SizedBox(height: 4),
+              Text(value.isEmpty ? 'Sin información' : value,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ]),
+          ),
+        ]),
+      ),
+    );
 const _goalImages = {
   'Bajar de peso': 'assets/images/goals/bajar_de_peso.jpeg',
   'Masa muscular': 'assets/images/goals/masa_muscular.jpg',
@@ -136,8 +205,15 @@ class PrototypePage extends StatelessWidget {
 }
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key, this.initialRole = 'Cliente'});
+  const RegisterScreen({
+    super.key,
+    this.initialRole = 'Cliente',
+    this.initialEmail = '',
+    this.initialName = '',
+  });
   final String initialRole;
+  final String initialEmail;
+  final String initialName;
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
@@ -170,6 +246,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void initState() {
     super.initState();
     _role = widget.initialRole;
+    _email.text = widget.initialEmail;
+    final names = widget.initialName
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (names.isNotEmpty) _name.text = names.first;
+    if (names.length > 1) _lastName.text = names.skip(1).join(' ');
   }
 
   @override
@@ -443,22 +526,40 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   : 'Completa tus datos para continuar con el registro.')),
         ])),
         const SizedBox(height: 14),
-        Align(
+        const Align(
             alignment: Alignment.centerLeft,
-            child: Text('TIPO DE CUENTA',
-                style: Theme.of(context)
-                    .textTheme
-                    .labelSmall
-                    ?.copyWith(color: AppColors.textMuted))),
+            child: Text('ELIGE TU TIPO DE CUENTA',
+                style: TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1))),
         const SizedBox(height: 8),
-        Wrap(
-            spacing: 8,
-            children: ['Cliente', 'Entrenador', 'Admin']
-                .map((v) => ChoiceChip(
-                    label: Text(v),
-                    selected: _role == v,
-                    onSelected: (_) => setState(() => _role = v)))
-                .toList()),
+        Row(children: [
+          _registrationRoleOption(
+            role: 'Cliente',
+            description: 'Entrena y registra tu avance',
+            icon: Icons.person_outline,
+            selected: _role == 'Cliente',
+            onTap: () => setState(() => _role = 'Cliente'),
+          ),
+          const SizedBox(width: 7),
+          _registrationRoleOption(
+            role: 'Entrenador',
+            description: 'Administra rutinas y clientes',
+            icon: Icons.fitness_center,
+            selected: _role == 'Entrenador',
+            onTap: () => setState(() => _role = 'Entrenador'),
+          ),
+          const SizedBox(width: 7),
+          _registrationRoleOption(
+            role: 'Administrador',
+            description: 'Requiere invitación',
+            icon: Icons.admin_panel_settings_outlined,
+            selected: _role == 'Admin',
+            onTap: () => setState(() => _role = 'Admin'),
+          ),
+        ]),
         const SizedBox(height: 14),
         MusklCard(
             child: Column(children: [
@@ -816,27 +917,37 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
           ? 'Detalle de entrenador'
           : 'Detalle de socio',
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        MusklCard(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(widget.name.toUpperCase(),
-              style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          Text(
-              '${widget.memberNumber}${widget.plan.isEmpty ? '' : ' · Plan ${widget.plan}'} · ${widget.deactivated ? 'BAJA' : widget.status == 'pending' ? 'EN REVISIÓN' : widget.status == 'rejected' ? 'RECHAZADO' : 'ACTIVO'}'),
-          Text(
-              '${widget.email}${widget.phone.isEmpty ? '' : ' · ${widget.phone}'}'),
+        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _profileDetail('Nombre completo', widget.name,
+              icon: Icons.person_outline),
+          _profileDetail('Estado',
+              '${widget.deactivated ? 'Baja' : widget.status == 'pending' ? 'En revisión' : widget.status == 'rejected' ? 'Rechazado' : 'Activo'}',
+              icon: Icons.verified_user_outlined),
+          if (widget.memberNumber.isNotEmpty)
+            _profileDetail('Número de socio', widget.memberNumber,
+                icon: Icons.badge_outlined),
+          if (widget.plan.isNotEmpty)
+            _profileDetail('Plan', widget.plan,
+                icon: Icons.card_membership),
+          _profileDetail('Correo electrónico', widget.email,
+              icon: Icons.mail_outline),
+          _profileDetail('Teléfono', widget.phone,
+              icon: Icons.phone_outlined),
           if (widget.role == 'client')
-            Text(widget.trainerName.isEmpty
+            _profileDetail('Entrenador', widget.trainerName.isEmpty
                 ? 'Sin entrenador asignado'
-                : 'Entrenador: ${widget.trainerName}'),
+                : widget.trainerName, icon: Icons.fitness_center),
           if (widget.deactivatedBy.isNotEmpty)
-            Text('Baja registrada por: ${widget.deactivatedBy}'),
+            _profileDetail('Baja registrada por', widget.deactivatedBy,
+                icon: Icons.person_off_outlined),
           if (widget.deactivated)
-            Text(
-                'Reactivación disponible hasta ${widget.reactivationUntil.isEmpty ? '—' : widget.reactivationUntil.substring(0, 10)}',
-                style: const TextStyle(color: AppColors.accent))
-        ])),
+            _profileDetail(
+                'Reactivación disponible hasta',
+                widget.reactivationUntil.isEmpty
+                    ? '—'
+                    : widget.reactivationUntil.substring(0, 10),
+                icon: Icons.event_outlined),
+        ]),
         const SizedBox(height: 16),
         if (!widget.deactivated &&
             (widget.role == 'client' || widget.role == 'trainer')) ...[

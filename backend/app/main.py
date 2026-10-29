@@ -948,6 +948,7 @@ def login(payload: LoginRequest) -> dict:
     identifier_hash = _login_identifier_hash(identifier)
     response = None
     blocked = False
+    user_not_found = False
     invalid_credentials = False
     unverified_email = False
     with pool.connection() as conn:
@@ -987,8 +988,8 @@ def login(payload: LoginRequest) -> dict:
                             password_hasher.verify(DUMMY_PASSWORD_HASH, password)
                         except (VerifyMismatchError, VerificationError, InvalidHashError):
                             pass
-                    # Keep unknown accounts and incorrect passwords indistinguishable.
-                    invalid_credentials = True
+                    user_not_found = not candidates
+                    invalid_credentials = bool(candidates)
                 else:
                     if not user.get('email_verified', True):
                         unverified_email = True
@@ -1000,6 +1001,8 @@ def login(payload: LoginRequest) -> dict:
     if blocked:
         raise _problem(429, 'LOGIN_RATE_LIMIT',
                        'Demasiados intentos. Espera 15 minutos antes de volver a intentarlo.')
+    if user_not_found:
+        raise _problem(401, 'USER_NOT_FOUND', 'No existe una cuenta con ese correo o identificador.')
     if invalid_credentials:
         raise _problem(401, 'INVALID_CREDENTIALS', 'Correo o contraseña incorrectos.')
     if unverified_email:

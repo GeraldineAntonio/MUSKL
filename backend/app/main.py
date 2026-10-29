@@ -2718,6 +2718,39 @@ def admin_exercise_catalog(search: str = Query(default='', max_length=80),
     return result
 
 
+@app.post('/api/v1/admin/exercises', status_code=201)
+def create_admin_exercise(
+    payload: TrainerExerciseCreate,
+    admin: dict = Depends(active_admin),
+) -> dict:
+    name = payload.name.strip()
+    if len(name) < 2:
+        raise _problem(422, 'INVALID_EXERCISE_NAME', 'Escribe un nombre de al menos 2 caracteres.')
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                exercise = cur.execute("""INSERT INTO exercise_catalog
+                        (name, muscle_group, equipment, instructions)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, name, muscle_group, equipment, instructions,
+                        media_url, media_mime""",
+                    (name, payload.muscle_group, payload.equipment,
+                     payload.instructions.strip() if payload.instructions else None)).fetchone()
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, event_type, details)
+                    VALUES (%s, %s, 'exercise_catalog_created', %s)""",
+                    (admin['gym_id'], admin['id'], Jsonb({
+                        'exercise_id': str(exercise['id']),
+                        'name': exercise['name'],
+                    })))
+    except Exception as exc:
+        if getattr(exc, 'sqlstate', None) == '23505':
+            raise _problem(409, 'EXERCISE_NAME_EXISTS',
+                           'Ya existe un ejercicio con ese nombre en el catálogo.')
+        raise
+    return {**exercise, 'id': str(exercise['id'])}
+
+
 @app.put('/api/v1/admin/exercises/{exercise_id}')
 def update_admin_exercise(exercise_id: uuid.UUID, payload: ExerciseCatalogUpdate,
                           admin: dict = Depends(active_admin)) -> dict:

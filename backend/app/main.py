@@ -370,11 +370,11 @@ class TrainerExerciseCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     muscle_group: Literal[
         'Pecho', 'Espalda', 'Hombros', 'Bíceps', 'Tríceps', 'Piernas',
-        'Piernas y glúteos', 'Glúteos', 'Pantorrillas', 'Abdomen', 'Cardio',
-        'Cuerpo completo',
+        'Cuádriceps', 'Femoral', 'Pierna completa', 'Glúteos',
+        'Pantorrillas', 'Abdomen', 'Cardio', 'Cuerpo completo',
     ]
     equipment: Literal[
-        'Peso corporal', 'Mancuernas', 'Barra', 'Barra y discos', 'Discos',
+        'Peso corporal', 'Mancuernas', 'Barra', 'Discos',
         'Poleas', 'Máquina', 'Bandas elásticas', 'Kettlebell', 'Otro',
     ]
     instructions: str | None = Field(default=None, max_length=2000)
@@ -384,11 +384,11 @@ class ExerciseCatalogUpdate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     muscle_group: Literal[
         'Pecho', 'Espalda', 'Hombros', 'Bíceps', 'Tríceps', 'Piernas',
-        'Piernas y glúteos', 'Glúteos', 'Pantorrillas', 'Abdomen', 'Cardio',
-        'Cuerpo completo',
+        'Cuádriceps', 'Femoral', 'Pierna completa', 'Glúteos',
+        'Pantorrillas', 'Abdomen', 'Cardio', 'Cuerpo completo',
     ]
     equipment: Literal[
-        'Peso corporal', 'Mancuernas', 'Barra', 'Barra y discos', 'Discos',
+        'Peso corporal', 'Mancuernas', 'Barra', 'Discos',
         'Poleas', 'Máquina', 'Bandas elásticas', 'Kettlebell', 'Otro',
     ]
     instructions: str | None = Field(default=None, max_length=2000)
@@ -2574,12 +2574,14 @@ def trainer_exercise_catalog(search: str = Query(default='', max_length=80),
     term = search.strip()
     pattern = f'%{term}%'
     with pool.connection() as conn:
-        rows = conn.execute("""SELECT id, name, muscle_group, equipment, instructions,
-                media_url, media_key, media_mime
-            FROM exercise_catalog
-            WHERE active AND (%s = '' OR name ILIKE %s OR muscle_group ILIKE %s OR equipment ILIKE %s)
-            ORDER BY name LIMIT 50""",
-            (term, pattern, pattern, pattern)).fetchall()
+        rows = conn.execute("""SELECT ec.id, ec.name, ec.muscle_group, ec.equipment, ec.instructions,
+                tm.media_key, tm.media_mime, NULL::text AS media_url
+            FROM exercise_catalog ec
+            LEFT JOIN trainer_exercise_media tm
+              ON tm.exercise_catalog_id = ec.id AND tm.trainer_id = %s
+            WHERE ec.active AND (%s = '' OR ec.name ILIKE %s OR ec.muscle_group ILIKE %s OR ec.equipment ILIKE %s)
+            ORDER BY ec.name LIMIT 50""",
+            (trainer['id'], term, pattern, pattern, pattern)).fetchall()
     result = []
     for row in rows:
         item = {**row, 'id': str(row['id'])}
@@ -2697,30 +2699,37 @@ async def upload_trainer_exercise_media(
     if total == 0:
         raise _problem(400, 'EMPTY_VIDEO', 'El video está vacío. Graba otra toma.')
 
-    key = f"exercise-media/{trainer['gym_id']}/{exercise_id}/{uuid.uuid4().hex}.{extension}"
+    key = f"exercise-media/{trainer['gym_id']}/{trainer['id']}/{exercise_id}/{uuid.uuid4().hex}.{extension}"
     old_key = None
     try:
         stored_key = put_exercise_media(key, b''.join(chunks), content_type)
         media_url = presigned_exercise_media_url(stored_key)
         with pool.connection() as conn:
             with conn.cursor() as cur:
-                previous = cur.execute("""SELECT media_key FROM exercise_catalog
-                    WHERE id = %s AND active FOR UPDATE""", (exercise_id,)).fetchone()
-                if previous is None:
+                previous = cur.execute("""SELECT media_key FROM trainer_exercise_media
+                    WHERE trainer_id = %s AND exercise_catalog_id = %s FOR UPDATE""",
+                    (trainer['id'], exercise_id)).fetchone()
+                exercise_exists = cur.execute("""SELECT id, name FROM exercise_catalog
+                    WHERE id = %s AND active""", (exercise_id,)).fetchone()
+                if exercise_exists is None:
                     raise _problem(404, 'EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio.')
-                old_key = previous['media_key']
-                exercise = cur.execute("""UPDATE exercise_catalog SET media_key = %s,
-                        media_mime = %s, media_url = NULL
-                    WHERE id = %s AND active
-                    RETURNING id, name, media_key, media_mime""",
-                    (stored_key, content_type, exercise_id)).fetchone()
+                old_key = previous['media_key'] if previous else None
+                exercise = cur.execute("""INSERT INTO trainer_exercise_media
+                        (trainer_id, exercise_catalog_id, media_key, media_mime)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (trainer_id, exercise_catalog_id) DO UPDATE
+                    SET media_key = EXCLUDED.media_key, media_mime = EXCLUDED.media_mime,
+                        updated_at = now()
+                    RETURNING exercise_catalog_id AS id, media_key, media_mime""",
+                    (trainer['id'], exercise_id, stored_key, content_type)).fetchone()
                 if exercise is None:
                     raise _problem(404, 'EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio.')
                 cur.execute("""INSERT INTO account_audit_events
                     (gym_id, actor_id, event_type, details)
                     VALUES (%s, %s, 'exercise_media_uploaded', %s)""",
                     (trainer['gym_id'], trainer['id'], Jsonb({
-                        'exercise_id': str(exercise_id), 'size_bytes': total,
+                        'exercise_id': str(exercise_id), 'trainer_id': str(trainer['id']),
+                        'size_bytes': total,
                         'content_type': content_type,
                     })))
         if old_key and old_key != stored_key:
@@ -2728,7 +2737,7 @@ async def upload_trainer_exercise_media(
                 delete_exercise_media(old_key)
             except Exception:
                 log.exception('Could not delete replaced exercise media from R2')
-        return {'id': str(exercise['id']), 'name': exercise['name'],
+        return {'id': str(exercise['id']), 'name': exercise_exists['name'],
                 'media_key': stored_key, 'media_mime': content_type,
                 'media_url': media_url, 'size_bytes': total}
     except HTTPException:
@@ -2761,9 +2770,32 @@ def admin_exercise_catalog(search: str = Query(default='', max_length=80),
             WHERE active AND (%s = '' OR name ILIKE %s OR muscle_group ILIKE %s OR equipment ILIKE %s)
             ORDER BY name LIMIT 100""",
             (term, pattern, pattern, pattern)).fetchall()
+        trainer_media_rows = conn.execute("""SELECT tm.exercise_catalog_id,
+                tm.trainer_id, tm.media_key, tm.media_mime,
+                concat_ws(' ', u.first_name, u.last_name) AS trainer_name
+            FROM trainer_exercise_media tm
+            JOIN exercise_catalog ec ON ec.id = tm.exercise_catalog_id AND ec.active
+            JOIN users u ON u.id = tm.trainer_id AND u.gym_id = %s
+            WHERE ec.id = ANY(%s)
+            ORDER BY u.first_name, u.last_name""",
+            (admin['gym_id'], [row['id'] for row in rows])).fetchall() if rows else []
+    media_by_exercise: dict[str, list[dict]] = {}
+    for media in trainer_media_rows:
+        item = {
+            'trainer_id': str(media['trainer_id']),
+            'trainer_name': media['trainer_name'],
+            'media_mime': media['media_mime'],
+            'media_url': None,
+        }
+        try:
+            item['media_url'] = presigned_exercise_media_url(media['media_key'])
+        except (StorageNotConfigured, StorageReadError):
+            pass
+        media_by_exercise.setdefault(str(media['exercise_catalog_id']), []).append(item)
     result = []
     for row in rows:
-        item = {**row, 'id': str(row['id'])}
+        item = {**row, 'id': str(row['id']),
+                'trainer_media': media_by_exercise.get(str(row['id']), [])}
         if row.get('media_key'):
             try:
                 item['media_url'] = presigned_exercise_media_url(row['media_key'])
@@ -2856,6 +2888,7 @@ def update_admin_exercise(exercise_id: uuid.UUID, payload: ExerciseCatalogUpdate
 @app.post('/api/v1/admin/exercises/{exercise_id}/media', status_code=200)
 async def upload_admin_exercise_media(
     exercise_id: uuid.UUID,
+    trainer_id: uuid.UUID | None = Query(default=None),
     video: UploadFile = File(...),
     admin: dict = Depends(active_admin),
 ) -> dict:
@@ -2875,27 +2908,58 @@ async def upload_admin_exercise_media(
     if total == 0:
         raise _problem(400, 'EMPTY_VIDEO', 'El video está vacío. Elige otro archivo.')
 
-    key = f"exercise-media/{admin['gym_id']}/{exercise_id}/{uuid.uuid4().hex}.{extension}"
+    if trainer_id is not None:
+        with pool.connection() as conn:
+            trainer_exists = conn.execute("""SELECT id FROM users
+                WHERE id = %s AND gym_id = %s AND role = 'trainer'::muskl_role
+                  AND status = 'active'::account_status""",
+                (trainer_id, admin['gym_id'])).fetchone()
+        if trainer_exists is None:
+            raise _problem(404, 'TRAINER_NOT_FOUND', 'No encontramos un entrenador activo del gimnasio.')
+
+    key = (f"exercise-media/{admin['gym_id']}/{trainer_id}/{exercise_id}/{uuid.uuid4().hex}.{extension}"
+           if trainer_id else
+           f"exercise-media/{admin['gym_id']}/{exercise_id}/{uuid.uuid4().hex}.{extension}")
     try:
         stored_key = put_exercise_media(key, b''.join(chunks), content_type)
         media_url = presigned_exercise_media_url(stored_key)
         with pool.connection() as conn:
             with conn.cursor() as cur:
-                previous = cur.execute("""SELECT media_key FROM exercise_catalog
-                    WHERE id = %s AND active FOR UPDATE""", (exercise_id,)).fetchone()
-                if previous is None:
+                if trainer_id:
+                    previous = cur.execute("""SELECT media_key FROM trainer_exercise_media
+                        WHERE trainer_id = %s AND exercise_catalog_id = %s FOR UPDATE""",
+                        (trainer_id, exercise_id)).fetchone()
+                else:
+                    previous = cur.execute("""SELECT media_key FROM exercise_catalog
+                        WHERE id = %s AND active FOR UPDATE""", (exercise_id,)).fetchone()
+                exercise_exists = cur.execute("""SELECT id, name FROM exercise_catalog
+                    WHERE id = %s AND active""", (exercise_id,)).fetchone()
+                if exercise_exists is None:
                     raise _problem(404, 'EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio.')
-                old_key = previous['media_key']
-                exercise = cur.execute("""UPDATE exercise_catalog SET media_key = %s,
-                        media_mime = %s, media_url = NULL
-                    WHERE id = %s AND active
-                    RETURNING id, name, media_key, media_mime""",
-                    (stored_key, content_type, exercise_id)).fetchone()
+                old_key = previous['media_key'] if previous else None
+                if trainer_id:
+                    cur.execute("""INSERT INTO trainer_exercise_media
+                            (trainer_id, exercise_catalog_id, media_key, media_mime)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (trainer_id, exercise_catalog_id) DO UPDATE
+                        SET media_key = EXCLUDED.media_key, media_mime = EXCLUDED.media_mime,
+                            updated_at = now()""",
+                        (trainer_id, exercise_id, stored_key, content_type))
+                    exercise = {'id': exercise_id, 'name': exercise_exists['name'],
+                                'media_key': stored_key, 'media_mime': content_type}
+                else:
+                    exercise = cur.execute("""UPDATE exercise_catalog SET media_key = %s,
+                            media_mime = %s, media_url = NULL
+                        WHERE id = %s AND active
+                        RETURNING id, name, media_key, media_mime""",
+                        (stored_key, content_type, exercise_id)).fetchone()
                 cur.execute("""INSERT INTO account_audit_events
                     (gym_id, actor_id, event_type, details)
                     VALUES (%s, %s, 'exercise_media_uploaded', %s)""",
                     (admin['gym_id'], admin['id'], Jsonb({
-                        'exercise_id': str(exercise_id), 'size_bytes': total,
+                        'exercise_id': str(exercise_id),
+                        'trainer_id': str(trainer_id) if trainer_id else None,
+                        'size_bytes': total,
                         'content_type': content_type,
                     })))
         if old_key and old_key != stored_key:
@@ -3683,7 +3747,7 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_c
         _advance_due_client_phase(conn, client['id'])
         assignment = conn.execute("""SELECT cra.id AS assignment_id, cra.current_phase_id, cra.phase_started_at,
                 (cra.phase_started_at AT TIME ZONE g.timezone)::date AS started_on,
-                r.id AS routine_id, r.name AS routine_name, r.goal, r.days_per_week,
+                r.id AS routine_id, r.trainer_id, r.name AS routine_name, r.goal, r.days_per_week,
                 rp.phase_number, rp.name AS phase_name, rp.status AS phase_status
             FROM client_routine_assignments cra JOIN routines r ON r.id = cra.routine_id
             JOIN gyms g ON g.id = r.gym_id
@@ -3711,13 +3775,17 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_c
                     display_day = due_session['day_number']
         exercises = conn.execute("""SELECT re.id, re.day_number, re.position, re.name, re.sets,
                 re.reps, re.rest_seconds, COALESCE(re.instructions, ec.instructions) AS instructions,
-                COALESCE(ec.media_url, re.media_url) AS media_url,
-                ec.media_mime, COALESCE(ec.media_key, re.media_key) AS media_key,
+                CASE WHEN tm.media_key IS NOT NULL THEN NULL
+                     ELSE COALESCE(ec.media_url, re.media_url) END AS media_url,
+                COALESCE(tm.media_mime, ec.media_mime) AS media_mime,
+                COALESCE(tm.media_key, ec.media_key, re.media_key) AS media_key,
                 ec.muscle_group
             FROM routine_exercises re
             LEFT JOIN exercise_catalog ec ON ec.id = re.exercise_catalog_id
+            LEFT JOIN trainer_exercise_media tm
+              ON tm.exercise_catalog_id = ec.id AND tm.trainer_id = %s
             WHERE re.phase_id = %s AND re.day_number = %s ORDER BY re.position""",
-            (assignment['current_phase_id'], display_day)).fetchall()
+            (assignment['trainer_id'], assignment['current_phase_id'], display_day)).fetchall()
         completed_exercises = conn.execute("""SELECT c.exercise_id
             FROM workout_exercise_completions c
             JOIN routine_exercises re ON re.id = c.exercise_id

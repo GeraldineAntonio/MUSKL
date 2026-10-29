@@ -6,7 +6,9 @@ La base también define membresías, grupos de clientes con cuentas individuales
 
 El calendario del cliente muestra los días de entrenamiento de su rutina y las asistencias del mes. También puede registrar desde la app una asistencia diaria si tiene una membresía vigente; esos registros quedan identificados con origen `app` y se limitan a uno por día. Durante una rutina, cada ejercicio se confirma por separado y el servidor no acepta terminar la sesión hasta que estén confirmados todos los ejercicios de ese día.
 
-Cada ejercicio admite `media_url` para una imagen o GIF HTTPS; el archivo debe estar alojado en una dirección accesible por el teléfono. El API envía esa dirección a la app del cliente, que muestra imágenes y GIF animados en el detalle del ejercicio.
+Cada ejercicio admite `media_url` para imágenes o GIF HTTPS existentes. Los videos nuevos del catálogo se guardan en el bucket privado de R2; PostgreSQL conserva su clave y tipo MIME, y el API entrega enlaces temporales al entrenador y al socio. La app reproduce MP4, MOV y WebM en el detalle del ejercicio. El endpoint de carga limita los videos a 50 MB.
+
+La herramienta web para grabar videos está en `media-web/` y se publica como sitio estático mediante el Blueprint de Render. Antes de desplegar la versión nueva del API, aplica `backend/db/026_exercise_catalog_media.sql` si tu instalación no ejecuta migraciones al arrancar. Configura `MUSKL_CORS_ORIGINS` con el origen de la web, por ejemplo `https://muskl-media-web.onrender.com`; para desarrollo local también admite `http://localhost:5173`.
 
 ## Arranque local
 

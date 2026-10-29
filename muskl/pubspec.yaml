@@ -19,6 +19,7 @@ dependencies:
   audioplayers: ^6.8.1
   flutter_tts: ^4.2.5
   pdfrx: ^2.6.5
+  video_player: '>=2.9.5 <2.15.0'
 
 dev_dependencies:
   flutter_test:

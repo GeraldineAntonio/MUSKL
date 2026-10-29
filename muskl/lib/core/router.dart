@@ -142,6 +142,7 @@ GoRouter buildRouter(AuthController auth) {
               id: state.uri.queryParameters['id'] ?? '1',
               name: state.uri.queryParameters['name'] ?? 'Ejercicio',
               mediaUrl: state.uri.queryParameters['media_url'] ?? '',
+              mediaMime: state.uri.queryParameters['media_mime'] ?? '',
               muscleGroup:
                   state.uri.queryParameters['muscle_group'] ?? 'Rutina',
               instructions: state.uri.queryParameters['instructions'] ?? '',

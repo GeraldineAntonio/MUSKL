@@ -1,4 +1,4 @@
-"""Private R2 storage for trainer certification documents and profile photos."""
+"""Private R2 storage for trainer certifications, profile photos and exercise media."""
 
 from __future__ import annotations
 
@@ -131,6 +131,47 @@ def presigned_profile_photo_url(storage_key: str, expires_in: int = 600) -> str:
 
 
 def delete_profile_photo(storage_key: str) -> None:
+    settings = _settings()
+    if storage_key.startswith('r2://') and settings:
+        account_id, access_key, secret_key, bucket = settings
+        _client(account_id, access_key, secret_key).delete_object(
+            Bucket=bucket, Key=storage_key.removeprefix('r2://'))
+
+
+def put_exercise_media(key: str, data: bytes, content_type: str) -> str:
+    settings = _settings()
+    if not settings:
+        raise StorageNotConfigured('Configura el bucket privado de R2 para guardar videos de ejercicios.')
+    account_id, access_key, secret_key, bucket = settings
+    try:
+        _client(account_id, access_key, secret_key).put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+            CacheControl='private, no-store',
+        )
+    except Exception as exc:
+        raise StorageWriteError('No se pudo guardar el video del ejercicio en R2.') from exc
+    return f'r2://{key}'
+
+
+def presigned_exercise_media_url(storage_key: str, expires_in: int = 600) -> str:
+    settings = _settings()
+    if not settings:
+        raise StorageNotConfigured('El almacenamiento privado de R2 no está configurado.')
+    account_id, access_key, secret_key, bucket = settings
+    try:
+        return _client(account_id, access_key, secret_key).generate_presigned_url(
+            'get_object',
+            Params={'Bucket': bucket, 'Key': storage_key.removeprefix('r2://')},
+            ExpiresIn=expires_in,
+        )
+    except Exception as exc:
+        raise StorageReadError('No se pudo generar el enlace temporal del video.') from exc
+
+
+def delete_exercise_media(storage_key: str) -> None:
     settings = _settings()
     if storage_key.startswith('r2://') and settings:
         account_id, access_key, secret_key, bucket = settings

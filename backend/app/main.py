@@ -87,6 +87,12 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title='MUSKL API', version='0.1.0', lifespan=lifespan)
 origins = [v.strip() for v in os.getenv('MUSKL_CORS_ORIGINS', '').split(',') if v.strip()]
+origins.extend(origin for origin in (
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:4173',
+    'http://127.0.0.1:4173',
+) if origin not in origins)
 app.add_middleware(CORSMiddleware, allow_origins=origins or ['*'],
                    allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
 

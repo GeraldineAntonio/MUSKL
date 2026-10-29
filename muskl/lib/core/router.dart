@@ -86,7 +86,16 @@ GoRouter buildRouter(AuthController auth) {
       GoRoute(path: '/welcome', builder: (_, __) => const WelcomeScreen()),
       GoRoute(
         path: '/register',
-        builder: (_, __) => const RegisterScreen(),
+        builder: (_, state) {
+          final extra = state.extra is Map
+              ? Map<String, dynamic>.from(state.extra as Map)
+              : const <String, dynamic>{};
+          return RegisterScreen(
+            initialRole: extra['initial_role']?.toString() ?? 'Cliente',
+            initialEmail: extra['email']?.toString() ?? '',
+            initialName: extra['name']?.toString() ?? '',
+          );
+        },
       ),
       GoRoute(
         path: '/register/google',

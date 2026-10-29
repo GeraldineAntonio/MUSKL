@@ -267,28 +267,20 @@ class _LoginScreenState extends State<LoginScreen> {
           ],
         ),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: MusklButton(
-                label: 'Google',
-                icon: Icons.g_mobiledata,
-                style: MusklButtonStyle.light,
-                loading: _loading,
-                onPressed: _loading ? null : _signInGoogle,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: MusklButton(
-                label: 'Apple',
-                icon: Icons.apple,
-                style: MusklButtonStyle.secondary,
-                loading: _loading,
-                onPressed: _loading ? null : _signInApple,
-              ),
-            ),
-          ],
+        MusklButton(
+          label: 'Continuar con Google',
+          icon: Icons.g_mobiledata,
+          style: MusklButtonStyle.light,
+          loading: _loading,
+          onPressed: _loading ? null : _signInGoogle,
+        ),
+        const SizedBox(height: 10),
+        MusklButton(
+          label: 'Continuar con Apple',
+          icon: Icons.apple,
+          style: MusklButtonStyle.secondary,
+          loading: _loading,
+          onPressed: _loading ? null : _signInApple,
         ),
         const SizedBox(height: 24),
         Center(

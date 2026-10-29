@@ -359,6 +359,42 @@ Widget _record(String title, String subtitle,
           ]))),
     );
 
+Widget _profileInfoField(String label, String value,
+        {required IconData icon,
+        VoidCallback? onEdit,
+        bool enabled = true}) =>
+    Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: MusklCard(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(children: [
+          Icon(icon, color: AppColors.accent, size: 20),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+              Text(label.toUpperCase(),
+                  style: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: .9)),
+              const SizedBox(height: 4),
+              Text(value.trim().isEmpty ? 'Sin información' : value,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ]),
+          ),
+          if (onEdit != null)
+            IconButton(
+              tooltip: 'Editar $label',
+              onPressed: enabled ? onEdit : null,
+              icon: const Icon(Icons.edit_outlined),
+            ),
+        ]),
+      ),
+    );
+
 class ClientDashboardScreen extends StatefulWidget {
   const ClientDashboardScreen({super.key});
   @override
@@ -1819,6 +1855,17 @@ class _ClientProfileWorkspaceScreenState
     await _saveClientProfile(bio: values.first);
   }
 
+  Future<void> _editClientName(String firstName, String lastName) async {
+    final values = await _editFields(
+      context,
+      'EDITAR NOMBRE',
+      ['Nombre', 'Apellidos'],
+      [firstName, lastName],
+    );
+    if (!mounted || values == null) return;
+    await _saveClientProfile(firstName: values[0], lastName: values[1]);
+  }
+
   Future<void> _pickProfilePhoto() async {
     try {
       final selected = await pickProfilePhoto(context);
@@ -1971,84 +2018,92 @@ class _ClientProfileWorkspaceScreenState
           return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-            if (_savingProfile) const LinearProgressIndicator(),
-            MusklCard(
-                child: Row(
+                if (_savingProfile) const LinearProgressIndicator(),
+                MusklCard(
+                    child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      ProfilePhotoAvatar(
+                          radius: 42,
+                          image: photoUrl != null && photoUrl.isNotEmpty
+                              ? NetworkImage(photoUrl)
+                              : photoBytes == null
+                                  ? null
+                                  : MemoryImage(photoBytes),
+                          name: '${data['first_name']} ${data['last_name']}',
+                          onEdit: _savingProfile ? () {} : _pickProfilePhoto),
+                      const SizedBox(width: 14),
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            const Text('PERFIL DE SOCIO',
+                                style: TextStyle(
+                                    color: AppColors.textMuted,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: .8)),
+                          ])),
+                    ])),
+                _profileInfoField(
+                    'Nombre completo',
+                    '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'.trim(),
+                    icon: Icons.person_outline,
+                    enabled: !_savingProfile,
+                    onEdit: () => _editClientName(
+                        (data['first_name'] ?? '').toString(),
+                        (data['last_name'] ?? '').toString())),
+                _profileInfoField(
+                    'Número de socio',
+                    (data['member_number'] ?? '—').toString(),
+                    icon: Icons.badge_outlined),
+                _profileInfoField(
+                    'Fecha de nacimiento',
+                    (data['birth_date'] ?? 'Sin fecha').toString(),
+                    icon: Icons.cake_outlined),
+                _profileInfoField(
+                    'Objetivo', (data['goal'] ?? 'Pendiente').toString(),
+                    icon: Icons.flag_outlined),
+                _section('Mi biografía'),
+                MusklCard(
+                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                  ProfilePhotoAvatar(
-                      radius: 42,
-                      image: photoUrl != null && photoUrl.isNotEmpty
-                          ? NetworkImage(photoUrl)
-                          : photoBytes == null
-                              ? null
-                              : MemoryImage(photoBytes),
-                      name: '${data['first_name']} ${data['last_name']}',
-                      onEdit: _savingProfile ? () {} : _pickProfilePhoto),
-                  const SizedBox(width: 14),
-                  Expanded(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Text(
-                            '${data['first_name']} ${data['last_name']}'
-                                .toUpperCase(),
-                            style: const TextStyle(
-                                fontSize: 19, fontWeight: FontWeight.w900)),
-                        Text('Socio ${data['member_number'] ?? '—'}',
-                            style: const TextStyle(
-                                color: AppColors.red,
-                                fontWeight: FontWeight.bold)),
-                        Text(
-                            'Nacimiento · ${data['birth_date'] ?? 'Sin fecha'}',
-                            style: const TextStyle(color: AppColors.textMuted)),
-                        Text('Objetivo · ${data['goal'] ?? 'Pendiente'}',
-                            style: const TextStyle(color: AppColors.textMuted)),
-                      ])),
-                ])),
-            _section('Mi biografía'),
-            MusklCard(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.notes_outlined, color: AppColors.accent),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      (data['bio'] ?? '').toString().trim().isEmpty
-                          ? 'Agrega una descripción para que tu entrenador te conozca mejor.'
-                          : data['bio'].toString(),
-                      style: TextStyle(
-                        color: (data['bio'] ?? '').toString().trim().isEmpty
-                            ? AppColors.textMuted
-                            : AppColors.white,
+                      const Icon(Icons.notes_outlined, color: AppColors.accent),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          (data['bio'] ?? '').toString().trim().isEmpty
+                              ? 'Agrega una descripción para que tu entrenador te conozca mejor.'
+                              : data['bio'].toString(),
+                          style: TextStyle(
+                            color: (data['bio'] ?? '').toString().trim().isEmpty
+                                ? AppColors.textMuted
+                                : AppColors.white,
+                          ),
+                        ),
                       ),
-                    ),
+                      IconButton(
+                        tooltip: 'Editar biografía',
+                        onPressed: _savingProfile
+                            ? null
+                            : () => _editBio((data['bio'] ?? '').toString()),
+                        icon: const Icon(Icons.edit_outlined),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    tooltip: 'Editar biografía',
-                    onPressed: _savingProfile
-                        ? null
-                        : () => _editBio((data['bio'] ?? '').toString()),
-                    icon: const Icon(Icons.edit_outlined),
-                  ),
-                ],
-              ),
-            ),
-            _section('Contacto y detalles'),
-            _record('Correo', (data['email'] ?? '').toString(),
-                icon: Icons.mail_outline,
-                editable: true,
-                onTap: _savingProfile
-                    ? null
-                    : () => _editContact(
+                ),
+                _section('Contacto y detalles'),
+                _profileInfoField(
+                    'Correo electrónico', (data['email'] ?? '').toString(),
+                    icon: Icons.mail_outline,
+                    enabled: !_savingProfile,
+                    onEdit: () => _editContact(
                         'email', (data['email'] ?? '').toString())),
-            _record('Teléfono', (data['phone'] ?? 'Sin teléfono').toString(),
-                icon: Icons.phone_outlined,
-                editable: true,
-                onTap: _savingProfile
-                    ? null
-                    : () => _editContact(
+                _profileInfoField(
+                    'Teléfono', (data['phone'] ?? '').toString(),
+                    icon: Icons.phone_outlined,
+                    enabled: !_savingProfile,
+                    onEdit: () => _editContact(
                         'phone', (data['phone'] ?? '').toString())),
             _record('Entrenador',
                 (data['trainer_name'] ?? 'Sin asignar').toString(),
@@ -3537,16 +3592,8 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                       child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                        Text('${_value('first_name')} ${_value('last_name')}',
-                            style:
-                                const TextStyle(fontWeight: FontWeight.bold)),
-                        Text(
-                            _value('bio').isEmpty
-                                ? 'Entrenador'
-                                : _value('bio'),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: AppColors.textMuted)),
+                        const Text('Perfil de entrenador',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
                       ])),
                   IconButton(
                       tooltip: 'Editar datos personales',
@@ -3554,30 +3601,25 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                       icon: const Icon(Icons.edit_outlined)),
                 ]),
               ])),
-              MusklCard(
-                  child: Column(children: [
-                ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.mail_outline),
-                    title: const Text('Correo'),
-                    subtitle: Text(_value('email')),
-                    trailing: IconButton(
-                        onPressed:
-                            _saving ? null : () => _editTrainerContact('email'),
-                        icon: const Icon(Icons.edit_outlined))),
-                const Divider(height: 1),
-                ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.phone_outlined),
-                    title: const Text('Teléfono'),
-                    subtitle: Text(_value('phone').isEmpty
-                        ? 'Agregar teléfono'
-                        : _value('phone')),
-                    trailing: IconButton(
-                        onPressed:
-                            _saving ? null : () => _editTrainerContact('phone'),
-                        icon: const Icon(Icons.edit_outlined))),
-              ])),
+              _profileInfoField(
+                  'Nombre completo',
+                  '${_value('first_name')} ${_value('last_name')}'.trim(),
+                  icon: Icons.person_outline,
+                  enabled: !_saving,
+                  onEdit: _editPersonal),
+              _profileInfoField(
+                  'Biografía', _value('bio'),
+                  icon: Icons.notes_outlined,
+                  enabled: !_saving,
+                  onEdit: _editPersonal),
+              _profileInfoField('Correo electrónico', _value('email'),
+                  icon: Icons.mail_outline,
+                  enabled: !_saving,
+                  onEdit: () => _editTrainerContact('email')),
+              _profileInfoField('Teléfono', _value('phone'),
+                  icon: Icons.phone_outlined,
+                  enabled: !_saving,
+                  onEdit: () => _editTrainerContact('phone')),
               MusklCard(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -4909,6 +4951,15 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
                       ),
                     ),
                 ],
+                if (phases.isNotEmpty && phases.last['status'] == 'published')
+                  OutlinedButton.icon(
+                    onPressed: () => context.go(Uri(
+                      path: '/admin/phase/new',
+                      queryParameters: {'routine_id': widget.routineId},
+                    ).toString()),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Crear siguiente fase'),
+                  ),
                 _section('Ejercicios por fase y día'),
                 for (final entry in exercisesByDay.entries)
                   ExpansionTile(
@@ -5397,24 +5448,27 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                Text(
-                    '${_ownProfile['first_name'] ?? 'Administrador'} ${_ownProfile['last_name'] ?? ''}',
-                    style: const TextStyle(fontWeight: FontWeight.bold)),
-                Text(
-                    (_ownProfile['bio'] ?? 'Administrador del gimnasio')
-                        .toString(),
-                    style: const TextStyle(color: AppColors.textMuted)),
+                const Text('Perfil de administrador',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
               ])),
           IconButton(
               tooltip: 'Editar perfil',
               onPressed: _editAdminProfile,
               icon: const Icon(Icons.edit_outlined)),
         ])),
-        _setting(
-            'Correo electrónico',
-            (_ownProfile['email'] ?? '').toString(),
-            Icons.mail_outline,
-            onTap: _changeAdminEmail),
+        _profileInfoField(
+            'Nombre completo',
+            '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}'
+                .trim(),
+            icon: Icons.person_outline,
+            onEdit: _editAdminProfile),
+        _profileInfoField('Biografía', (_ownProfile['bio'] ?? '').toString(),
+            icon: Icons.notes_outlined, onEdit: _editAdminProfile),
+        _profileInfoField(
+            'Correo electrónico', (_ownProfile['email'] ?? '').toString(),
+            icon: Icons.mail_outline, onEdit: _changeAdminEmail),
+        _profileInfoField('Teléfono', (_ownProfile['phone'] ?? '').toString(),
+            icon: Icons.phone_outlined, onEdit: _editAdminProfile),
         _SwitchSetting(
             label: 'Notificaciones de nuevas solicitudes',
             value: _newRequestNotifications,

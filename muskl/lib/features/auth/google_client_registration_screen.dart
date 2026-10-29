@@ -31,6 +31,7 @@ class _GoogleClientRegistrationScreenState
   bool _lookingUp = false;
   bool _saving = false;
   String? _error;
+  String _role = 'Cliente';
 
   @override
   void initState() {
@@ -171,6 +172,14 @@ class _GoogleClientRegistrationScreenState
     }
   }
 
+  void _continueWithEmailRegistration() {
+    context.push('/register', extra: {
+      'initial_role': _role == 'Entrenador' ? 'Entrenador' : 'Admin',
+      'email': widget.googleData['email'] ?? '',
+      'name': widget.googleData['name'] ?? '',
+    });
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Completa tu registro')),
@@ -190,12 +199,74 @@ class _GoogleClientRegistrationScreenState
                     Text(widget.googleData['email'] ?? '',
                         style: const TextStyle(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 4),
-                    const Text(
-                        'Usaremos este correo verificado. No necesitas escribirlo ni crear una contraseña.'),
+                    Text(_role == 'Cliente'
+                        ? 'Usaremos este correo verificado. No necesitas escribirlo ni crear una contraseña.'
+                        : 'Usaremos este correo en el formulario de registro y podrás vincular Google después de verificarlo.'),
                   ],
                 ),
               ),
               const SizedBox(height: 14),
+              const Text('¿QUÉ TIPO DE CUENTA NECESITAS?',
+                  style: TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1)),
+              const SizedBox(height: 8),
+              for (final option in [
+                ('Cliente', Icons.person_outline, 'Acceso de socio'),
+                ('Entrenador', Icons.fitness_center, 'Solicitud para entrenar'),
+                ('Admin', Icons.admin_panel_settings_outlined,
+                    'Requiere invitación'),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 7),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: _saving ? null : () => setState(() => _role = option.$1),
+                    child: MusklCard(
+                      selected: _role == option.$1,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      child: Row(children: [
+                        Icon(option.$2,
+                            color: _role == option.$1
+                                ? AppColors.red
+                                : AppColors.textMuted),
+                        const SizedBox(width: 10),
+                        Expanded(
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                              Text(option.$1,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w800)),
+                              Text(option.$3,
+                                  style: const TextStyle(
+                                      color: AppColors.textMuted,
+                                      fontSize: 12)),
+                            ])),
+                        Icon(_role == option.$1
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_off),
+                      ]),
+                    ),
+                  ),
+                ),
+              if (_role != 'Cliente') ...[
+                MusklCard(
+                  child: Text(_role == 'Entrenador'
+                      ? 'Para enviar una solicitud de entrenador, continuaremos con el formulario seguro. Tu correo de Google quedará vinculado después de verificarlo.'
+                      : 'El registro de administrador requiere un token de invitación. Continuaremos con el formulario seguro y podrás entrar con Google después de verificar el correo.'),
+                ),
+                const SizedBox(height: 12),
+                MusklButton(
+                    label: 'Continuar como ${_role.toLowerCase()}',
+                    icon: Icons.arrow_forward,
+                    onPressed:
+                        _saving ? null : _continueWithEmailRegistration),
+              ],
+              if (_role == 'Cliente') ...[
               MusklTextField(
                   label: 'Nombre *',
                   controller: _firstName,
@@ -289,6 +360,7 @@ class _GoogleClientRegistrationScreenState
                 loading: _saving,
                 onPressed: _saving ? null : _submit,
               ),
+              ],
             ],
           ),
         ),

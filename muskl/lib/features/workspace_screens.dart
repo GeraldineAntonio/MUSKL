@@ -443,13 +443,36 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
               body: Center(child: CircularProgressIndicator()));
         }
         if (snapshot.hasError) {
+          final error = snapshot.error;
+          final message = error is AuthException
+              ? error.message
+              : error?.toString() ?? 'Error desconocido.';
           return Scaffold(
               body: Center(
                   child: Padding(
                       padding: const EdgeInsets.all(24),
-                      child: Text(
-                          'No se pudo cargar tu información: ${snapshot.error}',
-                          style: const TextStyle(color: AppColors.red)))));
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.cloud_off_outlined,
+                              size: 42, color: AppColors.red),
+                          const SizedBox(height: 12),
+                          const Text('No se pudo cargar tu información',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 8),
+                          Text(message,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: AppColors.red)),
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            onPressed: () => setState(() =>
+                                _dashboard = authController.clientDashboard()),
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Reintentar'),
+                          ),
+                        ],
+                      ))));
         }
         final data = snapshot.data ?? {};
         final photoData = data['profile_photo_data'];
@@ -2001,34 +2024,39 @@ class _ClientProfileWorkspaceScreenState
                                   ? null
                                   : MemoryImage(photoBytes),
                           name: '${data['first_name']} ${data['last_name']}',
-                          onEdit: _savingProfile ? () {} : _pickProfilePhoto),
+                          onEdit: _savingProfile
+                              ? () {}
+                              : () => _openProfileEditMenu(data)),
                       const SizedBox(width: 14),
                       Expanded(
                           child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                            const Text('PERFIL DE SOCIO',
-                                style: TextStyle(
+                            Text(
+                                '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'
+                                    .trim(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w900, fontSize: 17)),
+                            Text((data['email'] ?? '').toString(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: AppColors.textMuted, fontSize: 12)),
+                            Text((data['phone'] ?? 'Sin teléfono').toString(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: AppColors.textMuted, fontSize: 12)),
+                            Text('SOCIO Nº ${data['member_number'] ?? '—'}',
+                                style: const TextStyle(
                                     color: AppColors.textMuted,
                                     fontWeight: FontWeight.w800,
-                                    letterSpacing: .8)),
+                                    letterSpacing: .8,
+                                    fontSize: 10)),
                           ])),
-                      TextButton.icon(
-                        onPressed: _savingProfile
-                            ? null
-                            : () => _openProfileEditMenu(data),
-                        icon: const Icon(Icons.edit_outlined, size: 17),
-                        label: const Text('Editar'),
-                      ),
                     ])),
-                _profileInfoField(
-                    'Nombre completo',
-                    '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'.trim(),
-                    icon: Icons.person_outline),
-                _profileInfoField(
-                    'Número de socio',
-                    (data['member_number'] ?? '—').toString(),
-                    icon: Icons.badge_outlined),
                 _profileInfoField(
                     'Fecha de nacimiento',
                     (data['birth_date'] ?? 'Sin fecha').toString(),
@@ -2059,12 +2087,6 @@ class _ClientProfileWorkspaceScreenState
                   ),
                 ),
                 _section('Contacto y detalles'),
-                _profileInfoField(
-                    'Correo electrónico', (data['email'] ?? '').toString(),
-                    icon: Icons.mail_outline),
-                _profileInfoField(
-                    'Teléfono', (data['phone'] ?? '').toString(),
-                    icon: Icons.phone_outlined),
             _record('Entrenador',
                 (data['trainer_name'] ?? 'Sin asignar').toString(),
                 icon: Icons.person_outline),
@@ -3586,33 +3608,37 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                           ? null
                           : NetworkImage(_value('profile_photo_url')),
                       name: '${_value('first_name')} ${_value('last_name')}',
-                      onEdit: _saving ? () {} : _changeProfilePhoto),
+                      onEdit: _saving ? () {} : _openProfileEditMenu),
                   const SizedBox(width: 14),
                   Expanded(
                       child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                        const Text('Perfil de entrenador',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text(
+                            '${_value('first_name')} ${_value('last_name')}'
+                                .trim(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w900, fontSize: 17)),
+                        Text(_value('email'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: AppColors.textMuted, fontSize: 12)),
+                        Text(_value('phone').isEmpty
+                            ? 'Sin teléfono'
+                            : _value('phone'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: AppColors.textMuted, fontSize: 12)),
                       ])),
-                  TextButton.icon(
-                    onPressed: _saving ? null : _openProfileEditMenu,
-                    icon: const Icon(Icons.edit_outlined, size: 17),
-                    label: const Text('Editar'),
-                  ),
 
                 ]),
               ])),
-              _profileInfoField(
-                  'Nombre completo',
-                  _value('first_name') + ' ' + _value('last_name'),
-                  icon: Icons.person_outline),
               _profileInfoField('Biografía', _value('bio'),
                   icon: Icons.notes_outlined),
-              _profileInfoField('Correo electrónico', _value('email'),
-                  icon: Icons.mail_outline),
-              _profileInfoField('Teléfono', _value('phone'),
-                  icon: Icons.phone_outlined),
               MusklCard(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -5823,34 +5849,36 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                   : NetworkImage(_ownProfile['profile_photo_url'].toString()),
               name:
                   '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}',
-              onEdit: _savingPhoto ? () {} : _changeAdminPhoto),
+              onEdit: _savingPhoto ? () {} : _openProfileEditMenu),
           const SizedBox(width: 14),
           Expanded(
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                const Text('Perfil de administrador',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
+                Text(
+                    '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}'
+                        .trim(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w900, fontSize: 17)),
+                Text((_ownProfile['email'] ?? '').toString(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: AppColors.textMuted, fontSize: 12)),
+                Text((_ownProfile['phone'] ?? '').toString().isEmpty
+                    ? 'Sin teléfono'
+                    : _ownProfile['phone'].toString(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: AppColors.textMuted, fontSize: 12)),
               ])),
-          TextButton.icon(
-            onPressed: _openProfileEditMenu,
-            icon: const Icon(Icons.edit_outlined, size: 17),
-            label: const Text('Editar'),
-          ),
 
         ])),
-        _profileInfoField(
-            'Nombre completo',
-            (_ownProfile['first_name'] ?? '').toString() + ' ' +
-                (_ownProfile['last_name'] ?? '').toString(),
-            icon: Icons.person_outline),
         _profileInfoField('Biografía', (_ownProfile['bio'] ?? '').toString(),
             icon: Icons.notes_outlined),
-        _profileInfoField('Correo electrónico',
-            (_ownProfile['email'] ?? '').toString(),
-            icon: Icons.mail_outline),
-        _profileInfoField('Teléfono', (_ownProfile['phone'] ?? '').toString(),
-            icon: Icons.phone_outlined),
         _SwitchSetting(
             label: 'Notificaciones de nuevas solicitudes',
             value: _newRequestNotifications,

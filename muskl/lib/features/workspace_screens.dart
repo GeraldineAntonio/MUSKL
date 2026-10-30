@@ -45,8 +45,31 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        body: SafeArea(
-          child: Padding(
+        backgroundColor: AppColors.bgDeep,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            Opacity(
+              opacity: 0.24,
+              child: Image.asset(
+                'assets/images/splash_loading.jpg',
+                fit: BoxFit.cover,
+              ),
+            ),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color.fromRGBO(12, 11, 13, 0.48),
+                    Color.fromRGBO(12, 11, 13, 0.72),
+                  ],
+                ),
+              ),
+            ),
+            SafeArea(
+              child: Padding(
             padding: const EdgeInsets.fromLTRB(32, 24, 32, 28),
             child: Column(
               children: [
@@ -87,7 +110,9 @@ class _SplashScreenState extends State<SplashScreen> {
                         )),
               ],
             ),
-          ),
+              ),
+            ),
+          ],
         ),
       );
 }

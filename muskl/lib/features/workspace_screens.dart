@@ -1796,14 +1796,14 @@ class _ClientProfileWorkspaceScreenState
       return;
     }
     const label = 'Teléfono';
-    final values = await _editFields(
+    final values = await _editProfileFields(
         context, 'EDITAR $label', [label], [current]);
     if (!mounted || values == null) return;
     await _saveClientProfile(phone: values.first.trim());
   }
 
   Future<void> _editBio(String current) async {
-    final values = await _editFields(
+    final values = await _editProfileFields(
       context,
       'MI BIOGRAFÍA',
       ['Cuéntanos sobre ti'],
@@ -1815,7 +1815,7 @@ class _ClientProfileWorkspaceScreenState
   }
 
   Future<void> _editClientName(String firstName, String lastName) async {
-    final values = await _editFields(
+    final values = await _editProfileFields(
       context,
       'EDITAR NOMBRE',
       ['Nombre', 'Apellidos'],
@@ -3380,7 +3380,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
   }
 
   Future<void> _editPersonal() async {
-    final result = await _editFields(
+    final result = await _editProfileFields(
         context,
         'EDITAR NOMBRE',
         ['Nombre', 'Apellidos'],
@@ -3390,7 +3390,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
   }
 
   Future<void> _editTrainerBio() async {
-    final result = await _editFields(
+    final result = await _editProfileFields(
       context,
       'EDITAR BIOGRAFÍA',
       ['Cuéntanos sobre ti'],
@@ -3414,7 +3414,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
     const label = 'Teléfono';
     final oldValue = _value(field);
     final result =
-        await _editFields(context, 'EDITAR $label', [label], [oldValue]);
+        await _editProfileFields(context, 'EDITAR $label', [label], [oldValue]);
     if (result == null) return;
     await _save(phone: result[0]);
   }
@@ -3886,6 +3886,123 @@ class _RoutineExerciseValuesSheetState
                   child: const Text('Guardar ejercicio'),
                 ),
               ],
+            ),
+          ),
+        ),
+      );
+}
+
+
+Future<List<String>?> _editProfileFields(
+  BuildContext context,
+  String title,
+  List<String> labels,
+  List<String> values, {
+  Set<int> multiline = const {},
+}) =>
+    Navigator.of(context).push<List<String>>(
+      MaterialPageRoute(
+        builder: (_) => _ProfileFieldEditorScreen(
+          title: title,
+          labels: labels,
+          values: values,
+          multiline: multiline,
+        ),
+      ),
+    );
+
+class _ProfileFieldEditorScreen extends StatefulWidget {
+  const _ProfileFieldEditorScreen({
+    required this.title,
+    required this.labels,
+    required this.values,
+    required this.multiline,
+  });
+
+  final String title;
+  final List<String> labels;
+  final List<String> values;
+  final Set<int> multiline;
+
+  @override
+  State<_ProfileFieldEditorScreen> createState() =>
+      _ProfileFieldEditorScreenState();
+}
+
+class _ProfileFieldEditorScreenState extends State<_ProfileFieldEditorScreen> {
+  late final List<TextEditingController> _controllers;
+
+  @override
+  void initState() {
+    super.initState();
+    _controllers = List.generate(
+      widget.values.length,
+      (index) => TextEditingController(text: widget.values[index]),
+    );
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _controllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  void _save() {
+    Navigator.of(context).pop(
+      _controllers.map((controller) => controller.text.trim()).toList(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title: Text(widget.title),
+          actions: [
+            TextButton(
+              onPressed: _save,
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: ListView(
+                padding: const EdgeInsets.all(20),
+                children: [
+                  for (var index = 0; index < widget.labels.length; index++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: MusklCard(
+                        child: TextField(
+                          controller: _controllers[index],
+                          autofocus: index == 0,
+                          keyboardType: widget.multiline.contains(index)
+                              ? TextInputType.multiline
+                              : null,
+                          textCapitalization: widget.multiline.contains(index)
+                              ? TextCapitalization.sentences
+                              : TextCapitalization.words,
+                          minLines: widget.multiline.contains(index) ? 5 : 1,
+                          maxLines: widget.multiline.contains(index) ? 9 : 1,
+                          decoration: InputDecoration(
+                            labelText: widget.labels[index],
+                            hintText: 'Escribe ' + widget.labels[index].toLowerCase(),
+                            border: InputBorder.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                  MusklButton(
+                    label: 'Guardar cambios',
+                    icon: Icons.check,
+                    onPressed: _save,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -5154,7 +5271,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   }
 
   Future<void> _editAdminProfile() async {
-    final values = await _editFields(context, 'DATOS PERSONALES', [
+    final values = await _editProfileFields(context, 'DATOS PERSONALES', [
       'Nombre',
       'Apellidos',
     ], [
@@ -5181,7 +5298,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   }
 
   Future<void> _editAdminBio() async {
-    final values = await _editFields(
+    final values = await _editProfileFields(
       context,
       'EDITAR BIOGRAFÍA',
       ['Cuéntanos sobre ti'],
@@ -5204,7 +5321,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   }
 
   Future<void> _editAdminPhone() async {
-    final values = await _editFields(
+    final values = await _editProfileFields(
       context,
       'EDITAR TELÉFONO',
       ['Teléfono'],

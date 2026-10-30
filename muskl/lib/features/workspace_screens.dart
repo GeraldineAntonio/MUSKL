@@ -2976,6 +2976,15 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                         ? null
                         : (selected) => setState(() {
                               if (selected) {
+                                if (selectedDays.length >= 6) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                          'Una rutina puede tener máximo 6 días.'),
+                                    ),
+                                  );
+                                  return;
+                                }
                                 selectedDays.add(d);
                                 activeDay = d;
                               } else {
@@ -3373,12 +3382,23 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
   Future<void> _editPersonal() async {
     final result = await _editFields(
         context,
-        'EDITAR PERFIL',
-        ['Nombre', 'Apellidos', 'Biografía'],
-        [_value('first_name'), _value('last_name'), _value('bio')],
-        multiline: const {2});
+        'EDITAR NOMBRE',
+        ['Nombre', 'Apellidos'],
+        [_value('first_name'), _value('last_name')]);
     if (result == null) return;
-    await _save(firstName: result[0], lastName: result[1], bio: result[2]);
+    await _save(firstName: result[0], lastName: result[1]);
+  }
+
+  Future<void> _editTrainerBio() async {
+    final result = await _editFields(
+      context,
+      'EDITAR BIOGRAFÍA',
+      ['Cuéntanos sobre ti'],
+      [_value('bio')],
+      multiline: const {0},
+    );
+    if (result == null || !mounted) return;
+    await _save(bio: result.first);
   }
 
   Future<void> _editTrainerContact(String field) async {
@@ -3554,10 +3574,6 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                         const Text('Perfil de entrenador',
                             style: TextStyle(fontWeight: FontWeight.bold)),
                       ])),
-                  IconButton(
-                      tooltip: 'Editar datos personales',
-                      onPressed: _saving ? null : _editPersonal,
-                      icon: const Icon(Icons.edit_outlined)),
                 ]),
               ])),
               _profileInfoField(
@@ -3570,7 +3586,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                   'Biografía', _value('bio'),
                   icon: Icons.notes_outlined,
                   enabled: !_saving,
-                  onEdit: _editPersonal),
+                  onEdit: _editTrainerBio),
               _profileInfoField('Correo electrónico', _value('email'),
                   icon: Icons.mail_outline,
                   enabled: !_saving,
@@ -3633,231 +3649,371 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
             ]));
 }
 
-Future<Map<String, dynamic>?> _routineExerciseValues(BuildContext context) {
-  var sets = 4;
-  var rest = const Duration(minutes: 1);
-  final reps = TextEditingController(text: '8-12');
-  final manualSets = TextEditingController(text: '4');
-  final manualRest = TextEditingController(text: '1:00');
-  var useManual = false;
-  var useManualSets = false;
-  var useManualReps = false;
-  var repsWheelIndex = 6;
-  const repsOptions = ['6', '8', '10', '12', '15', '20', '8-12', '10-15'];
-  return showModalBottomSheet<Map<String, dynamic>>(
-    context: context,
-    isScrollControlled: true,
-    builder: (sheetContext) =>
-        StatefulBuilder(builder: (context, setSheetState) {
-      return SafeArea(
-          child: Padding(
-        padding: EdgeInsets.fromLTRB(
-            20, 16, 20, 16 + MediaQuery.viewInsetsOf(context).bottom),
-        child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('CONFIGURAR EJERCICIO',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 14),
-              Row(children: [
-                Expanded(
+Future<Map<String, dynamic>?> _routineExerciseValues(BuildContext context) =>
+    showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const _RoutineExerciseValuesSheet(),
+    );
+
+class _RoutineExerciseValuesSheet extends StatefulWidget {
+  const _RoutineExerciseValuesSheet();
+
+  @override
+  State<_RoutineExerciseValuesSheet> createState() =>
+      _RoutineExerciseValuesSheetState();
+}
+
+class _RoutineExerciseValuesSheetState
+    extends State<_RoutineExerciseValuesSheet> {
+  static const _repsOptions = ['6', '8', '10', '12', '15', '20', '8-12', '10-15'];
+
+  final _reps = TextEditingController(text: '8-12');
+  final _manualSets = TextEditingController(text: '4');
+  final _manualRest = TextEditingController(text: '1:00');
+  late final _setsPicker = FixedExtentScrollController(initialItem: 3);
+  late final _repsPicker = FixedExtentScrollController(initialItem: 6);
+  int _sets = 4;
+  Duration _rest = const Duration(minutes: 1);
+  bool _useManualRest = false;
+  bool _useManualSets = false;
+  bool _useManualReps = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _reps.dispose();
+    _manualSets.dispose();
+    _manualRest.dispose();
+    _setsPicker.dispose();
+    _repsPicker.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final repsValue = _reps.text.trim();
+    final setCount = _useManualSets ? int.tryParse(_manualSets.text.trim()) : _sets;
+    var restSeconds = _rest.inSeconds;
+    if (_useManualRest) {
+      final value = _manualRest.text.trim();
+      final parts = value.split(':');
+      if (parts.length == 2) {
+        final minutes = int.tryParse(parts[0]);
+        final seconds = int.tryParse(parts[1]);
+        if (minutes == null || seconds == null || minutes < 0 || seconds < 0 || seconds > 59) {
+          setState(() => _error = 'Escribe el descanso como m:ss, por ejemplo 1:30.');
+          return;
+        }
+        restSeconds = minutes * 60 + seconds;
+      } else {
+        final parsed = int.tryParse(value);
+        if (parsed == null || parsed < 0) {
+          setState(() => _error = 'Escribe el descanso como m:ss, por ejemplo 1:30.');
+          return;
+        }
+        restSeconds = parsed;
+      }
+    }
+    if (setCount == null || setCount < 1 || setCount > 20) {
+      setState(() => _error = 'El número de series debe estar entre 1 y 20.');
+      return;
+    }
+    if (repsValue.isEmpty) {
+      setState(() => _error = 'Escribe las repeticiones del ejercicio.');
+      return;
+    }
+    if (restSeconds > 3600) {
+      setState(() => _error = 'El descanso no puede superar 60 minutos.');
+      return;
+    }
+    Navigator.pop(context, {
+      'sets': setCount,
+      'reps': repsValue,
+      'rest_seconds': restSeconds,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+              20, 16, 20, 16 + MediaQuery.viewInsetsOf(context).bottom),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text('CONFIGURAR EJERCICIO',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 14),
+                Row(children: [
+                  Expanded(
                     child: Column(children: [
-                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    const Text('Series'),
-                    IconButton(
-                        tooltip:
-                            useManualSets ? 'Usar selector' : 'Escribir número',
-                        onPressed: () =>
-                            setSheetState(() => useManualSets = !useManualSets),
-                        icon: const Icon(Icons.edit_outlined, size: 17))
-                  ]),
-                  if (useManualSets)
-                    TextField(
-                        controller: manualSets,
-                        keyboardType: TextInputType.number,
-                        textAlign: TextAlign.center,
-                        decoration:
-                            const InputDecoration(border: OutlineInputBorder()))
-                  else
-                    SizedBox(
-                        height: 115,
-                        child: CupertinoPicker(
+                      Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text('Series'),
+                            IconButton(
+                              tooltip: _useManualSets
+                                  ? 'Usar selector'
+                                  : 'Escribir número',
+                              onPressed: () => setState(() {
+                                _useManualSets = !_useManualSets;
+                                _error = null;
+                              }),
+                              icon: const Icon(Icons.edit_outlined, size: 17),
+                            ),
+                          ]),
+                      if (_useManualSets)
+                        TextField(
+                          controller: _manualSets,
+                          keyboardType: TextInputType.number,
+                          textAlign: TextAlign.center,
+                          decoration: const InputDecoration(
+                              labelText: 'Series (1–20)',
+                              border: OutlineInputBorder()),
+                        )
+                      else
+                        SizedBox(
+                          height: 115,
+                          child: CupertinoPicker(
                             itemExtent: 38,
-                            scrollController: FixedExtentScrollController(
-                                initialItem: sets - 1),
-                            onSelectedItemChanged: (i) => setSheetState(() {
-                                  sets = i + 1;
-                                  manualSets.text = '$sets';
-                                }),
+                            scrollController: _setsPicker,
+                            onSelectedItemChanged: (index) => setState(() {
+                              _sets = index + 1;
+                              _manualSets.text = '$_sets';
+                            }),
                             children: [
                               for (var i = 1; i <= 20; i++)
-                                Center(child: Text('$i'))
-                            ]))
-                ])),
-                const SizedBox(width: 10),
-                Expanded(
+                                Center(child: Text('$i')),
+                            ],
+                          ),
+                        ),
+                    ]),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
                     child: Column(children: [
-                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    const Text('Repeticiones'),
-                    IconButton(
-                        tooltip: useManualReps
-                            ? 'Usar selector'
-                            : 'Escribir repeticiones',
-                        onPressed: () =>
-                            setSheetState(() => useManualReps = !useManualReps),
-                        icon: const Icon(Icons.edit_outlined, size: 17))
-                  ]),
-                  if (useManualReps)
-                    SizedBox(
-                        height: 62,
-                        child: TextField(
-                            controller: reps,
+                      Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text('Repeticiones'),
+                            IconButton(
+                              tooltip: _useManualReps
+                                  ? 'Usar selector'
+                                  : 'Escribir repeticiones',
+                              onPressed: () => setState(() {
+                                _useManualReps = !_useManualReps;
+                                _error = null;
+                              }),
+                              icon: const Icon(Icons.edit_outlined, size: 17),
+                            ),
+                          ]),
+                      if (_useManualReps)
+                        SizedBox(
+                          height: 62,
+                          child: TextField(
+                            controller: _reps,
                             textAlign: TextAlign.center,
                             decoration: const InputDecoration(
-                                hintText: 'Ej. 8-12',
-                                border: OutlineInputBorder())))
-                  else
-                    SizedBox(
-                        height: 115,
-                        child: CupertinoPicker(
-                          itemExtent: 38,
-                          scrollController: FixedExtentScrollController(
-                              initialItem: repsWheelIndex),
-                          onSelectedItemChanged: (index) => setSheetState(() {
-                            repsWheelIndex = index;
-                            reps.text = repsOptions[index];
-                          }),
-                          children: [
-                            for (final option in repsOptions)
-                              Center(child: Text(option))
-                          ],
-                        ))
-                ])),
-              ]),
-              const SizedBox(height: 8),
-              Row(children: [
-                const Expanded(child: Text('Descanso · minutos y segundos')),
-                TextButton(
-                    onPressed: () =>
-                        setSheetState(() => useManual = !useManual),
-                    child: Text(useManual ? 'Usar reloj' : 'Escribir'))
-              ]),
-              if (useManual)
-                TextField(
-                    controller: manualRest,
-                    keyboardType: TextInputType.number,
+                              hintText: 'Ej. 8-12',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        )
+                      else
+                        SizedBox(
+                          height: 115,
+                          child: CupertinoPicker(
+                            itemExtent: 38,
+                            scrollController: _repsPicker,
+                            onSelectedItemChanged: (index) => setState(() {
+                              _reps.text = _repsOptions[index];
+                            }),
+                            children: [
+                              for (final option in _repsOptions)
+                                Center(child: Text(option)),
+                            ],
+                          ),
+                        ),
+                    ]),
+                  ),
+                ]),
+                const SizedBox(height: 8),
+                Row(children: [
+                  const Expanded(child: Text('Descanso · minutos y segundos')),
+                  TextButton(
+                    onPressed: () => setState(() {
+                      _useManualRest = !_useManualRest;
+                      _error = null;
+                    }),
+                    child: Text(_useManualRest ? 'Usar reloj' : 'Escribir'),
+                  ),
+                ]),
+                if (_useManualRest)
+                  TextField(
+                    controller: _manualRest,
+                    keyboardType: TextInputType.text,
                     textAlign: TextAlign.center,
                     decoration: const InputDecoration(
-                        labelText: 'm:ss (ej. 1:30)',
-                        border: OutlineInputBorder()))
-              else
-                SizedBox(
+                      labelText: 'm:ss (ej. 1:30)',
+                      border: OutlineInputBorder(),
+                    ),
+                  )
+                else
+                  SizedBox(
                     height: 120,
                     child: CupertinoTimerPicker(
-                        mode: CupertinoTimerPickerMode.ms,
-                        initialTimerDuration: rest,
-                        minuteInterval: 1,
-                        secondInterval: 5,
-                        onTimerDurationChanged: (value) => setSheetState(() {
-                              rest = value;
-                              manualRest.text =
-                                  '${value.inMinutes}:${(value.inSeconds % 60).toString().padLeft(2, '0')}';
-                            }))),
-              const SizedBox(height: 10),
-              FilledButton(
-                  onPressed: () {
-                    final repsValue = reps.text.trim();
-                    final restParts = manualRest.text.trim().split(':');
-                    var restSeconds = rest.inSeconds;
-                    if (useManual) {
-                      if (restParts.length == 2) {
-                        final min = int.tryParse(restParts[0]);
-                        final sec = int.tryParse(restParts[1]);
-                        if (min == null || sec == null || sec > 59 || sec < 0)
-                          return;
-                        restSeconds = min * 60 + sec;
-                      } else {
-                        final parsed = int.tryParse(manualRest.text.trim());
-                        if (parsed == null) return;
-                        restSeconds = parsed;
-                      }
-                    }
-                    final series = useManualSets
-                        ? int.tryParse(manualSets.text.trim())
-                        : sets;
-                    if (series == null ||
-                        series < 1 ||
-                        series > 20 ||
-                        repsValue.isEmpty ||
-                        restSeconds < 0 ||
-                        restSeconds > 3600) return;
-                    Navigator.pop(sheetContext, {
-                      'sets': series,
-                      'reps': repsValue,
-                      'rest_seconds': restSeconds
-                    });
-                  },
-                  child: const Text('Guardar ejercicio')),
-            ]),
-      ));
-    }),
-  ).whenComplete(() {
-    reps.dispose();
-    manualSets.dispose();
-    manualRest.dispose();
-  });
+                      mode: CupertinoTimerPickerMode.ms,
+                      initialTimerDuration: _rest,
+                      minuteInterval: 1,
+                      secondInterval: 5,
+                      onTimerDurationChanged: (value) => setState(() {
+                        _rest = value;
+                        _manualRest.text =
+                            '${value.inMinutes}:${(value.inSeconds % 60).toString().padLeft(2, '0')}';
+                      }),
+                    ),
+                  ),
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(_error!, style: const TextStyle(color: AppColors.red)),
+                ],
+                const SizedBox(height: 10),
+                FilledButton(
+                  onPressed: _save,
+                  child: const Text('Guardar ejercicio'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
 }
 
 Future<List<String>?> _editFields(BuildContext context, String title,
     List<String> labels, List<String> values,
     {bool obscure = false,
     bool trim = true,
-    Set<int> multiline = const {}}) async {
-  final controllers = List.generate(
-      values.length, (i) => TextEditingController(text: values[i]));
-  try {
-    return await showDialog<List<String>>(
+    Set<int> multiline = const {}}) =>
+    showDialog<List<String>>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-          for (var i = 0; i < labels.length; i++)
-            Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: TextField(
-                    controller: controllers[i],
-                    obscureText: obscure,
-                    minLines: multiline.contains(i) ? 3 : 1,
-                    maxLines: multiline.contains(i) ? 6 : 1,
-                    decoration: InputDecoration(
-                        labelText: labels[i],
-                        filled: true,
-                        fillColor: AppColors.surface,
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none)))),
-        ])),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancelar')),
-          FilledButton(
-              onPressed: () => Navigator.pop(
-                  dialogContext,
-                  controllers
-                      .map((c) => trim ? c.text.trim() : c.text)
-                      .toList()),
-              child: const Text('Guardar'))
-        ],
+      builder: (_) => _EditFieldsDialog(
+        title: title,
+        labels: labels,
+        values: values,
+        obscure: obscure,
+        trim: trim,
+        multiline: multiline,
       ),
     );
-  } finally {
-    for (final controller in controllers) {
+
+class _EditFieldsDialog extends StatefulWidget {
+  const _EditFieldsDialog({
+    required this.title,
+    required this.labels,
+    required this.values,
+    required this.obscure,
+    required this.trim,
+    required this.multiline,
+  });
+
+  final String title;
+  final List<String> labels;
+  final List<String> values;
+  final bool obscure;
+  final bool trim;
+  final Set<int> multiline;
+
+  @override
+  State<_EditFieldsDialog> createState() => _EditFieldsDialogState();
+}
+
+class _EditFieldsDialogState extends State<_EditFieldsDialog> {
+  late final List<TextEditingController> _controllers;
+
+  @override
+  void initState() {
+    super.initState();
+    _controllers = List.generate(
+      widget.values.length,
+      (index) => TextEditingController(text: widget.values[index]),
+    );
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _controllers) {
       controller.dispose();
     }
+    super.dispose();
   }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text(widget.title),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < widget.labels.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: TextField(
+                    controller: _controllers[i],
+                    obscureText: widget.obscure,
+                    keyboardType: widget.multiline.contains(i)
+                        ? TextInputType.multiline
+                        : null,
+                    textCapitalization: widget.multiline.contains(i)
+                        ? TextCapitalization.sentences
+                        : TextCapitalization.words,
+                    minLines: widget.multiline.contains(i) ? 3 : 1,
+                    maxLines: widget.multiline.contains(i) ? 6 : 1,
+                    decoration: InputDecoration(
+                      labelText: widget.labels[i],
+                      filled: true,
+                      fillColor: AppColors.surface,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide:
+                            const BorderSide(color: AppColors.surfaceHigh),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide:
+                            const BorderSide(color: AppColors.surfaceHigh),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide:
+                            const BorderSide(color: AppColors.red, width: 1.5),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              context,
+              _controllers
+                  .map((controller) => widget.trim
+                      ? controller.text.trim()
+                      : controller.text)
+                  .toList(),
+            ),
+            child: const Text('Guardar'),
+          ),
+        ],
+      );
 }
 
 Widget _setting(String title, String subtitle, IconData icon,
@@ -5001,23 +5157,17 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     final values = await _editFields(context, 'DATOS PERSONALES', [
       'Nombre',
       'Apellidos',
-      'Teléfono',
-      'Biografía'
     ], [
       (_ownProfile['first_name'] ?? '').toString(),
       (_ownProfile['last_name'] ?? '').toString(),
-      (_ownProfile['phone'] ?? '').toString(),
-      (_ownProfile['bio'] ?? '').toString(),
-    ], multiline: const {
-      3
-    });
+    ]);
     if (!mounted || values == null) return;
     try {
       final profile = await authController.updateOwnProfile(
           firstName: values[0],
           lastName: values[1],
-          phone: values[2],
-          bio: values[3]);
+          phone: (_ownProfile['phone'] ?? '').toString(),
+          bio: (_ownProfile['bio'] ?? '').toString());
       if (mounted) {
         setState(() => _ownProfile = {
               ...profile,
@@ -5027,6 +5177,51 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       }
     } catch (e) {
       _showLocalMessage('No se pudo actualizar el perfil: $e');
+    }
+  }
+
+  Future<void> _editAdminBio() async {
+    final values = await _editFields(
+      context,
+      'EDITAR BIOGRAFÍA',
+      ['Cuéntanos sobre ti'],
+      [(_ownProfile['bio'] ?? '').toString()],
+      multiline: const {0},
+    );
+    if (!mounted || values == null) return;
+    try {
+      final profile = await authController.updateOwnProfile(
+        firstName: (_ownProfile['first_name'] ?? '').toString(),
+        lastName: (_ownProfile['last_name'] ?? '').toString(),
+        phone: (_ownProfile['phone'] ?? '').toString(),
+        bio: values.first,
+      );
+      if (mounted) setState(() => _ownProfile = profile);
+      _showLocalMessage('Biografía actualizada.');
+    } catch (e) {
+      _showLocalMessage('No se pudo actualizar la biografía: $e');
+    }
+  }
+
+  Future<void> _editAdminPhone() async {
+    final values = await _editFields(
+      context,
+      'EDITAR TELÉFONO',
+      ['Teléfono'],
+      [(_ownProfile['phone'] ?? '').toString()],
+    );
+    if (!mounted || values == null) return;
+    try {
+      final profile = await authController.updateOwnProfile(
+        firstName: (_ownProfile['first_name'] ?? '').toString(),
+        lastName: (_ownProfile['last_name'] ?? '').toString(),
+        phone: values.first,
+        bio: (_ownProfile['bio'] ?? '').toString(),
+      );
+      if (mounted) setState(() => _ownProfile = profile);
+      _showLocalMessage('Teléfono actualizado.');
+    } catch (e) {
+      _showLocalMessage('No se pudo actualizar el teléfono: $e');
     }
   }
 
@@ -5410,10 +5605,6 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                 const Text('Perfil de administrador',
                     style: TextStyle(fontWeight: FontWeight.bold)),
               ])),
-          IconButton(
-              tooltip: 'Editar perfil',
-              onPressed: _editAdminProfile,
-              icon: const Icon(Icons.edit_outlined)),
         ])),
         _profileInfoField(
             'Nombre completo',
@@ -5422,12 +5613,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             icon: Icons.person_outline,
             onEdit: _editAdminProfile),
         _profileInfoField('Biografía', (_ownProfile['bio'] ?? '').toString(),
-            icon: Icons.notes_outlined, onEdit: _editAdminProfile),
+            icon: Icons.notes_outlined, onEdit: _editAdminBio),
         _profileInfoField(
             'Correo electrónico', (_ownProfile['email'] ?? '').toString(),
             icon: Icons.mail_outline, onEdit: _changeAdminEmail),
         _profileInfoField('Teléfono', (_ownProfile['phone'] ?? '').toString(),
-            icon: Icons.phone_outlined, onEdit: _editAdminProfile),
+            icon: Icons.phone_outlined, onEdit: _editAdminPhone),
         _SwitchSetting(
             label: 'Notificaciones de nuevas solicitudes',
             value: _newRequestNotifications,

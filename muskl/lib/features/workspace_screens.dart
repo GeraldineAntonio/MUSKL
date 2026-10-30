@@ -70,46 +70,46 @@ class _SplashScreenState extends State<SplashScreen> {
             ),
             SafeArea(
               child: Padding(
-            padding: const EdgeInsets.fromLTRB(32, 24, 32, 28),
-            child: Column(
-              children: [
-                const Spacer(),
-                Container(
-                  width: 66,
-                  height: 66,
-                  decoration: BoxDecoration(
-                    color: AppColors.red,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: const Icon(Icons.fitness_center,
-                      size: 34, color: AppColors.white),
+                padding: const EdgeInsets.fromLTRB(32, 24, 32, 28),
+                child: Column(
+                  children: [
+                    const Spacer(),
+                    Container(
+                      width: 66,
+                      height: 66,
+                      decoration: BoxDecoration(
+                        color: AppColors.red,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: const Icon(Icons.fitness_center,
+                          size: 34, color: AppColors.white),
+                    ),
+                    const SizedBox(height: 14),
+                    Text('MUSKL', style: Theme.of(context).textTheme.headlineLarge),
+                    const SizedBox(height: 8),
+                    Text('ENTRENA · REGISTRA · SUPERA',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: AppColors.textMuted,
+                              letterSpacing: 2,
+                            )),
+                    const Spacer(),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: const LinearProgressIndicator(
+                        minHeight: 3,
+                        backgroundColor: AppColors.surfaceHigh,
+                        valueColor: AlwaysStoppedAnimation(AppColors.red),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text('SISTEMA DE RUTINAS Y PROGRESO FÍSICO',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: AppColors.textMuted,
+                              letterSpacing: 1.4,
+                            )),
+                  ],
                 ),
-                const SizedBox(height: 14),
-                Text('MUSKL', style: Theme.of(context).textTheme.headlineLarge),
-                const SizedBox(height: 8),
-                Text('ENTRENA · REGISTRA · SUPERA',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: AppColors.textMuted,
-                          letterSpacing: 2,
-                        )),
-                const Spacer(),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: const LinearProgressIndicator(
-                    minHeight: 3,
-                    backgroundColor: AppColors.surfaceHigh,
-                    valueColor: AlwaysStoppedAnimation(AppColors.red),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text('SISTEMA DE RUTINAS Y PROGRESO FÍSICO',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: AppColors.textMuted,
-                          letterSpacing: 1.4,
-                        )),
-              ],
-            ),
               ),
             ),
           ],

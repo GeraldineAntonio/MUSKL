@@ -1825,6 +1825,37 @@ class _ClientProfileWorkspaceScreenState
     await _saveClientProfile(firstName: values[0], lastName: values[1]);
   }
 
+
+  Future<void> _openProfileEditMenu(Map<String, dynamic> data) async {
+    final field = await _chooseProfileField(context, [
+      _ProfileEditOption(key: 'name', title: 'Nombre',
+          value: (data['first_name'] ?? '').toString() + ' ' +
+              (data['last_name'] ?? '').toString(), icon: Icons.person_outline),
+      _ProfileEditOption(key: 'bio', title: 'Biografía',
+          value: (data['bio'] ?? '').toString(), icon: Icons.notes_outlined),
+      _ProfileEditOption(key: 'email', title: 'Correo electrónico',
+          value: (data['email'] ?? '').toString(), icon: Icons.mail_outline),
+      _ProfileEditOption(key: 'phone', title: 'Teléfono',
+          value: (data['phone'] ?? '').toString(), icon: Icons.phone_outlined),
+    ]);
+    if (!mounted || field == null) return;
+    switch (field) {
+      case 'name':
+        await _editClientName((data['first_name'] ?? '').toString(),
+            (data['last_name'] ?? '').toString());
+        return;
+      case 'bio':
+        await _editBio((data['bio'] ?? '').toString());
+        return;
+      case 'email':
+        await _editContact('email', (data['email'] ?? '').toString());
+        return;
+      case 'phone':
+        await _editContact('phone', (data['phone'] ?? '').toString());
+        return;
+    }
+  }
+
   Future<void> _pickProfilePhoto() async {
     try {
       final selected = await pickProfilePhoto(context);
@@ -1885,26 +1916,6 @@ class _ClientProfileWorkspaceScreenState
     if (mounted) {
       setState(() => _profile = authController.clientDashboard());
     }
-  }
-
-  Future<void> _editTrainer(Map<String, dynamic> data) async {
-    if ((data['trainer_name'] ?? '').toString().isEmpty) {
-      await _chooseTrainer();
-      return;
-    }
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cambio de entrenador'),
-        content: const Text(
-            'Tu entrenador actual ya está asignado. Para mantener el seguimiento de tu rutina, el administrador puede reasignarte si el entrenador deja el gimnasio.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Entendido'))
-        ],
-      ),
-    );
   }
 
   Future<void> _requestDeletion() async {
@@ -2002,15 +2013,18 @@ class _ClientProfileWorkspaceScreenState
                                     fontWeight: FontWeight.w800,
                                     letterSpacing: .8)),
                           ])),
+                      TextButton.icon(
+                        onPressed: _savingProfile
+                            ? null
+                            : () => _openProfileEditMenu(data),
+                        icon: const Icon(Icons.edit_outlined, size: 17),
+                        label: const Text('Editar'),
+                      ),
                     ])),
                 _profileInfoField(
                     'Nombre completo',
                     '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'.trim(),
-                    icon: Icons.person_outline,
-                    enabled: !_savingProfile,
-                    onEdit: () => _editClientName(
-                        (data['first_name'] ?? '').toString(),
-                        (data['last_name'] ?? '').toString())),
+                    icon: Icons.person_outline),
                 _profileInfoField(
                     'Número de socio',
                     (data['member_number'] ?? '—').toString(),
@@ -2041,34 +2055,19 @@ class _ClientProfileWorkspaceScreenState
                           ),
                         ),
                       ),
-                      IconButton(
-                        tooltip: 'Editar biografía',
-                        onPressed: _savingProfile
-                            ? null
-                            : () => _editBio((data['bio'] ?? '').toString()),
-                        icon: const Icon(Icons.edit_outlined),
-                      ),
                     ],
                   ),
                 ),
                 _section('Contacto y detalles'),
                 _profileInfoField(
                     'Correo electrónico', (data['email'] ?? '').toString(),
-                    icon: Icons.mail_outline,
-                    enabled: !_savingProfile,
-                    onEdit: () => _editContact(
-                        'email', (data['email'] ?? '').toString())),
+                    icon: Icons.mail_outline),
                 _profileInfoField(
                     'Teléfono', (data['phone'] ?? '').toString(),
-                    icon: Icons.phone_outlined,
-                    enabled: !_savingProfile,
-                    onEdit: () => _editContact(
-                        'phone', (data['phone'] ?? '').toString())),
+                    icon: Icons.phone_outlined),
             _record('Entrenador',
                 (data['trainer_name'] ?? 'Sin asignar').toString(),
-                icon: Icons.person_outline,
-                editable: true,
-                onTap: () => _editTrainer(data)),
+                icon: Icons.person_outline),
             if ((data['gym_name'] ?? '').toString().isNotEmpty ||
                 gymAddress.isNotEmpty ||
                 gymPhone.isNotEmpty ||
@@ -3419,6 +3418,28 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
     await _save(phone: result[0]);
   }
 
+
+  Future<void> _openProfileEditMenu() async {
+    final field = await _chooseProfileField(context, [
+      _ProfileEditOption(key: 'name', title: 'Nombre',
+          value: _value('first_name') + ' ' + _value('last_name'),
+          icon: Icons.person_outline),
+      _ProfileEditOption(key: 'bio', title: 'Biografía', value: _value('bio'),
+          icon: Icons.notes_outlined),
+      _ProfileEditOption(key: 'email', title: 'Correo electrónico',
+          value: _value('email'), icon: Icons.mail_outline),
+      _ProfileEditOption(key: 'phone', title: 'Teléfono', value: _value('phone'),
+          icon: Icons.phone_outlined),
+    ]);
+    if (!mounted || field == null) return;
+    switch (field) {
+      case 'name': await _editPersonal(); return;
+      case 'bio': await _editTrainerBio(); return;
+      case 'email': await _editTrainerContact('email'); return;
+      case 'phone': await _editTrainerContact('phone'); return;
+    }
+  }
+
   Future<void> _editSpecialties() async {
     const options = [
       'Fuerza',
@@ -3574,27 +3595,24 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                         const Text('Perfil de entrenador',
                             style: TextStyle(fontWeight: FontWeight.bold)),
                       ])),
+                  TextButton.icon(
+                    onPressed: _saving ? null : _openProfileEditMenu,
+                    icon: const Icon(Icons.edit_outlined, size: 17),
+                    label: const Text('Editar'),
+                  ),
+
                 ]),
               ])),
               _profileInfoField(
                   'Nombre completo',
-                  '${_value('first_name')} ${_value('last_name')}'.trim(),
-                  icon: Icons.person_outline,
-                  enabled: !_saving,
-                  onEdit: _editPersonal),
-              _profileInfoField(
-                  'Biografía', _value('bio'),
-                  icon: Icons.notes_outlined,
-                  enabled: !_saving,
-                  onEdit: _editTrainerBio),
+                  _value('first_name') + ' ' + _value('last_name'),
+                  icon: Icons.person_outline),
+              _profileInfoField('Biografía', _value('bio'),
+                  icon: Icons.notes_outlined),
               _profileInfoField('Correo electrónico', _value('email'),
-                  icon: Icons.mail_outline,
-                  enabled: !_saving,
-                  onEdit: () => _editTrainerContact('email')),
+                  icon: Icons.mail_outline),
               _profileInfoField('Teléfono', _value('phone'),
-                  icon: Icons.phone_outlined,
-                  enabled: !_saving,
-                  onEdit: () => _editTrainerContact('phone')),
+                  icon: Icons.phone_outlined),
               MusklCard(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -4001,6 +4019,75 @@ class _ProfileFieldEditorScreenState extends State<_ProfileFieldEditorScreen> {
                     icon: Icons.check,
                     onPressed: _save,
                   ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
+
+class _ProfileEditOption {
+  const _ProfileEditOption({
+    required this.key, required this.title, required this.value,
+    required this.icon,
+  });
+  final String key;
+  final String title;
+  final String value;
+  final IconData icon;
+}
+
+Future<String?> _chooseProfileField(
+  BuildContext context,
+  List<_ProfileEditOption> options,
+) =>
+    Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => _ProfileEditMenuScreen(options: options),
+      ),
+    );
+
+class _ProfileEditMenuScreen extends StatelessWidget {
+  const _ProfileEditMenuScreen({required this.options});
+  final List<_ProfileEditOption> options;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Editar perfil')),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(4, 4, 4, 12),
+                    child: Text('Elige qué dato quieres cambiar.',
+                        style: TextStyle(color: AppColors.textMuted)),
+                  ),
+                  for (final option in options)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: MusklCard(
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(option.icon, color: AppColors.accent),
+                          title: Text(option.title),
+                          subtitle: Text(
+                            option.value.trim().isEmpty
+                                ? 'Sin información'
+                                : option.value,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => Navigator.of(context).pop(option.key),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -5342,6 +5429,29 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     }
   }
 
+
+  Future<void> _openProfileEditMenu() async {
+    final field = await _chooseProfileField(context, [
+      _ProfileEditOption(key: 'name', title: 'Nombre',
+          value: (_ownProfile['first_name'] ?? '').toString() + ' ' +
+              (_ownProfile['last_name'] ?? '').toString(),
+          icon: Icons.person_outline),
+      _ProfileEditOption(key: 'bio', title: 'Biografía',
+          value: (_ownProfile['bio'] ?? '').toString(), icon: Icons.notes_outlined),
+      _ProfileEditOption(key: 'email', title: 'Correo electrónico',
+          value: (_ownProfile['email'] ?? '').toString(), icon: Icons.mail_outline),
+      _ProfileEditOption(key: 'phone', title: 'Teléfono',
+          value: (_ownProfile['phone'] ?? '').toString(), icon: Icons.phone_outlined),
+    ]);
+    if (!mounted || field == null) return;
+    switch (field) {
+      case 'name': await _editAdminProfile(); return;
+      case 'bio': await _editAdminBio(); return;
+      case 'email': await _changeAdminEmail(); return;
+      case 'phone': await _editAdminPhone(); return;
+    }
+  }
+
   Future<void> _changeAdminEmail() async {
     final changed = await context.push<bool>(Uri(
       path: '/admin/email',
@@ -5722,20 +5832,25 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                 const Text('Perfil de administrador',
                     style: TextStyle(fontWeight: FontWeight.bold)),
               ])),
+          TextButton.icon(
+            onPressed: _openProfileEditMenu,
+            icon: const Icon(Icons.edit_outlined, size: 17),
+            label: const Text('Editar'),
+          ),
+
         ])),
         _profileInfoField(
             'Nombre completo',
-            '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}'
-                .trim(),
-            icon: Icons.person_outline,
-            onEdit: _editAdminProfile),
+            (_ownProfile['first_name'] ?? '').toString() + ' ' +
+                (_ownProfile['last_name'] ?? '').toString(),
+            icon: Icons.person_outline),
         _profileInfoField('Biografía', (_ownProfile['bio'] ?? '').toString(),
-            icon: Icons.notes_outlined, onEdit: _editAdminBio),
-        _profileInfoField(
-            'Correo electrónico', (_ownProfile['email'] ?? '').toString(),
-            icon: Icons.mail_outline, onEdit: _changeAdminEmail),
+            icon: Icons.notes_outlined),
+        _profileInfoField('Correo electrónico',
+            (_ownProfile['email'] ?? '').toString(),
+            icon: Icons.mail_outline),
         _profileInfoField('Teléfono', (_ownProfile['phone'] ?? '').toString(),
-            icon: Icons.phone_outlined, onEdit: _editAdminPhone),
+            icon: Icons.phone_outlined),
         _SwitchSetting(
             label: 'Notificaciones de nuevas solicitudes',
             value: _newRequestNotifications,

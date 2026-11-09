@@ -68,31 +68,28 @@ Widget _registrationRoleOption({
       ),
     );
 
-Widget _profileDetail(String label, String value, {IconData? icon}) =>
-    Padding(
-      padding: const EdgeInsets.only(bottom: 9),
-      child: MusklCard(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(children: [
-          if (icon != null) ...[
-            Icon(icon, color: AppColors.accent, size: 20),
-            const SizedBox(width: 11),
-          ],
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label.toUpperCase(),
-                  style: const TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: .9)),
-              const SizedBox(height: 4),
-              Text(value.isEmpty ? 'Sin información' : value,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-            ]),
-          ),
-        ]),
-      ),
+Widget _profileDetail(String label, String value, {IconData? icon}) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(children: [
+        if (icon != null) ...[
+          Icon(icon, color: AppColors.accent, size: 20),
+          const SizedBox(width: 11),
+        ],
+        Expanded(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label.toUpperCase(),
+                style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .9)),
+            const SizedBox(height: 4),
+            Text(value.isEmpty ? 'Sin información' : value,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+          ]),
+        ),
+      ]),
     );
 const _goalImages = {
   'Bajar de peso': 'assets/images/goals/bajar_de_peso.jpeg',
@@ -920,23 +917,25 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
         Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _profileDetail('Nombre completo', widget.name,
               icon: Icons.person_outline),
-          _profileDetail('Estado',
+          _profileDetail(
+              'Estado',
               '${widget.deactivated ? 'Baja' : widget.status == 'pending' ? 'En revisión' : widget.status == 'rejected' ? 'Rechazado' : 'Activo'}',
               icon: Icons.verified_user_outlined),
           if (widget.memberNumber.isNotEmpty)
             _profileDetail('Número de socio', widget.memberNumber,
                 icon: Icons.badge_outlined),
           if (widget.plan.isNotEmpty)
-            _profileDetail('Plan', widget.plan,
-                icon: Icons.card_membership),
+            _profileDetail('Plan', widget.plan, icon: Icons.card_membership),
           _profileDetail('Correo electrónico', widget.email,
               icon: Icons.mail_outline),
-          _profileDetail('Teléfono', widget.phone,
-              icon: Icons.phone_outlined),
+          _profileDetail('Teléfono', widget.phone, icon: Icons.phone_outlined),
           if (widget.role == 'client')
-            _profileDetail('Entrenador', widget.trainerName.isEmpty
-                ? 'Sin entrenador asignado'
-                : widget.trainerName, icon: Icons.fitness_center),
+            _profileDetail(
+                'Entrenador',
+                widget.trainerName.isEmpty
+                    ? 'Sin entrenador asignado'
+                    : widget.trainerName,
+                icon: Icons.fitness_center),
           if (widget.deactivatedBy.isNotEmpty)
             _profileDetail('Baja registrada por', widget.deactivatedBy,
                 icon: Icons.person_off_outlined),
@@ -1146,8 +1145,8 @@ class _TrainerPhasesScreenState extends State<TrainerPhasesScreen> {
 
   Future<void> _createPhase(Map<String, dynamic> data) async {
     if (data['phases'] is! List || (data['phases'] as List).isEmpty) return;
-    final created = await context.push<bool>(
-        Uri(path: '/trainer/routine/new', queryParameters: {
+    final created = await context
+        .push<bool>(Uri(path: '/trainer/routine/new', queryParameters: {
       'routine_id': widget.routineId,
     }).toString());
     if (created == true && mounted) setState(_reload);
@@ -1845,11 +1844,10 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
             _option('Elegir después',
                 subtitle:
                     'Podrás enviar una solicitud desde el panel cuando quieras.',
-                selected: _trainerId == null,
-                onTap: () {
-                  setState(() => _trainerId = null);
-                  _saveDraft();
-                }),
+                selected: _trainerId == null, onTap: () {
+              setState(() => _trainerId = null);
+              _saveDraft();
+            }),
           ]),
         2 => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const Text('¿Cuál es tu objetivo?'),

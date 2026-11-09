@@ -58,7 +58,27 @@ abstract class AuthRepository {
       {required String clientId, required String trainerId});
   Future<List<Map<String, dynamic>>> getAdminRoutines(
       {String search = '', String? goal});
+  Future<List<Map<String, dynamic>>> getAdminExerciseCatalog(
+      {String search = ''});
+  Future<Map<String, dynamic>> createAdminExercise({
+    required String name,
+    required String muscleGroup,
+    required String equipment,
+    required String instructions,
+  });
+  Future<void> createAdminRoutine(
+      {required String name,
+      required String goal,
+      required List<int> days,
+      required List<Map<String, dynamic>> exercises});
   Future<Map<String, dynamic>> getAdminRoutine({required String routineId});
+  Future<void> createAdminPhase(
+      {required String routineId,
+      required String name,
+      required List<int> days,
+      required List<Map<String, dynamic>> exercises});
+  Future<void> publishAdminPhase(
+      {required String routineId, required String phaseId});
   Future<void> assignAdminRoutine(
       {required String routineId,
       required String phaseId,
@@ -495,6 +515,57 @@ class FakeAuthRepository implements AuthRepository {
           }
         ],
       };
+
+  @override
+  Future<List<Map<String, dynamic>>> getAdminExerciseCatalog(
+          {String search = ''}) async =>
+      [
+        {
+          'id': 'demo-catalog-1',
+          'name': 'Press banca plano',
+          'muscle_group': 'Pecho',
+          'equipment': 'Barra',
+          'instructions': '',
+        },
+      ]
+          .where((row) => row['name']
+              .toString()
+              .toLowerCase()
+              .contains(search.toLowerCase()))
+          .toList();
+
+  @override
+  Future<Map<String, dynamic>> createAdminExercise({
+    required String name,
+    required String muscleGroup,
+    required String equipment,
+    required String instructions,
+  }) async =>
+      {
+        'id': 'demo-catalog-${DateTime.now().millisecondsSinceEpoch}',
+        'name': name,
+        'muscle_group': muscleGroup,
+        'equipment': equipment,
+        'instructions': instructions,
+      };
+
+  @override
+  Future<void> createAdminRoutine(
+      {required String name,
+      required String goal,
+      required List<int> days,
+      required List<Map<String, dynamic>> exercises}) async {}
+
+  @override
+  Future<void> createAdminPhase(
+      {required String routineId,
+      required String name,
+      required List<int> days,
+      required List<Map<String, dynamic>> exercises}) async {}
+
+  @override
+  Future<void> publishAdminPhase(
+      {required String routineId, required String phaseId}) async {}
 
   @override
   Future<void> assignAdminRoutine(

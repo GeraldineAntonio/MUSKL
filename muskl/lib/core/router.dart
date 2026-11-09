@@ -151,6 +151,7 @@ GoRouter buildRouter(AuthController auth) {
               id: state.uri.queryParameters['id'] ?? '1',
               name: state.uri.queryParameters['name'] ?? 'Ejercicio',
               mediaUrl: state.uri.queryParameters['media_url'] ?? '',
+              mediaMime: state.uri.queryParameters['media_mime'] ?? '',
               muscleGroup:
                   state.uri.queryParameters['muscle_group'] ?? 'Rutina',
               instructions: state.uri.queryParameters['instructions'] ?? '',
@@ -240,6 +241,14 @@ GoRouter buildRouter(AuthController auth) {
           builder: (_, state) => AdminRoutineDetailScreen(
               name: state.uri.queryParameters['name'] ?? 'Rutina',
               routineId: state.uri.queryParameters['id'] ?? '')),
+      GoRoute(
+          path: '/admin/routine/new',
+          builder: (_, __) => const CreateRoutineScreen(adminMode: true)),
+      GoRoute(
+          path: '/admin/phase/new',
+          builder: (_, state) => CreateRoutineScreen(
+              adminMode: true,
+              routineId: state.uri.queryParameters['routine_id'])),
       GoRoute(
           path: '/admin/settings',
           builder: (_, __) => const AdminSettingsScreen()),

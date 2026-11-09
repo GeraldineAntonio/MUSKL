@@ -353,11 +353,97 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<List<Map<String, dynamic>>> getAdminExerciseCatalog(
+      {String search = ''}) async {
+    final path = Uri(
+      path: '/api/v1/admin/exercises',
+      queryParameters: search.trim().isEmpty ? null : {'search': search.trim()},
+    ).toString();
+    final rows = await _request('GET', path, authenticated: true) as List;
+    return rows.map((row) => Map<String, dynamic>.from(row as Map)).toList();
+  }
+
+  @override
+  Future<Map<String, dynamic>> createAdminExercise({
+    required String name,
+    required String muscleGroup,
+    required String equipment,
+    required String instructions,
+  }) async =>
+      Map<String, dynamic>.from(await _request(
+          'POST', '/api/v1/admin/exercises',
+          authenticated: true,
+          body: {
+            'name': name,
+            'muscle_group': muscleGroup,
+            'equipment': equipment,
+            'instructions': instructions.isEmpty ? null : instructions,
+          }) as Map);
+
+  @override
+  Future<void> createAdminRoutine(
+      {required String name,
+      required String goal,
+      required List<int> days,
+      required List<Map<String, dynamic>> exercises}) async {
+    await _request('POST', '/api/v1/admin/routines',
+        authenticated: true,
+        body: {
+          'name': name,
+          'goal': goal,
+          'days': days,
+          'exercises': exercises
+              .map((exercise) => {
+                    'catalog_id': exercise['catalog_id'] ?? exercise['id'],
+                    'name': exercise['name'],
+                    'sets': exercise['sets'] ?? 4,
+                    'reps': exercise['reps'] ?? '8-12',
+                    'rest_seconds': exercise['rest_seconds'] ?? 60,
+                    'day_number': exercise['day_number'],
+                  })
+              .toList(),
+        });
+  }
+
+  @override
   Future<Map<String, dynamic>> getAdminRoutine(
           {required String routineId}) async =>
       Map<String, dynamic>.from(await _request(
           'GET', '/api/v1/admin/routines/${Uri.encodeComponent(routineId)}',
           authenticated: true) as Map);
+
+  @override
+  Future<void> createAdminPhase(
+      {required String routineId,
+      required String name,
+      required List<int> days,
+      required List<Map<String, dynamic>> exercises}) async {
+    await _request('POST',
+        '/api/v1/admin/routines/${Uri.encodeComponent(routineId)}/phases',
+        authenticated: true,
+        body: {
+          'name': name,
+          'days': days,
+          'exercises': exercises
+              .map((exercise) => {
+                    'catalog_id': exercise['catalog_id'] ?? exercise['id'],
+                    'name': exercise['name'],
+                    'sets': exercise['sets'] ?? 4,
+                    'reps': exercise['reps'] ?? '8-12',
+                    'rest_seconds': exercise['rest_seconds'] ?? 60,
+                    'day_number': exercise['day_number'],
+                  })
+              .toList(),
+        });
+  }
+
+  @override
+  Future<void> publishAdminPhase(
+      {required String routineId, required String phaseId}) async {
+    await _request('POST',
+        '/api/v1/admin/routines/${Uri.encodeComponent(routineId)}/phases/${Uri.encodeComponent(phaseId)}/publish',
+        authenticated: true);
+  }
 
   @override
   Future<void> assignAdminRoutine(

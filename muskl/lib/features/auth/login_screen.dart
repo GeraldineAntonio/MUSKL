@@ -46,7 +46,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_id.text.trim().isEmpty || _pass.text.isEmpty) {
       setState(() {
         _errorType = null;
-        _error = 'Escribe tu correo o número de socio y tu contraseña.';
+        _error = 'Escribe tu correo electrónico y tu contraseña.';
       });
       return;
     }
@@ -213,7 +213,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         MusklTextField(
-          label: 'Correo o número de socio',
+          label: 'Correo electrónico',
           controller: _id,
           icon: Icons.person_outline,
           hint: 'diego@correo.com',

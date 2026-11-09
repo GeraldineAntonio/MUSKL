@@ -89,8 +89,44 @@ class AuthController extends ChangeNotifier {
           {String search = '', String? goal}) =>
       repository.getAdminRoutines(search: search, goal: goal);
 
+  Future<List<Map<String, dynamic>>> adminExerciseCatalog(
+          {String search = ''}) =>
+      repository.getAdminExerciseCatalog(search: search);
+
+  Future<Map<String, dynamic>> createAdminExercise({
+    required String name,
+    required String muscleGroup,
+    required String equipment,
+    required String instructions,
+  }) =>
+      repository.createAdminExercise(
+          name: name,
+          muscleGroup: muscleGroup,
+          equipment: equipment,
+          instructions: instructions);
+
+  Future<void> createAdminRoutine(
+          {required String name,
+          required String goal,
+          required List<int> days,
+          required List<Map<String, dynamic>> exercises}) =>
+      repository.createAdminRoutine(
+          name: name, goal: goal, days: days, exercises: exercises);
+
   Future<Map<String, dynamic>> adminRoutine({required String routineId}) =>
       repository.getAdminRoutine(routineId: routineId);
+
+  Future<void> createAdminPhase(
+          {required String routineId,
+          required String name,
+          required List<int> days,
+          required List<Map<String, dynamic>> exercises}) =>
+      repository.createAdminPhase(
+          routineId: routineId, name: name, days: days, exercises: exercises);
+
+  Future<void> publishAdminPhase(
+          {required String routineId, required String phaseId}) =>
+      repository.publishAdminPhase(routineId: routineId, phaseId: phaseId);
 
   Future<void> assignAdminRoutine(
           {required String routineId,

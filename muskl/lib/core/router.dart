@@ -242,6 +242,14 @@ GoRouter buildRouter(AuthController auth) {
               name: state.uri.queryParameters['name'] ?? 'Rutina',
               routineId: state.uri.queryParameters['id'] ?? '')),
       GoRoute(
+          path: '/admin/routine/new',
+          builder: (_, __) => const CreateRoutineScreen(adminMode: true)),
+      GoRoute(
+          path: '/admin/phase/new',
+          builder: (_, state) => CreateRoutineScreen(
+              adminMode: true,
+              routineId: state.uri.queryParameters['routine_id'])),
+      GoRoute(
           path: '/admin/settings',
           builder: (_, __) => const AdminSettingsScreen()),
       GoRoute(

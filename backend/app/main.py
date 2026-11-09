@@ -87,10 +87,13 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title='MUSKL API', version='0.1.0', lifespan=lifespan)
 origins = [v.strip() for v in os.getenv('MUSKL_CORS_ORIGINS', '').split(',') if v.strip()]
-app.add_middleware(CORSMiddleware, allow_origins=origins or ['*'],
-                   allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
-
-
+if origins:
+    origins.extend(origin for origin in (
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:4173',
+        'http://127.0.0.1:4173',
+    ) if origin not in origins)
 def _purge_expired_account_deletions() -> int:
     """Permanently remove deactivated client/trainer records after 30 days."""
     photo_keys: list[str] = []
@@ -367,11 +370,11 @@ class TrainerExerciseCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     muscle_group: Literal[
         'Pecho', 'Espalda', 'Hombros', 'Bíceps', 'Tríceps', 'Piernas',
-        'Piernas y glúteos', 'Glúteos', 'Pantorrillas', 'Abdomen', 'Cardio',
-        'Cuerpo completo',
+        'Cuádriceps', 'Femoral', 'Pierna completa', 'Glúteos',
+        'Pantorrillas', 'Abdomen', 'Cardio', 'Cuerpo completo',
     ]
     equipment: Literal[
-        'Peso corporal', 'Mancuernas', 'Barra', 'Barra y discos', 'Discos',
+        'Peso corporal', 'Mancuernas', 'Barra', 'Discos',
         'Poleas', 'Máquina', 'Bandas elásticas', 'Kettlebell', 'Otro',
     ]
     instructions: str | None = Field(default=None, max_length=2000)
@@ -381,11 +384,11 @@ class ExerciseCatalogUpdate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     muscle_group: Literal[
         'Pecho', 'Espalda', 'Hombros', 'Bíceps', 'Tríceps', 'Piernas',
-        'Piernas y glúteos', 'Glúteos', 'Pantorrillas', 'Abdomen', 'Cardio',
-        'Cuerpo completo',
+        'Cuádriceps', 'Femoral', 'Pierna completa', 'Glúteos',
+        'Pantorrillas', 'Abdomen', 'Cardio', 'Cuerpo completo',
     ]
     equipment: Literal[
-        'Peso corporal', 'Mancuernas', 'Barra', 'Barra y discos', 'Discos',
+        'Peso corporal', 'Mancuernas', 'Barra', 'Discos',
         'Poleas', 'Máquina', 'Bandas elásticas', 'Kettlebell', 'Otro',
     ]
     instructions: str | None = Field(default=None, max_length=2000)
@@ -941,6 +944,7 @@ def login(payload: LoginRequest) -> dict:
     identifier_hash = _login_identifier_hash(identifier)
     response = None
     blocked = False
+    user_not_found = False
     invalid_credentials = False
     unverified_email = False
     with pool.connection() as conn:
@@ -980,8 +984,8 @@ def login(payload: LoginRequest) -> dict:
                             password_hasher.verify(DUMMY_PASSWORD_HASH, password)
                         except (VerifyMismatchError, VerificationError, InvalidHashError):
                             pass
-                    # Keep unknown accounts and incorrect passwords indistinguishable.
-                    invalid_credentials = True
+                    user_not_found = not candidates
+                    invalid_credentials = bool(candidates)
                 else:
                     if not user.get('email_verified', True):
                         unverified_email = True
@@ -993,6 +997,8 @@ def login(payload: LoginRequest) -> dict:
     if blocked:
         raise _problem(429, 'LOGIN_RATE_LIMIT',
                        'Demasiados intentos. Espera 15 minutos antes de volver a intentarlo.')
+    if user_not_found:
+        raise _problem(401, 'USER_NOT_FOUND', 'No existe una cuenta con ese correo o identificador.')
     if invalid_credentials:
         raise _problem(401, 'INVALID_CREDENTIALS', 'Correo o contraseña incorrectos.')
     if unverified_email:
@@ -2568,12 +2574,14 @@ def trainer_exercise_catalog(search: str = Query(default='', max_length=80),
     term = search.strip()
     pattern = f'%{term}%'
     with pool.connection() as conn:
-        rows = conn.execute("""SELECT id, name, muscle_group, equipment, instructions,
-                media_url, media_key, media_mime
-            FROM exercise_catalog
-            WHERE active AND (%s = '' OR name ILIKE %s OR muscle_group ILIKE %s OR equipment ILIKE %s)
-            ORDER BY name LIMIT 50""",
-            (term, pattern, pattern, pattern)).fetchall()
+        rows = conn.execute("""SELECT ec.id, ec.name, ec.muscle_group, ec.equipment, ec.instructions,
+                tm.media_key, tm.media_mime, NULL::text AS media_url
+            FROM exercise_catalog ec
+            LEFT JOIN trainer_exercise_media tm
+              ON tm.exercise_catalog_id = ec.id AND tm.trainer_id = %s
+            WHERE ec.active AND (%s = '' OR ec.name ILIKE %s OR ec.muscle_group ILIKE %s OR ec.equipment ILIKE %s)
+            ORDER BY ec.name LIMIT 50""",
+            (trainer['id'], term, pattern, pattern, pattern)).fetchall()
     result = []
     for row in rows:
         item = {**row, 'id': str(row['id'])}
@@ -2619,6 +2627,55 @@ def create_trainer_exercise(
     return {**exercise, 'id': str(exercise['id'])}
 
 
+def _delete_exercise_catalog_entry(exercise_id: uuid.UUID, actor: dict) -> dict:
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                exercise = cur.execute("""SELECT id, name, media_key
+                    FROM exercise_catalog WHERE id = %s AND active FOR UPDATE""",
+                    (exercise_id,)).fetchone()
+                if exercise is None:
+                    raise _problem(404, 'EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio.')
+                media_rows = cur.execute("""SELECT media_key FROM trainer_exercise_media
+                    WHERE exercise_catalog_id = %s""", (exercise_id,)).fetchall()
+                media_keys = [row['media_key'] for row in media_rows]
+                if exercise.get('media_key'):
+                    media_keys.append(exercise['media_key'])
+                cur.execute("DELETE FROM exercise_catalog WHERE id = %s", (exercise_id,))
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, event_type, details)
+                    VALUES (%s, %s, 'exercise_catalog_deleted', %s)""",
+                    (actor['gym_id'], actor['id'], Jsonb({
+                        'exercise_id': str(exercise_id),
+                        'name': exercise['name'],
+                    })))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if getattr(exc, 'sqlstate', None) == '23503':
+            raise _problem(
+                409,
+                'EXERCISE_IN_USE',
+                'No se puede eliminar este ejercicio porque está asociado a otros registros.',
+            ) from exc
+        log.exception('Could not delete exercise catalog entry %s', exercise_id)
+        raise
+    for media_key in media_keys:
+        try:
+            delete_exercise_media(media_key)
+        except Exception:
+            log.exception('Could not delete removed exercise media from R2')
+    return {'deleted': True, 'id': str(exercise_id), 'name': exercise['name']}
+
+
+@app.delete('/api/v1/trainer/exercises/{exercise_id}')
+def delete_trainer_exercise(
+    exercise_id: uuid.UUID,
+    trainer: dict = Depends(active_trainer),
+) -> dict:
+    return _delete_exercise_catalog_entry(exercise_id, trainer)
+
+
 @app.post('/api/v1/trainer/exercises/{exercise_id}/media', status_code=200)
 async def upload_trainer_exercise_media(
     exercise_id: uuid.UUID,
@@ -2642,30 +2699,37 @@ async def upload_trainer_exercise_media(
     if total == 0:
         raise _problem(400, 'EMPTY_VIDEO', 'El video está vacío. Graba otra toma.')
 
-    key = f"exercise-media/{trainer['gym_id']}/{exercise_id}/{uuid.uuid4().hex}.{extension}"
+    key = f"exercise-media/{trainer['gym_id']}/{trainer['id']}/{exercise_id}/{uuid.uuid4().hex}.{extension}"
     old_key = None
     try:
         stored_key = put_exercise_media(key, b''.join(chunks), content_type)
         media_url = presigned_exercise_media_url(stored_key)
         with pool.connection() as conn:
             with conn.cursor() as cur:
-                previous = cur.execute("""SELECT media_key FROM exercise_catalog
-                    WHERE id = %s AND active FOR UPDATE""", (exercise_id,)).fetchone()
-                if previous is None:
+                previous = cur.execute("""SELECT media_key FROM trainer_exercise_media
+                    WHERE trainer_id = %s AND exercise_catalog_id = %s FOR UPDATE""",
+                    (trainer['id'], exercise_id)).fetchone()
+                exercise_exists = cur.execute("""SELECT id, name FROM exercise_catalog
+                    WHERE id = %s AND active""", (exercise_id,)).fetchone()
+                if exercise_exists is None:
                     raise _problem(404, 'EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio.')
-                old_key = previous['media_key']
-                exercise = cur.execute("""UPDATE exercise_catalog SET media_key = %s,
-                        media_mime = %s, media_url = NULL
-                    WHERE id = %s AND active
-                    RETURNING id, name, media_key, media_mime""",
-                    (stored_key, content_type, exercise_id)).fetchone()
+                old_key = previous['media_key'] if previous else None
+                exercise = cur.execute("""INSERT INTO trainer_exercise_media
+                        (trainer_id, exercise_catalog_id, media_key, media_mime)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (trainer_id, exercise_catalog_id) DO UPDATE
+                    SET media_key = EXCLUDED.media_key, media_mime = EXCLUDED.media_mime,
+                        updated_at = now()
+                    RETURNING exercise_catalog_id AS id, media_key, media_mime""",
+                    (trainer['id'], exercise_id, stored_key, content_type)).fetchone()
                 if exercise is None:
                     raise _problem(404, 'EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio.')
                 cur.execute("""INSERT INTO account_audit_events
                     (gym_id, actor_id, event_type, details)
                     VALUES (%s, %s, 'exercise_media_uploaded', %s)""",
                     (trainer['gym_id'], trainer['id'], Jsonb({
-                        'exercise_id': str(exercise_id), 'size_bytes': total,
+                        'exercise_id': str(exercise_id), 'trainer_id': str(trainer['id']),
+                        'size_bytes': total,
                         'content_type': content_type,
                     })))
         if old_key and old_key != stored_key:
@@ -2673,7 +2737,7 @@ async def upload_trainer_exercise_media(
                 delete_exercise_media(old_key)
             except Exception:
                 log.exception('Could not delete replaced exercise media from R2')
-        return {'id': str(exercise['id']), 'name': exercise['name'],
+        return {'id': str(exercise['id']), 'name': exercise_exists['name'],
                 'media_key': stored_key, 'media_mime': content_type,
                 'media_url': media_url, 'size_bytes': total}
     except HTTPException:
@@ -2706,9 +2770,32 @@ def admin_exercise_catalog(search: str = Query(default='', max_length=80),
             WHERE active AND (%s = '' OR name ILIKE %s OR muscle_group ILIKE %s OR equipment ILIKE %s)
             ORDER BY name LIMIT 100""",
             (term, pattern, pattern, pattern)).fetchall()
+        trainer_media_rows = conn.execute("""SELECT tm.exercise_catalog_id,
+                tm.trainer_id, tm.media_key, tm.media_mime,
+                concat_ws(' ', u.first_name, u.last_name) AS trainer_name
+            FROM trainer_exercise_media tm
+            JOIN exercise_catalog ec ON ec.id = tm.exercise_catalog_id AND ec.active
+            JOIN users u ON u.id = tm.trainer_id AND u.gym_id = %s
+            WHERE ec.id = ANY(%s)
+            ORDER BY u.first_name, u.last_name""",
+            (admin['gym_id'], [row['id'] for row in rows])).fetchall() if rows else []
+    media_by_exercise: dict[str, list[dict]] = {}
+    for media in trainer_media_rows:
+        item = {
+            'trainer_id': str(media['trainer_id']),
+            'trainer_name': media['trainer_name'],
+            'media_mime': media['media_mime'],
+            'media_url': None,
+        }
+        try:
+            item['media_url'] = presigned_exercise_media_url(media['media_key'])
+        except (StorageNotConfigured, StorageReadError):
+            pass
+        media_by_exercise.setdefault(str(media['exercise_catalog_id']), []).append(item)
     result = []
     for row in rows:
-        item = {**row, 'id': str(row['id'])}
+        item = {**row, 'id': str(row['id']),
+                'trainer_media': media_by_exercise.get(str(row['id']), [])}
         if row.get('media_key'):
             try:
                 item['media_url'] = presigned_exercise_media_url(row['media_key'])
@@ -2716,6 +2803,47 @@ def admin_exercise_catalog(search: str = Query(default='', max_length=80),
                 item['media_url'] = None
         result.append(item)
     return result
+
+
+@app.post('/api/v1/admin/exercises', status_code=201)
+def create_admin_exercise(
+    payload: TrainerExerciseCreate,
+    admin: dict = Depends(active_admin),
+) -> dict:
+    name = payload.name.strip()
+    if len(name) < 2:
+        raise _problem(422, 'INVALID_EXERCISE_NAME', 'Escribe un nombre de al menos 2 caracteres.')
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                exercise = cur.execute("""INSERT INTO exercise_catalog
+                        (name, muscle_group, equipment, instructions)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, name, muscle_group, equipment, instructions,
+                        media_url, media_mime""",
+                    (name, payload.muscle_group, payload.equipment,
+                     payload.instructions.strip() if payload.instructions else None)).fetchone()
+                cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, event_type, details)
+                    VALUES (%s, %s, 'exercise_catalog_created', %s)""",
+                    (admin['gym_id'], admin['id'], Jsonb({
+                        'exercise_id': str(exercise['id']),
+                        'name': exercise['name'],
+                    })))
+    except Exception as exc:
+        if getattr(exc, 'sqlstate', None) == '23505':
+            raise _problem(409, 'EXERCISE_NAME_EXISTS',
+                           'Ya existe un ejercicio con ese nombre en el catálogo.')
+        raise
+    return {**exercise, 'id': str(exercise['id'])}
+
+
+@app.delete('/api/v1/admin/exercises/{exercise_id}')
+def delete_admin_exercise(
+    exercise_id: uuid.UUID,
+    admin: dict = Depends(active_admin),
+) -> dict:
+    return _delete_exercise_catalog_entry(exercise_id, admin)
 
 
 @app.put('/api/v1/admin/exercises/{exercise_id}')
@@ -2760,6 +2888,7 @@ def update_admin_exercise(exercise_id: uuid.UUID, payload: ExerciseCatalogUpdate
 @app.post('/api/v1/admin/exercises/{exercise_id}/media', status_code=200)
 async def upload_admin_exercise_media(
     exercise_id: uuid.UUID,
+    trainer_id: uuid.UUID | None = Query(default=None),
     video: UploadFile = File(...),
     admin: dict = Depends(active_admin),
 ) -> dict:
@@ -2779,27 +2908,58 @@ async def upload_admin_exercise_media(
     if total == 0:
         raise _problem(400, 'EMPTY_VIDEO', 'El video está vacío. Elige otro archivo.')
 
-    key = f"exercise-media/{admin['gym_id']}/{exercise_id}/{uuid.uuid4().hex}.{extension}"
+    if trainer_id is not None:
+        with pool.connection() as conn:
+            trainer_exists = conn.execute("""SELECT id FROM users
+                WHERE id = %s AND gym_id = %s AND role = 'trainer'::muskl_role
+                  AND status = 'active'::account_status""",
+                (trainer_id, admin['gym_id'])).fetchone()
+        if trainer_exists is None:
+            raise _problem(404, 'TRAINER_NOT_FOUND', 'No encontramos un entrenador activo del gimnasio.')
+
+    key = (f"exercise-media/{admin['gym_id']}/{trainer_id}/{exercise_id}/{uuid.uuid4().hex}.{extension}"
+           if trainer_id else
+           f"exercise-media/{admin['gym_id']}/{exercise_id}/{uuid.uuid4().hex}.{extension}")
     try:
         stored_key = put_exercise_media(key, b''.join(chunks), content_type)
         media_url = presigned_exercise_media_url(stored_key)
         with pool.connection() as conn:
             with conn.cursor() as cur:
-                previous = cur.execute("""SELECT media_key FROM exercise_catalog
-                    WHERE id = %s AND active FOR UPDATE""", (exercise_id,)).fetchone()
-                if previous is None:
+                if trainer_id:
+                    previous = cur.execute("""SELECT media_key FROM trainer_exercise_media
+                        WHERE trainer_id = %s AND exercise_catalog_id = %s FOR UPDATE""",
+                        (trainer_id, exercise_id)).fetchone()
+                else:
+                    previous = cur.execute("""SELECT media_key FROM exercise_catalog
+                        WHERE id = %s AND active FOR UPDATE""", (exercise_id,)).fetchone()
+                exercise_exists = cur.execute("""SELECT id, name FROM exercise_catalog
+                    WHERE id = %s AND active""", (exercise_id,)).fetchone()
+                if exercise_exists is None:
                     raise _problem(404, 'EXERCISE_NOT_FOUND', 'No encontramos ese ejercicio.')
-                old_key = previous['media_key']
-                exercise = cur.execute("""UPDATE exercise_catalog SET media_key = %s,
-                        media_mime = %s, media_url = NULL
-                    WHERE id = %s AND active
-                    RETURNING id, name, media_key, media_mime""",
-                    (stored_key, content_type, exercise_id)).fetchone()
+                old_key = previous['media_key'] if previous else None
+                if trainer_id:
+                    cur.execute("""INSERT INTO trainer_exercise_media
+                            (trainer_id, exercise_catalog_id, media_key, media_mime)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (trainer_id, exercise_catalog_id) DO UPDATE
+                        SET media_key = EXCLUDED.media_key, media_mime = EXCLUDED.media_mime,
+                            updated_at = now()""",
+                        (trainer_id, exercise_id, stored_key, content_type))
+                    exercise = {'id': exercise_id, 'name': exercise_exists['name'],
+                                'media_key': stored_key, 'media_mime': content_type}
+                else:
+                    exercise = cur.execute("""UPDATE exercise_catalog SET media_key = %s,
+                            media_mime = %s, media_url = NULL
+                        WHERE id = %s AND active
+                        RETURNING id, name, media_key, media_mime""",
+                        (stored_key, content_type, exercise_id)).fetchone()
                 cur.execute("""INSERT INTO account_audit_events
                     (gym_id, actor_id, event_type, details)
                     VALUES (%s, %s, 'exercise_media_uploaded', %s)""",
                     (admin['gym_id'], admin['id'], Jsonb({
-                        'exercise_id': str(exercise_id), 'size_bytes': total,
+                        'exercise_id': str(exercise_id),
+                        'trainer_id': str(trainer_id) if trainer_id else None,
+                        'size_bytes': total,
                         'content_type': content_type,
                     })))
         if old_key and old_key != stored_key:
@@ -3238,7 +3398,8 @@ def client_dashboard(client: dict = Depends(active_client)) -> dict:
                 cp.profile_photo, cp.profile_photo_mime AS legacy_profile_photo_mime,
                 g.timezone, g.name AS gym_name, g.address AS gym_address,
                 g.phone AS gym_phone, g.opening_hours AS gym_opening_hours,
-                p.name AS plan_name, m.ends_on AS membership_ends_on,
+                p.name AS plan_name, m.starts_on AS membership_started_on,
+                m.ends_on AS membership_ends_on,
                 registry.payment_due_on,
                 concat_ws(' ', t.first_name, t.last_name) AS trainer_name,
                 t.profile_photo_storage_key AS trainer_profile_photo_storage_key,
@@ -3253,7 +3414,7 @@ def client_dashboard(client: dict = Depends(active_client)) -> dict:
             FROM users u JOIN gyms g ON g.id = u.gym_id
             LEFT JOIN client_profiles cp ON cp.user_id = u.id
             LEFT JOIN client_member_registry registry ON registry.id = cp.member_registry_id
-            LEFT JOIN LATERAL (SELECT plan_id, ends_on FROM memberships WHERE client_id = u.id AND status = 'active' ORDER BY ends_on DESC LIMIT 1) m ON true
+            LEFT JOIN LATERAL (SELECT plan_id, starts_on, ends_on FROM memberships WHERE client_id = u.id AND status = 'active' ORDER BY ends_on DESC LIMIT 1) m ON true
             LEFT JOIN membership_plans p ON p.id = m.plan_id
             LEFT JOIN LATERAL (SELECT trainer_id FROM trainer_client_assignments WHERE client_id = u.id AND ends_at IS NULL LIMIT 1) tca ON true
             LEFT JOIN users t ON t.id = tca.trainer_id
@@ -3295,6 +3456,7 @@ def client_dashboard(client: dict = Depends(active_client)) -> dict:
             'trainer_profile_photo_url': trainer_profile_photo_url,
             'profile_photo_mime': row['profile_photo_mime'] or row['legacy_profile_photo_mime'],
             'membership_ends_on': row['membership_ends_on'].isoformat() if row['membership_ends_on'] else None,
+            'membership_started_on': row['membership_started_on'].isoformat() if row['membership_started_on'] else None,
             'pending_trainer_id': str(row['pending_trainer_id']) if row['pending_trainer_id'] else None,
             'payment_due_on': row['payment_due_on'].isoformat() if row['payment_due_on'] else None,
             'phase_started_at': row['phase_started_at'].isoformat() if row['phase_started_at'] else None,
@@ -3587,7 +3749,7 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_c
         _advance_due_client_phase(conn, client['id'])
         assignment = conn.execute("""SELECT cra.id AS assignment_id, cra.current_phase_id, cra.phase_started_at,
                 (cra.phase_started_at AT TIME ZONE g.timezone)::date AS started_on,
-                r.id AS routine_id, r.name AS routine_name, r.goal, r.days_per_week,
+                r.id AS routine_id, r.trainer_id, r.name AS routine_name, r.goal, r.days_per_week,
                 rp.phase_number, rp.name AS phase_name, rp.status AS phase_status
             FROM client_routine_assignments cra JOIN routines r ON r.id = cra.routine_id
             JOIN gyms g ON g.id = r.gym_id
@@ -3615,13 +3777,17 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_c
                     display_day = due_session['day_number']
         exercises = conn.execute("""SELECT re.id, re.day_number, re.position, re.name, re.sets,
                 re.reps, re.rest_seconds, COALESCE(re.instructions, ec.instructions) AS instructions,
-                COALESCE(ec.media_url, re.media_url) AS media_url,
-                ec.media_mime, COALESCE(ec.media_key, re.media_key) AS media_key,
+                CASE WHEN tm.media_key IS NOT NULL THEN NULL
+                     ELSE COALESCE(ec.media_url, re.media_url) END AS media_url,
+                COALESCE(tm.media_mime, ec.media_mime) AS media_mime,
+                COALESCE(tm.media_key, ec.media_key, re.media_key) AS media_key,
                 ec.muscle_group
             FROM routine_exercises re
             LEFT JOIN exercise_catalog ec ON ec.id = re.exercise_catalog_id
+            LEFT JOIN trainer_exercise_media tm
+              ON tm.exercise_catalog_id = ec.id AND tm.trainer_id = %s
             WHERE re.phase_id = %s AND re.day_number = %s ORDER BY re.position""",
-            (assignment['current_phase_id'], display_day)).fetchall()
+            (assignment['trainer_id'], assignment['current_phase_id'], display_day)).fetchall()
         completed_exercises = conn.execute("""SELECT c.exercise_id
             FROM workout_exercise_completions c
             JOIN routine_exercises re ON re.id = c.exercise_id
@@ -4085,6 +4251,135 @@ def admin_routine_detail(routine_id: uuid.UUID,
     return {**routine, 'phases': phases, 'clients': clients, 'exercises': exercises}
 
 
+@app.post('/api/v1/admin/routines', status_code=201)
+def create_admin_routine(payload: RoutineCreateRequest,
+                         admin: dict = Depends(active_admin)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            routine = cur.execute("""INSERT INTO routines
+                    (gym_id, trainer_id, name, goal, days_per_week)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id, name, goal, days_per_week""",
+                (admin['gym_id'], admin['id'], payload.name.strip(),
+                 payload.goal, len(payload.days))).fetchone()
+            phase = cur.execute("""INSERT INTO routine_phases
+                    (routine_id, phase_number, name, duration_weeks, status)
+                VALUES (%s, 1, 'Fase 1', 8, 'draft') RETURNING id""",
+                (routine['id'],)).fetchone()
+            positions: dict[int, int] = {}
+            for exercise in payload.exercises:
+                day = exercise.day_number
+                positions[day] = positions.get(day, 0) + 1
+                catalog_id, exercise_name, media_url, instructions = _resolve_catalog_exercise(cur, exercise)
+                cur.execute("""INSERT INTO routine_exercises
+                    (phase_id, day_number, position, exercise_catalog_id, name,
+                     sets, reps, rest_seconds, media_url, instructions)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (phase['id'], day, positions[day], catalog_id, exercise_name,
+                     exercise.sets, exercise.reps, exercise.rest_seconds,
+                     media_url, instructions))
+            cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, event_type, details)
+                VALUES (%s, %s, 'routine_created', %s)""",
+                (admin['gym_id'], admin['id'], Jsonb({
+                    'routine_id': str(routine['id']),
+                    'phase_id': str(phase['id']),
+                    'created_by_role': 'admin',
+                })))
+    return {**routine, 'id': str(routine['id']),
+            'phase_id': str(phase['id']), 'status': 'draft'}
+
+
+@app.post('/api/v1/admin/routines/{routine_id}/phases', status_code=201)
+def create_admin_routine_phase(routine_id: uuid.UUID,
+                               payload: RoutinePhaseCreateRequest,
+                               admin: dict = Depends(active_admin)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            routine = cur.execute("""SELECT id, days_per_week FROM routines
+                WHERE id = %s AND gym_id = %s AND active FOR UPDATE""",
+                (routine_id, admin['gym_id'])).fetchone()
+            if routine is None:
+                raise _problem(404, 'ROUTINE_NOT_FOUND', 'No encontramos esa rutina.')
+            if len(payload.days) != routine['days_per_week']:
+                raise _problem(422, 'ROUTINE_DAYS_MISMATCH',
+                               'La nueva fase debe conservar los días semanales de la rutina.')
+            latest = cur.execute("""SELECT phase_number, status FROM routine_phases
+                WHERE routine_id = %s ORDER BY phase_number DESC LIMIT 1 FOR UPDATE""",
+                (routine_id,)).fetchone()
+            if latest is None or latest['status'] != 'published':
+                raise _problem(409, 'PREVIOUS_PHASE_NOT_PUBLISHED',
+                               'Publica la fase actual antes de crear la siguiente.')
+            number = latest['phase_number'] + 1
+            phase = cur.execute("""INSERT INTO routine_phases
+                    (routine_id, phase_number, name, duration_weeks)
+                VALUES (%s, %s, %s, 8)
+                RETURNING id, phase_number, name, duration_weeks, status""",
+                (routine_id, number, payload.name.strip())).fetchone()
+            positions: dict[int, int] = {}
+            for exercise in payload.exercises:
+                day = exercise.day_number
+                positions[day] = positions.get(day, 0) + 1
+                catalog_id, exercise_name, media_url, instructions = _resolve_catalog_exercise(cur, exercise)
+                cur.execute("""INSERT INTO routine_exercises
+                    (phase_id, day_number, position, exercise_catalog_id, name,
+                     sets, reps, rest_seconds, media_url, instructions)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (phase['id'], day, positions[day], catalog_id, exercise_name,
+                     exercise.sets, exercise.reps, exercise.rest_seconds,
+                     media_url, instructions))
+            cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, event_type, details)
+                VALUES (%s, %s, 'routine_phase_created', %s)""",
+                (admin['gym_id'], admin['id'], Jsonb({
+                    'routine_id': str(routine_id), 'phase_id': str(phase['id']),
+                    'phase_number': number, 'created_by_role': 'admin',
+                })))
+    return {**phase, 'id': str(phase['id'])}
+
+
+@app.post('/api/v1/admin/routines/{routine_id}/phases/{phase_id}/publish')
+def publish_admin_routine_phase(routine_id: uuid.UUID, phase_id: uuid.UUID,
+                                admin: dict = Depends(active_admin)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            phase = cur.execute("""SELECT rp.id, rp.phase_number, rp.status,
+                    (SELECT max(previous.phase_number) FROM routine_phases previous
+                      WHERE previous.routine_id = r.id AND previous.status = 'published') AS last_published
+                FROM routines r JOIN routine_phases rp ON rp.routine_id = r.id
+                WHERE r.id = %s AND r.gym_id = %s AND r.active AND rp.id = %s
+                FOR UPDATE OF rp""", (routine_id, admin['gym_id'], phase_id)).fetchone()
+            if phase is None:
+                raise _problem(404, 'PHASE_NOT_FOUND', 'No encontramos esa fase.')
+            if phase['status'] == 'published':
+                return {'routine_id': str(routine_id), 'phase_id': str(phase_id),
+                        'status': 'published'}
+            if phase['last_published'] is None:
+                if phase['phase_number'] != 1:
+                    raise _problem(409, 'PHASE_ORDER_INVALID',
+                                   'Debes publicar las fases en orden.')
+            elif phase['phase_number'] != phase['last_published'] + 1:
+                raise _problem(409, 'PHASE_ORDER_INVALID',
+                               'Debes publicar las fases en orden.')
+            has_exercises = cur.execute("""SELECT EXISTS (
+                SELECT 1 FROM routine_exercises WHERE phase_id = %s) AS has_exercises""",
+                (phase_id,)).fetchone()['has_exercises']
+            if not has_exercises:
+                raise _problem(409, 'PHASE_EMPTY',
+                               'Agrega ejercicios antes de publicar la fase.')
+            cur.execute("UPDATE routine_phases SET status = 'published', published_at = now() WHERE id = %s",
+                        (phase_id,))
+            cur.execute("""INSERT INTO account_audit_events
+                    (gym_id, actor_id, event_type, details)
+                VALUES (%s, %s, 'routine_phase_published', %s)""",
+                (admin['gym_id'], admin['id'], Jsonb({
+                    'routine_id': str(routine_id), 'phase_id': str(phase_id),
+                    'phase_number': phase['phase_number'], 'published_by_role': 'admin',
+                })))
+    return {'routine_id': str(routine_id), 'phase_id': str(phase_id),
+            'status': 'published'}
+
+
 @app.post('/api/v1/admin/routines/{routine_id}/assign')
 def assign_admin_routine(routine_id: uuid.UUID, payload: RoutineAssignmentRequest,
                          admin: dict = Depends(active_admin)) -> dict:
@@ -4487,3 +4782,15 @@ def reactivate_member_by_number(member_number: str, admin: dict = Depends(active
     if len(users) > 1:
         raise _problem(409, 'SHARED_MEMBER_NUMBER', 'Este número pertenece a un grupo. Selecciona a la persona en Usuarios.')
     return reactivate_user(users[0]['id'], admin)
+
+
+# Wrap the whole ASGI application so CORS headers are also attached to
+# unhandled 500 responses generated by Starlette's outer error middleware.
+app = CORSMiddleware(
+    app,
+    allow_origins=origins or ['*'],
+    allow_origin_regex=r'^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$',
+    allow_credentials=False,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)

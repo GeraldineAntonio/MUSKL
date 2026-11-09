@@ -26,6 +26,15 @@ def main() -> None:
         for path in MIGRATIONS_DIR.iterdir()
         if MIGRATION_NAME.match(path.name)
     )
+    seen_versions: dict[str, str] = {}
+    for path in files:
+        version = path.stem.split("_", maxsplit=1)[0]
+        previous = seen_versions.get(version)
+        if previous is not None:
+            raise SystemExit(
+                f"Versiones de migración duplicadas: {previous} y {path.name}."
+            )
+        seen_versions[version] = path.name
     if not files:
         raise SystemExit(f"No hay migraciones SQL en {MIGRATIONS_DIR}.")
 

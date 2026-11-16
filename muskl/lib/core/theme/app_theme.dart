@@ -27,14 +27,14 @@ class AppTheme {
         // Tipografía redondeada y legible para acercarnos al estilo Nu Sans.
         headlineLarge: text.headlineLarge?.copyWith(
           fontWeight: FontWeight.w900,
-          fontSize: 38,
-          height: 1.04,
+          fontSize: 34,
+          height: 1.15,
           letterSpacing: -0.8,
         ),
         headlineMedium: text.headlineMedium?.copyWith(
           fontWeight: FontWeight.w900,
           fontSize: 27,
-          height: 1.08,
+          height: 1.2,
           letterSpacing: -0.35,
         ),
         titleLarge: text.titleLarge?.copyWith(

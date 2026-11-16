@@ -330,11 +330,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _memberLookupLoading = false;
       });
       if (matches.isEmpty) {
-        setState(() {
-          _name.clear();
-          _lastName.clear();
-          _birthDate = null;
-        });
         return;
       }
       if (matches.length == 1) {
@@ -416,6 +411,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _submit() async {
+    if (_role == 'Cliente') {
+      if (_memberNumber.text.trim().isEmpty) {
+        setState(() => _error = 'Escribe tu número de socio.');
+        return;
+      }
+      if (!_memberLookupDone) {
+        await _lookupMemberNumber();
+        if (!mounted || _error != null || !_memberLookupDone) return;
+      }
+    }
     final email = _email.text.trim();
     if (_name.text.trim().isEmpty ||
         _lastName.text.trim().isEmpty ||
@@ -433,9 +438,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       setState(() => _error = 'Selecciona tu fecha de nacimiento.');
       return;
     }
-    if (_role == 'Cliente' &&
-        (_memberNumber.text.trim().isEmpty || !_memberLookupDone)) {
-      setState(() => _error = 'Busca tu número de socio antes de continuar.');
+    if (_role == 'Cliente' && !_memberLookupDone) {
+      setState(
+          () => _error = 'No pudimos validar tu número. Inténtalo otra vez.');
       return;
     }
     if (_role == 'Entrenador' && _selectedSpecialties.isEmpty) {
@@ -583,17 +588,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     _registryMatches = [];
                     _error = null;
                   })),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: _memberLookupLoading ? null : _lookupMemberNumber,
-            icon: _memberLookupLoading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.search),
-            label: Text(
-                _memberLookupLoading ? 'Buscando…' : 'Buscar número de socio'),
+          const SizedBox(height: 6),
+          Text(
+            _memberLookupLoading
+                ? 'Validando tu número…'
+                : 'Lo validaremos al continuar.',
+            style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
           ),
           if (_memberLookupDone && _registryMatches.isEmpty)
             const Padding(

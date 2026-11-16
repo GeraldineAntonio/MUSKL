@@ -2408,7 +2408,7 @@ def trainer_clients(search: str = Query(default='', max_length=100),
             LEFT JOIN membership_plans p ON p.id = m.plan_id
             LEFT JOIN LATERAL (SELECT r.name FROM client_routine_assignments cra JOIN routines r ON r.id = cra.routine_id WHERE cra.client_id = u.id AND cra.ended_at IS NULL LIMIT 1) r ON true
             WHERE tca.trainer_id = %s AND tca.ends_at IS NULL
-              AND (concat_ws(' ', u.first_name, u.last_name) ILIKE %s OR u.member_number ILIKE %s)
+              AND (concat_ws(' ', u.first_name, u.last_name) ILIKE %s OR u.email ILIKE %s)
             ORDER BY u.first_name, u.last_name""", (trainer['id'], term, term)).fetchall()
     return [{**row, 'id': str(row['id']), 'membership_ends_on': row['membership_ends_on'].isoformat() if row['membership_ends_on'] else None} for row in rows]
 
@@ -4137,9 +4137,9 @@ def admin_users(search: str = Query(default='', max_length=100),
         conditions.append('u.status = %s::account_status')
         params.append(status)
     if search.strip():
-        conditions.append("(concat_ws(' ', u.first_name, u.last_name) ILIKE %s OR u.email ILIKE %s OR upper(u.member_number) LIKE upper(%s))")
+        conditions.append("(concat_ws(' ', u.first_name, u.last_name) ILIKE %s OR u.email ILIKE %s)")
         term = f'%{search.strip()}%'
-        params.extend([term, term, term])
+        params.extend([term, term])
     where = ' AND '.join(conditions)
     with pool.connection() as conn:
         rows = conn.execute(f"""SELECT u.id, u.role, u.status, u.first_name, u.last_name, u.email, u.phone,

@@ -123,26 +123,78 @@ class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(child: Center(child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 560),
-      child: ListView(padding: const EdgeInsets.all(24), children: [
-        const SizedBox(height: 16),
-        const Row(children: [Icon(Icons.fitness_center, color: AppColors.red), SizedBox(width: 12), Text('MUSKL', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 2))]),
-        const SizedBox(height: 28),
-        ClipRRect(borderRadius: BorderRadius.circular(24), child: AspectRatio(aspectRatio: 1.5, child: Image.asset('assets/images/splash.jpg', fit: BoxFit.cover))),
-        const SizedBox(height: 28),
-        Text('Tu entrenamiento.\nTu siguiente paso.', style: Theme.of(context).textTheme.headlineLarge),
-        const SizedBox(height: 14),
-        const Text('Encuentra tu rutina, registra tus visitas y sigue tu progreso con el apoyo de tu entrenador.', style: TextStyle(color: AppColors.textMuted, fontSize: 16, height: 1.5)),
-        const SizedBox(height: 28),
-        MusklButton(label: 'Entrar a mi cuenta', icon: Icons.arrow_forward_rounded, onPressed: () => context.push('/login')),
-        const SizedBox(height: 12),
-        MusklButton(label: 'Crear una cuenta', style: MusklButtonStyle.secondary, onPressed: () => context.push('/register')),
-        const SizedBox(height: 20),
-        const Text('Tu gimnasio, contigo.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textMuted)),
-      ]),
-    ))),
-  );
+        body: Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.asset(
+          'assets/images/splash.jpg',
+          fit: BoxFit.cover,
+          color: Colors.black.withValues(alpha: .52),
+          colorBlendMode: BlendMode.darken,
+        ),
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0x66090A0D),
+                Color(0x99090A0D),
+                Color(0xF2090A0D),
+              ],
+              stops: [0, .48, 1],
+            ),
+          ),
+        ),
+        SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: ListView(
+                padding: const EdgeInsets.all(24),
+                children: [
+                  const SizedBox(height: 16),
+                  const Row(children: [
+                    Icon(Icons.fitness_center, color: AppColors.red),
+                    SizedBox(width: 12),
+                    Text('MUSKL',
+                        style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 2)),
+                  ]),
+                  SizedBox(height: MediaQuery.sizeOf(context).height * .25),
+                  Text('Tu entrenamiento.\nTu siguiente paso.',
+                      style: Theme.of(context).textTheme.headlineLarge),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Encuentra tu rutina, registra tus visitas y sigue tu progreso con el apoyo de tu entrenador.',
+                    style: TextStyle(
+                        color: AppColors.textMuted, fontSize: 16, height: 1.5),
+                  ),
+                  const SizedBox(height: 28),
+                  MusklButton(
+                    label: 'Entrar a mi cuenta',
+                    icon: Icons.arrow_forward_rounded,
+                    onPressed: () => context.push('/login'),
+                  ),
+                  const SizedBox(height: 12),
+                  MusklButton(
+                    label: 'Crear una cuenta',
+                    style: MusklButtonStyle.secondary,
+                    onPressed: () => context.push('/register'),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text('Tu gimnasio, contigo.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.textMuted)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    ));
 }
 class WorkspacePage extends StatelessWidget {
   const WorkspacePage(
@@ -376,6 +428,55 @@ Widget _profileInfoField(String label, String value,
             icon: const Icon(Icons.edit_outlined),
           ),
       ]),
+    );
+
+Widget _profileBioCard(String value, {VoidCallback? onEdit}) => MusklCard(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(alpha: .12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.notes_outlined,
+                  color: AppColors.accent, size: 19),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text('BIOGRAFÍA',
+                  style: TextStyle(
+                      fontSize: 12,
+                      letterSpacing: 1,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textMuted)),
+            ),
+            if (onEdit != null)
+              IconButton(
+                tooltip: 'Editar biografía',
+                visualDensity: VisualDensity.compact,
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_outlined),
+              ),
+          ]),
+          const SizedBox(height: 12),
+          Text(
+            value.trim().isEmpty
+                ? 'Agrega una descripción para que los demás te conozcan mejor.'
+                : value.trim(),
+            softWrap: true,
+            style: TextStyle(
+              color: value.trim().isEmpty ? AppColors.textMuted : AppColors.white,
+              height: 1.5,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
     );
 
 class ClientDashboardScreen extends StatefulWidget {
@@ -1661,6 +1762,12 @@ class _ClientProfileWorkspaceScreenState
 
   Future<void> _openProfileEditMenu(Map<String, dynamic> data) async {
     final field = await _chooseProfileField(context, [
+      const _ProfileEditOption(
+        key: 'photo',
+        title: 'Foto de perfil',
+        value: 'Elegir una foto nueva',
+        icon: Icons.camera_alt_outlined,
+      ),
       _ProfileEditOption(
         key: 'name',
         title: 'Nombre',
@@ -1689,6 +1796,9 @@ class _ClientProfileWorkspaceScreenState
     ]);
     if (!mounted || field == null) return;
     switch (field) {
+      case 'photo':
+        await _pickProfilePhoto();
+        return;
       case 'name':
         await _editClientName(
           (data['first_name'] ?? '').toString(),
@@ -1891,27 +2001,11 @@ class _ClientProfileWorkspaceScreenState
                 _profileInfoField(
                     'Objetivo', (data['goal'] ?? 'Pendiente').toString(),
                     icon: Icons.flag_outlined),
-                _section('Mi biografía'),
-                MusklCard(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(Icons.notes_outlined, color: AppColors.accent),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          (data['bio'] ?? '').toString().trim().isEmpty
-                              ? 'Agrega una descripción para que tu entrenador te conozca mejor.'
-                              : data['bio'].toString(),
-                          style: TextStyle(
-                            color: (data['bio'] ?? '').toString().trim().isEmpty
-                                ? AppColors.textMuted
-                                : AppColors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                _profileBioCard(
+                  (data['bio'] ?? '').toString(),
+                  onEdit: _savingProfile
+                      ? null
+                      : () => _editBio((data['bio'] ?? '').toString()),
                 ),
                 _section('Contacto y detalles'),
                 _profileInfoField('Entrenador',
@@ -2284,7 +2378,7 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
             }),
         _section('Clientes asignados'),
         _SearchField(
-            hint: 'Buscar cliente',
+            hint: 'Buscar cliente por nombre o correo',
             onChanged: (v) => setState(() {
                   search = v;
                   _loadClients();
@@ -3675,6 +3769,12 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
 
   Future<void> _openProfileEditMenu() async {
     final field = await _chooseProfileField(context, [
+      const _ProfileEditOption(
+        key: 'photo',
+        title: 'Foto de perfil',
+        value: 'Elegir una foto nueva',
+        icon: Icons.camera_alt_outlined,
+      ),
       _ProfileEditOption(
         key: 'name',
         title: 'Nombre',
@@ -3702,6 +3802,9 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
     ]);
     if (!mounted || field == null) return;
     switch (field) {
+      case 'photo':
+        await _changeProfilePhoto();
+        return;
       case 'name':
         await _editPersonal();
         return;
@@ -3891,8 +3994,10 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                       ])),
                 ]),
               ])),
-              _profileInfoField('Biografía', _value('bio'),
-                  icon: Icons.notes_outlined),
+              _profileBioCard(
+                _value('bio'),
+                onEdit: _saving ? null : _editTrainerBio,
+              ),
               MusklCard(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -5300,7 +5405,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       selected: 1,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         _SearchField(
-            hint: 'Buscar por nombre o número de socio',
+            hint: 'Buscar por nombre o correo',
             onChanged: (v) => setState(() {
                   search = v;
                   _reload();
@@ -5783,6 +5888,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
 
   Future<void> _openProfileEditMenu() async {
     final field = await _chooseProfileField(context, [
+      const _ProfileEditOption(
+        key: 'photo',
+        title: 'Foto de perfil',
+        value: 'Elegir una foto nueva',
+        icon: Icons.camera_alt_outlined,
+      ),
       _ProfileEditOption(
         key: 'name',
         title: 'Nombre',
@@ -5812,6 +5923,9 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     ]);
     if (!mounted || field == null) return;
     switch (field) {
+      case 'photo':
+        await _changeAdminPhoto();
+        return;
       case 'name':
         await _editAdminProfile();
         return;
@@ -6225,8 +6339,10 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                         color: AppColors.textMuted, fontSize: 12)),
               ])),
         ])),
-        _profileInfoField('Biografía', (_ownProfile['bio'] ?? '').toString(),
-            icon: Icons.notes_outlined),
+        _profileBioCard(
+          (_ownProfile['bio'] ?? '').toString(),
+          onEdit: _editAdminBio,
+        ),
         _SwitchSetting(
             label: 'Notificaciones de nuevas solicitudes',
             value: _newRequestNotifications,

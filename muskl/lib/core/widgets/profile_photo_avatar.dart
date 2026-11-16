@@ -65,6 +65,26 @@ class ProfilePhotoAvatar extends StatelessWidget {
   final String name;
   final bool allowEdit;
 
+  Widget _photo(double size) => ClipOval(
+        child: SizedBox.square(
+          dimension: size,
+          child: image == null
+              ? _placeholder(size)
+              : Image(
+                  image: image!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) =>
+                      _placeholder(size),
+                ),
+        ),
+      );
+
+  Widget _placeholder(double size) => Container(
+        color: AppColors.surfaceHigh,
+        alignment: Alignment.center,
+        child: Icon(Icons.person, size: size * .54, color: AppColors.accent),
+      );
+
   void _showPreview(BuildContext context) {
     showDialog<void>(
       context: context,
@@ -73,15 +93,7 @@ class ProfilePhotoAvatar extends StatelessWidget {
           padding: const EdgeInsets.all(24),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Stack(clipBehavior: Clip.none, children: [
-              CircleAvatar(
-                radius: 108,
-                backgroundColor: AppColors.surfaceHigh,
-                backgroundImage: image,
-                child: image == null
-                    ? const Icon(Icons.person,
-                        size: 104, color: AppColors.accent)
-                    : null,
-              ),
+              _photo(216),
               if (allowEdit)
                 Positioned(
                   right: -4,
@@ -123,15 +135,7 @@ class ProfilePhotoAvatar extends StatelessWidget {
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: () => _showPreview(context),
-              child: CircleAvatar(
-                radius: radius,
-                backgroundColor: AppColors.surfaceHigh,
-                backgroundImage: image,
-                child: image == null
-                    ? Icon(Icons.person,
-                        size: radius * 1.1, color: AppColors.accent)
-                    : null,
-              ),
+              child: _photo(radius * 2),
             ),
           ),
           if (allowEdit)

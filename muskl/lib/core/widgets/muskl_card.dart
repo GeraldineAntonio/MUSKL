@@ -20,18 +20,41 @@ class MusklCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(AppTheme.radius + 7);
     return Material(
-      color: selected ? const Color(0xFF35171C) : AppColors.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.radius + 4),
-        side: BorderSide(
-          color: selected ? AppColors.red : AppColors.surfaceHigh,
+      color: Colors.transparent,
+      child: Ink(
+        decoration: BoxDecoration(
+          gradient: selected
+              ? const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF32191E), Color(0xFF21171B)],
+                )
+              : const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [AppColors.surfaceRaised, AppColors.surface],
+                ),
+          borderRadius: radius,
+          border: Border.all(
+            color: selected
+                ? AppColors.red.withValues(alpha: .76)
+                : AppColors.surfaceHigh.withValues(alpha: .76),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.bgDeep.withValues(alpha: .26),
+              blurRadius: 16,
+              offset: const Offset(0, 7),
+            ),
+          ],
         ),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppTheme.radius + 4),
-        onTap: onTap,
-        child: Padding(padding: padding, child: child),
+        child: InkWell(
+          borderRadius: radius,
+          onTap: onTap,
+          child: Padding(padding: padding, child: child),
+        ),
       ),
     );
   }

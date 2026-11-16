@@ -130,12 +130,16 @@ class _GoogleClientRegistrationScreenState
   }
 
   Future<void> _submit() async {
-    if (_firstName.text.trim().isEmpty || _lastName.text.trim().isEmpty) {
-      setState(() => _error = 'Completa tu nombre y apellido.');
+    if (_memberNumber.text.trim().isEmpty) {
+      setState(() => _error = 'Escribe tu número de socio.');
       return;
     }
-    if (_memberNumber.text.trim().isEmpty || !_lookupDone) {
-      setState(() => _error = 'Busca tu número de socio antes de continuar.');
+    if (!_lookupDone) {
+      await _lookupMember();
+      if (!mounted || _error != null || !_lookupDone) return;
+    }
+    if (_firstName.text.trim().isEmpty || _lastName.text.trim().isEmpty) {
+      setState(() => _error = 'Completa tu nombre y apellido.');
       return;
     }
     if (_matches.length > 1 && _selectedRegistryId == null) {
@@ -294,17 +298,13 @@ class _GoogleClientRegistrationScreenState
                   _error = null;
                 }),
               ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: _lookingUp || _saving ? null : _lookupMember,
-                icon: _lookingUp
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.search),
-                label:
-                    Text(_lookingUp ? 'Buscando…' : 'Buscar número de socio'),
+              const SizedBox(height: 6),
+              Text(
+                _lookingUp
+                    ? 'Validando tu número…'
+                    : 'Lo validaremos al continuar.',
+                style:
+                    const TextStyle(color: AppColors.textMuted, fontSize: 12),
               ),
               if (_lookupDone && _matches.isEmpty)
                 const Padding(

@@ -45,7 +45,7 @@ class _MusklTextFieldState extends State<MusklTextField> {
   late bool _hidden = widget.obscure;
 
   OutlineInputBorder _border(Color c) => OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppTheme.radius),
+        borderRadius: BorderRadius.circular(AppTheme.radius + 2),
         borderSide: BorderSide(color: c, width: 1.5),
       );
 
@@ -83,7 +83,7 @@ class _MusklTextFieldState extends State<MusklTextField> {
               color: AppColors.textMuted,
             ),
             filled: true,
-            fillColor: AppColors.surface,
+            fillColor: AppColors.surfaceRaised,
             errorText: widget.errorText,
             errorMaxLines: 3,
             contentPadding:
@@ -93,7 +93,8 @@ class _MusklTextFieldState extends State<MusklTextField> {
                 : Icon(widget.icon, color: AppColors.textMuted, size: 20),
             suffixIcon: widget.obscure
                 ? IconButton(
-                    tooltip: _hidden ? 'Mostrar contraseña' : 'Ocultar contraseña',
+                    tooltip:
+                        _hidden ? 'Mostrar contraseña' : 'Ocultar contraseña',
                     icon: Icon(
                       _hidden
                           ? Icons.visibility_outlined

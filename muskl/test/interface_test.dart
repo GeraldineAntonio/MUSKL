@@ -10,6 +10,9 @@ import 'package:muskl/features/auth/login_screen.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
+    final icons = FontLoader('MaterialIcons');
+    icons.addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
+    await icons.load();
     final font = File('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf');
     if (font.existsSync()) {
       final loader = FontLoader('Preview');

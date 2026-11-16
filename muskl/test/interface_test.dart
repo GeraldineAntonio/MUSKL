@@ -39,13 +39,13 @@ void main() {
     final folder = Platform.environment['UI_PREVIEW_DIR'];
     if (folder == null) return;
     final boundary = tester.renderObject<RenderRepaintBoundary>(find.byKey(const ValueKey('preview')));
-    final image = await boundary.toImage();
-    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
     await tester.runAsync(() async {
+      final image = await boundary.toImage();
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
       await Directory(folder).create(recursive: true);
       await File('$folder/$name.png').writeAsBytes(bytes!.buffer.asUint8List());
+      image.dispose();
     });
-    image.dispose();
   }
 
   testWidgets('home shows the correct next step and navigates to routine', (tester) async {

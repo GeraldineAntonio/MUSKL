@@ -43,6 +43,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _submit() async {
+    if (_loading) return;
+    FocusManager.instance.primaryFocus?.unfocus();
     if (_id.text.trim().isEmpty || _pass.text.isEmpty) {
       setState(() {
         _errorType = null;
@@ -193,6 +195,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return AuthScaffold(
       kicker: 'Bienvenido de vuelta',
       title: 'Inicia sesión',
+      subtitle: 'Tu entrenamiento y tu progreso, en un solo lugar.',
       showBack: false,
       children: [
         if (_error != null) ...[
@@ -216,7 +219,7 @@ class _LoginScreenState extends State<LoginScreen> {
           label: 'Correo electrónico',
           controller: _id,
           icon: Icons.person_outline,
-          hint: 'diego@correo.com',
+          hint: 'nombre@correo.com',
           keyboardType: TextInputType.emailAddress,
           textInputAction: TextInputAction.next,
           autofillHints: const [AutofillHints.username],
@@ -271,7 +274,6 @@ class _LoginScreenState extends State<LoginScreen> {
           label: 'Continuar con Google',
           icon: Icons.g_mobiledata,
           style: MusklButtonStyle.light,
-          loading: _loading,
           onPressed: _loading ? null : _signInGoogle,
         ),
         const SizedBox(height: 10),
@@ -279,7 +281,6 @@ class _LoginScreenState extends State<LoginScreen> {
           label: 'Continuar con Apple',
           icon: Icons.apple,
           style: MusklButtonStyle.secondary,
-          loading: _loading,
           onPressed: _loading ? null : _signInApple,
         ),
         const SizedBox(height: 24),

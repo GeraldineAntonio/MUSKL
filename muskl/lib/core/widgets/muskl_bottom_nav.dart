@@ -31,15 +31,24 @@ class MusklBottomNav extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: SizedBox(
-          height: 70,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 70),
           child: Row(
             children: [
               for (var i = 0; i < items.length; i++)
                 Expanded(
-                  child: InkWell(
+                  child: Semantics(
+                    button: true,
+                    selected: i == currentIndex,
+                    label: items[i].label,
                     onTap: () => onTap(i),
-                    child: Center(
+                    excludeSemantics: true,
+                    child: InkWell(
+                    onTap: () => onTap(i),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Center(
+                        heightFactor: 1,
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 220),
                         curve: Curves.easeOutCubic,
@@ -64,8 +73,7 @@ class MusklBottomNav extends StatelessWidget {
                             const SizedBox(height: 2),
                             Text(
                               items[i].label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
                               style: GoogleFonts.nunitoSans(
                                 fontSize: 11,
                                 fontWeight: i == currentIndex
@@ -80,6 +88,8 @@ class MusklBottomNav extends StatelessWidget {
                         ),
                       ),
                     ),
+                    ),
+                  ),
                   ),
                 ),
             ],

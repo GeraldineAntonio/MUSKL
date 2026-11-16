@@ -30,58 +30,67 @@ class AuthScaffold extends StatelessWidget {
     final theme = Theme.of(context);
     return Scaffold(
       body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (showBack)
-                      IconButton.filled(
-                        style: IconButton.styleFrom(
-                          backgroundColor: AppColors.surface,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (showBack)
+                          IconButton.filled(
+                            tooltip: 'Volver',
+                            style: IconButton.styleFrom(
+                              backgroundColor: AppColors.surface,
+                            ),
+                            icon: const Icon(Icons.chevron_left,
+                                color: AppColors.white),
+                            onPressed: () => context.canPop()
+                                ? context.pop()
+                                : context.go('/login'),
+                          )
+                        else
+                          const SizedBox(height: 48),
+                        const SizedBox(height: 20),
+                        if (kicker != null) ...[
+                          Text(
+                            kicker!.toUpperCase(),
+                            style: theme.textTheme.labelSmall
+                                ?.copyWith(color: AppColors.red),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                        Text(
+                          title.toUpperCase(),
+                          style: theme.textTheme.headlineLarge,
                         ),
-                        icon: const Icon(Icons.chevron_left,
-                            color: AppColors.white),
-                        onPressed: () => context.canPop()
-                            ? context.pop()
-                            : context.go('/login'),
-                      )
-                    else
-                      const SizedBox(height: 48),
-                    const SizedBox(height: 20),
-                    if (kicker != null)
-                      Text(
-                        kicker!.toUpperCase(),
-                        style: theme.textTheme.labelSmall
-                            ?.copyWith(color: AppColors.red),
-                      ),
-                    Text(
-                      title.toUpperCase(),
-                      style: theme.textTheme.headlineLarge,
+                        if (subtitle != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            subtitle!,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                                color: AppColors.textMuted, fontSize: 16),
+                          ),
+                        ],
+                        const SizedBox(height: 28),
+                        ...children,
+                      ],
                     ),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        subtitle!,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                            color: AppColors.textMuted, fontSize: 16),
-                      ),
-                    ],
-                    const SizedBox(height: 28),
-                    ...children,
-                  ],
+                  ),
                 ),
-              ),
+                if (bottom != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+                    child: bottom,
+                  ),
+              ],
             ),
-            if (bottom != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-                child: bottom,
-              ),
-          ],
+          ),
         ),
       ),
     );

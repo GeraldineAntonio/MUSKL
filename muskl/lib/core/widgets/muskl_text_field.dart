@@ -66,6 +66,8 @@ class _MusklTextFieldState extends State<MusklTextField> {
           controller: widget.controller,
           readOnly: widget.readOnly,
           obscureText: _hidden,
+          autocorrect: !widget.obscure,
+          enableSuggestions: !widget.obscure,
           keyboardType: widget.keyboardType,
           textInputAction: widget.textInputAction,
           onChanged: widget.onChanged,
@@ -77,11 +79,12 @@ class _MusklTextFieldState extends State<MusklTextField> {
           decoration: InputDecoration(
             hintText: widget.hint,
             hintStyle: theme.textTheme.titleMedium?.copyWith(
-              color: AppColors.textMuted.withValues(alpha: 0.6),
+              color: AppColors.textMuted,
             ),
             filled: true,
             fillColor: AppColors.surface,
             errorText: widget.errorText,
+            errorMaxLines: 3,
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             prefixIcon: widget.icon == null
@@ -89,6 +92,7 @@ class _MusklTextFieldState extends State<MusklTextField> {
                 : Icon(widget.icon, color: AppColors.textMuted, size: 20),
             suffixIcon: widget.obscure
                 ? IconButton(
+                    tooltip: _hidden ? 'Mostrar contraseña' : 'Ocultar contraseña',
                     icon: Icon(
                       _hidden
                           ? Icons.visibility_outlined

@@ -16,7 +16,7 @@ class AppTheme {
     );
 
     return base.copyWith(
-      scaffoldBackgroundColor: AppColors.bg,
+      scaffoldBackgroundColor: Colors.transparent,
       colorScheme: const ColorScheme.dark(
         primary: AppColors.red,
         secondary: AppColors.accent,
@@ -64,13 +64,13 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surfaceRaised,
+        fillColor: AppColors.glassBottom,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         hintStyle: text.bodyMedium?.copyWith(color: AppColors.textMuted),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radius + 2),
-          borderSide: const BorderSide(color: AppColors.surfaceHigh),
+          borderSide: const BorderSide(color: AppColors.glassBorder),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radius + 2),
@@ -86,9 +86,9 @@ class AppTheme {
         ),
       ),
       chipTheme: base.chipTheme.copyWith(
-        backgroundColor: AppColors.surfaceRaised,
+        backgroundColor: AppColors.glassBottom,
         selectedColor: AppColors.red,
-        side: const BorderSide(color: AppColors.surfaceHigh),
+        side: const BorderSide(color: AppColors.glassBorder),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         labelStyle: text.bodySmall?.copyWith(fontWeight: FontWeight.w700),
         secondaryLabelStyle: text.bodySmall?.copyWith(
@@ -98,18 +98,18 @@ class AppTheme {
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 7),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: AppColors.surface,
+        backgroundColor: const Color(0xF21D1A21),
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(22),
-          side: const BorderSide(color: AppColors.surfaceHigh),
+          side: const BorderSide(color: AppColors.glassBorder),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.white,
           minimumSize: const Size(48, 48),
-          side: const BorderSide(color: AppColors.surfaceHigh),
+          side: const BorderSide(color: AppColors.glassBorder),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(radius + 2),
           ),

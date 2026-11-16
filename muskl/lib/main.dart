@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'core/router.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/muskl_ambient_background.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/api_auth_repository.dart';
 
@@ -45,6 +46,9 @@ class _MusklAppState extends State<MusklApp> {
       theme: AppTheme.dark(),
       themeMode: ThemeMode.dark,
       routerConfig: _router,
+      builder: (context, child) => MusklAmbientBackground(
+        child: child ?? const SizedBox.shrink(),
+      ),
     );
   }
 }

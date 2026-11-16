@@ -18,6 +18,7 @@ import '../core/widgets/muskl_card.dart';
 import '../core/widgets/password_strength.dart';
 import '../core/widgets/profile_photo_avatar.dart';
 import 'auth/auth_models.dart';
+import 'client_home_content.dart';
 import '../main.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -122,75 +123,27 @@ class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-      backgroundColor: AppColors.bgDeep,
-      body: Stack(children: [
-        Positioned.fill(
-          child: Image.asset('assets/images/splash.jpg', fit: BoxFit.cover),
-        ),
-        const Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color.fromRGBO(0, 0, 0, 0.28),
-                  Color.fromRGBO(0, 0, 0, 0.38),
-                  Color.fromRGBO(0, 0, 0, 0.76),
-                ],
-                stops: [0, 0.48, 1],
-              ),
-            ),
-          ),
-        ),
-        SafeArea(
-          child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Spacer(),
-                    const Icon(Icons.fitness_center,
-                        color: AppColors.red, size: 46),
-                    const SizedBox(height: 14),
-                    const Text('MUSKL',
-                        style: TextStyle(
-                            fontSize: 48,
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.white)),
-                    const Text('ENTRENA. REGISTRA. SUPERA.',
-                        style: TextStyle(
-                            letterSpacing: 2, color: AppColors.white)),
-                    const SizedBox(height: 35),
-                    const Text('TU MEJOR\nVERSIÓN\nEMPIEZA HOY',
-                        style: TextStyle(
-                            fontSize: 48,
-                            fontWeight: FontWeight.w900,
-                            height: 0.96,
-                            color: AppColors.white)),
-                    const Spacer(),
-                    MusklButton(
-                        label: 'Iniciar sesión',
-                        icon: Icons.arrow_forward,
-                        onPressed: () => context.push('/login')),
-                    const SizedBox(height: 10),
-                    MusklButton(
-                        label: 'Registrarme',
-                        style: MusklButtonStyle.secondary,
-                        onPressed: () => context.go('/register')),
-                    const SizedBox(height: 20),
-                    const Center(
-                        child: Text('SISTEMA DE RUTINAS Y PROGRESO FÍSICO',
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: AppColors.white,
-                                letterSpacing: 1.1))),
-                    const Spacer(),
-                  ])),
-        ),
-      ]));
+    body: SafeArea(child: Center(child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560),
+      child: ListView(padding: const EdgeInsets.all(24), children: [
+        const SizedBox(height: 16),
+        const Row(children: [Icon(Icons.fitness_center, color: AppColors.red), SizedBox(width: 12), Text('MUSKL', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 2))]),
+        const SizedBox(height: 28),
+        ClipRRect(borderRadius: BorderRadius.circular(24), child: AspectRatio(aspectRatio: 1.5, child: Image.asset('assets/images/splash.jpg', fit: BoxFit.cover))),
+        const SizedBox(height: 28),
+        Text('Tu entrenamiento.\nTu siguiente paso.', style: Theme.of(context).textTheme.headlineLarge),
+        const SizedBox(height: 14),
+        const Text('Encuentra tu rutina, registra tus visitas y sigue tu progreso con el apoyo de tu entrenador.', style: TextStyle(color: AppColors.textMuted, fontSize: 16, height: 1.5)),
+        const SizedBox(height: 28),
+        MusklButton(label: 'Entrar a mi cuenta', icon: Icons.arrow_forward_rounded, onPressed: () => context.push('/login')),
+        const SizedBox(height: 12),
+        MusklButton(label: 'Crear una cuenta', style: MusklButtonStyle.secondary, onPressed: () => context.push('/register')),
+        const SizedBox(height: 20),
+        const Text('Tu gimnasio, contigo.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textMuted)),
+      ]),
+    ))),
+  );
 }
-
 class WorkspacePage extends StatelessWidget {
   const WorkspacePage(
       {super.key,
@@ -199,6 +152,7 @@ class WorkspacePage extends StatelessWidget {
       required this.items,
       required this.selected,
       this.kicker,
+      this.onRefresh,
       this.showAppBar = true});
   final String title;
   final Widget child;
@@ -206,6 +160,7 @@ class WorkspacePage extends StatelessWidget {
   final int selected;
   final String? kicker;
   final bool showAppBar;
+  final Future<void> Function()? onRefresh;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -216,13 +171,13 @@ class WorkspacePage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (kicker != null)
-                      Text(kicker!.toUpperCase(),
+                      Text(kicker!,
                           style: const TextStyle(
                               color: AppColors.red,
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 1.2)),
-                    Text(title.toUpperCase(),
+                    Text(title,
                         style: Theme.of(context)
                             .textTheme
                             .titleLarge
@@ -230,8 +185,9 @@ class WorkspacePage extends StatelessWidget {
                   ],
                 ),
                 actions: [
+                  if (authController.session?.role == UserRole.admin)
                     IconButton(
-                        tooltip: 'Notificaciones',
+                        tooltip: 'Solicitudes pendientes',
                         onPressed: () {
                           final route = switch (authController.session?.role) {
                             UserRole.client => '/home/phase-available',
@@ -244,16 +200,20 @@ class WorkspacePage extends StatelessWidget {
                         icon: const Icon(Icons.notifications_none)),
                   ])
             : null,
-        body: SafeArea(
-            child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                children: [child])),
+        body: SafeArea(child: onRefresh == null ? _content() : RefreshIndicator(onRefresh: onRefresh!, child: _content())),
         bottomNavigationBar: MusklBottomNav(
           items: items.map((e) => MusklNavItem(e.$1, e.$2)).toList(),
           currentIndex: selected,
           onTap: (i) => context.go(items[i].$3),
         ),
       );
+
+  Widget _content() => ListView(
+    physics: const AlwaysScrollableScrollPhysics(),
+    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+    padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+    children: [Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 800), child: SizedBox(width: double.infinity, child: child)))],
+  );
 }
 
 const _clientNav = [
@@ -280,11 +240,11 @@ Widget _section(String title, {String? action, VoidCallback? onAction}) =>
       padding: const EdgeInsets.only(top: 18, bottom: 10),
       child: Row(children: [
         Expanded(
-            child: Text(title.toUpperCase(),
+            child: Text(title,
                 style: const TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: 1))),
+                    letterSpacing: 0))),
         if (action != null)
           TextButton(
               onPressed: onAction,
@@ -418,243 +378,6 @@ Widget _profileInfoField(String label, String value,
       ]),
     );
 
-Widget _clientHomeMemberCard(BuildContext context,
-    {required Map<String, dynamic> data,
-    required String goal,
-    required String trainerName}) {
-  final trainerPhoto = (data['trainer_profile_photo_url'] ?? '').toString();
-  final pendingTrainer =
-      (data['pending_trainer_id'] ?? '').toString().isNotEmpty;
-  return MusklCard(
-    padding: const EdgeInsets.fromLTRB(13, 12, 13, 11),
-    child: Column(children: [
-      Row(children: [
-        Expanded(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('SOCIO Nº',
-                style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 9,
-                    letterSpacing: .8)),
-            Text((data['member_number'] ?? '—').toString(),
-                style: const TextStyle(
-                    color: AppColors.red,
-                    fontSize: 23,
-                    height: 1.1,
-                    fontWeight: FontWeight.w900)),
-          ]),
-        ),
-        if (goal.isNotEmpty)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.red.withValues(alpha: .14),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              const Icon(Icons.track_changes, color: AppColors.red, size: 12),
-              const SizedBox(width: 4),
-              Text(goal.toUpperCase(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: AppColors.red,
-                      fontSize: 8,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: .4)),
-            ]),
-          ),
-      ]),
-      const Padding(
-        padding: EdgeInsets.symmetric(vertical: 8),
-        child: Divider(height: 1, color: AppColors.surfaceHigh),
-      ),
-      InkWell(
-        onTap: () => context
-            .go(trainerName.isEmpty ? '/home/trainers' : '/home/profile'),
-        borderRadius: BorderRadius.circular(12),
-        child: Row(children: [
-          ProfilePhotoAvatar(
-            radius: 15,
-            allowEdit: false,
-            onEdit: () {},
-            image: trainerPhoto.isEmpty ? null : NetworkImage(trainerPhoto),
-            name: trainerName.isEmpty ? 'M' : trainerName,
-          ),
-          const SizedBox(width: 9),
-          Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('ENTRENADOR ASIGNADO',
-                  style: TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 8,
-                      letterSpacing: .7)),
-              Text(
-                  trainerName.isNotEmpty
-                      ? trainerName
-                      : pendingTrainer
-                          ? 'Solicitud pendiente'
-                          : 'Elegir entrenador',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w700)),
-            ]),
-          ),
-          const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 18),
-        ]),
-      ),
-    ]),
-  );
-}
-
-Widget _clientHomeAttendanceCard(BuildContext context, List<DateTime> week,
-    Set<String> dates, String todayKey) {
-  const labels = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
-  return MusklCard(
-    padding: const EdgeInsets.fromLTRB(13, 11, 13, 10),
-    child: Column(children: [
-      Row(children: [
-        const Expanded(
-            child: Text('ASISTENCIA SEMANAL',
-                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12))),
-        TextButton(
-          onPressed: () => context.go('/home/attendance'),
-          style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-          child: const Text('Ver mes',
-              style: TextStyle(color: AppColors.red, fontSize: 10)),
-        ),
-      ]),
-      const SizedBox(height: 9),
-      Row(
-        children: List.generate(7, (index) {
-          final date = week[index];
-          final key =
-              '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-          final attended = dates.contains(key);
-          final isToday = key == todayKey;
-          return Expanded(
-            child: Column(children: [
-              Text(labels[index],
-                  style:
-                      const TextStyle(color: AppColors.textMuted, fontSize: 9)),
-              const SizedBox(height: 6),
-              Container(
-                width: 27,
-                height: 27,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: attended ? AppColors.red : Colors.transparent,
-                  shape: BoxShape.circle,
-                  border: attended
-                      ? null
-                      : Border.all(
-                          color: isToday
-                              ? AppColors.textMuted
-                              : AppColors.surfaceHigh),
-                ),
-                child: attended
-                    ? const Icon(Icons.check, size: 16, color: AppColors.white)
-                    : isToday
-                        ? const Text('hoy',
-                            style: TextStyle(
-                                color: AppColors.textMuted, fontSize: 7))
-                        : null,
-              ),
-            ]),
-          );
-        }),
-      ),
-    ]),
-  );
-}
-
-Widget _clientHomeRoutineCard(
-    BuildContext context, Map<String, dynamic> data, DateTime today) {
-  const days = ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'];
-  final routineName =
-      (data['routine_name'] ?? 'SIN RUTINA ASIGNADA').toString();
-  return InkWell(
-    onTap: () => context.go('/home/routine'),
-    borderRadius: BorderRadius.circular(19),
-    child: Container(
-      height: 122,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(borderRadius: BorderRadius.circular(19)),
-      child: Stack(fit: StackFit.expand, children: [
-        Image.asset('assets/images/splash.jpg', fit: BoxFit.cover),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-              colors: [
-                Color.fromRGBO(0, 0, 0, .88),
-                Color.fromRGBO(0, 0, 0, .56),
-                Color.fromRGBO(0, 0, 0, .18),
-              ],
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppColors.red.withValues(alpha: .82),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text('HOY · ${days[today.weekday - 1]}',
-                  style: const TextStyle(
-                      fontSize: 8,
-                      color: AppColors.white,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: .6)),
-            ),
-            const Spacer(),
-            Row(children: [
-              Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(routineName.toUpperCase(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 20,
-                              height: 1.05,
-                              fontWeight: FontWeight.w900)),
-                      Text(
-                          data['routine_name'] == null
-                              ? 'Tu entrenador todavía no te asigna una rutina'
-                              : 'Fase ${data['phase_number'] ?? '—'} · ${data['plan_name'] ?? 'Plan activo'}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: AppColors.white, fontSize: 10)),
-                    ]),
-              ),
-              const SizedBox(width: 8),
-              const CircleAvatar(
-                radius: 18,
-                backgroundColor: AppColors.red,
-                child: Icon(Icons.play_arrow, color: AppColors.white, size: 22),
-              ),
-            ]),
-          ]),
-        ),
-      ]),
-    ),
-  );
-}
-
 class ClientDashboardScreen extends StatefulWidget {
   const ClientDashboardScreen({super.key});
   @override
@@ -711,171 +434,15 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                       ))));
         }
         final data = snapshot.data ?? {};
-        final photoData = data['profile_photo_data'];
-        final photoBytes = photoData is String && photoData.isNotEmpty
-            ? base64Decode(photoData)
-            : null;
-        final photoUrl = data['profile_photo_url']?.toString();
-        final dates =
-            Set<String>.from(data['attendance_7d_dates'] as List? ?? []);
-        final now = DateTime.tryParse(data['today']?.toString() ?? '') ??
-            DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
-        final weekStart = today.subtract(Duration(days: today.weekday - 1));
-        final week = List.generate(7, (i) => weekStart.add(Duration(days: i)));
-        final startedOn =
-            DateTime.tryParse(data['membership_started_on']?.toString() ?? '');
-        final daysSinceStart = startedOn == null
-            ? null
-            : today
-                    .difference(DateTime(
-                        startedOn.year, startedOn.month, startedOn.day))
-                    .inDays +
-                1;
-        final membershipDays = daysSinceStart ??
-            ((data['attendance_total'] as num?)?.toInt() ?? 0);
-        final firstName = (data['first_name'] ?? '').toString();
-        final trainerName = (data['trainer_name'] ?? '').toString();
-        final goal = (data['goal'] ?? '').toString();
-        final todayKey =
-            '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
         return WorkspacePage(
-            title: 'Inicio',
-            items: _clientNav,
-            selected: 0,
-            showAppBar: false,
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                ProfilePhotoAvatar(
-                  radius: 20,
-                  image: photoUrl != null && photoUrl.isNotEmpty
-                      ? NetworkImage(photoUrl)
-                      : photoBytes == null
-                          ? null
-                          : MemoryImage(photoBytes),
-                  name: '${data['first_name']} ${data['last_name']}',
-                  onEdit: () => context.go('/home/profile'),
-                ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Buen día,',
-                            style: TextStyle(
-                                color: AppColors.textMuted, fontSize: 11)),
-                        Text(firstName.toUpperCase(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontSize: 19, fontWeight: FontWeight.w900)),
-                      ]),
-                ),
-                Stack(children: [
-                  IconButton.filledTonal(
-                    tooltip: 'Notificaciones',
-                    onPressed: () => context.push('/home/phase-available'),
-                    icon: const Icon(Icons.notifications_none, size: 20),
-                  ),
-                  if (data['new_phase_notification'] != null)
-                    Positioned(
-                      right: 11,
-                      top: 10,
-                      child: Container(
-                        width: 7,
-                        height: 7,
-                        decoration: const BoxDecoration(
-                            color: AppColors.accent, shape: BoxShape.circle),
-                      ),
-                    ),
-                ]),
-              ]),
-              const SizedBox(height: 10),
-              _clientHomeMemberCard(
-                context,
-                data: data,
-                goal: goal,
-                trainerName: trainerName,
-              ),
-              const SizedBox(height: 10),
-              Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Expanded(
-                  flex: 3,
-                  child: Container(
-                    constraints: const BoxConstraints(minHeight: 112),
-                    padding: const EdgeInsets.all(13),
-                    decoration: BoxDecoration(
-                      color: AppColors.accent,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(Icons.local_fire_department,
-                              color: AppColors.bgDeep, size: 24),
-                          Text('${data['gym_attendance_streak'] ?? 0}',
-                              style: const TextStyle(
-                                  color: AppColors.bgDeep,
-                                  fontSize: 38,
-                                  height: 1,
-                                  fontWeight: FontWeight.w900)),
-                          const Text('DÍAS DE RACHA',
-                              style: TextStyle(
-                                  color: AppColors.bgDeep,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: .4)),
-                        ]),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 2,
-                  child: Container(
-                    constraints: const BoxConstraints(minHeight: 112),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppColors.surfaceHigh),
-                    ),
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(Icons.calendar_month_outlined,
-                              color: AppColors.red, size: 20),
-                          Text('$membershipDays',
-                              style: const TextStyle(
-                                  fontSize: 30,
-                                  height: 1,
-                                  fontWeight: FontWeight.w900)),
-                          Text(
-                              daysSinceStart == null
-                                  ? 'VISITAS REGISTRADAS'
-                                  : 'DÍAS DESDE QUE EMPEZASTE',
-                              maxLines: 2,
-                              style: const TextStyle(
-                                  color: AppColors.textMuted,
-                                  fontSize: 8,
-                                  height: 1.25,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: .3)),
-                        ]),
-                  ),
-                ),
-              ]),
-              const SizedBox(height: 10),
-              _clientHomeAttendanceCard(context, week, dates, todayKey),
-              const SizedBox(height: 10),
-              _clientHomeRoutineCard(context, data, today),
-              const SizedBox(height: 8),
-              if (data['new_phase_notification'] != null)
-                MusklButton(
-                    label: 'Nueva fase disponible',
-                    style: MusklButtonStyle.accent,
-                    onPressed: () => context.push('/home/phase-available')),
-            ]));
+          title: 'Inicio', items: _clientNav, selected: 0,
+          onRefresh: () async {
+            final next = authController.clientDashboard();
+            setState(() => _dashboard = next);
+            await next;
+          },
+          child: ClientHomeContent(data: data, onNavigate: (route) => context.go(route)),
+        );
       });
 }
 

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -69,9 +68,9 @@ class MusklButton extends StatelessWidget {
                               const SizedBox(width: 8),
                             ],
                             Flexible(child: Text(
-                              label.toUpperCase(),
+                              label,
                               textAlign: TextAlign.center,
-                              style: GoogleFonts.nunitoSans(
+                              style: TextStyle(
                                 color: fg,
                                 fontSize: 15,
                                 fontWeight: FontWeight.w800,

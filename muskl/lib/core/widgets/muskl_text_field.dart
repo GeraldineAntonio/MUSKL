@@ -56,9 +56,10 @@ class _MusklTextFieldState extends State<MusklTextField> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          widget.label.toUpperCase(),
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: AppColors.textMuted,
+          widget.label,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: AppColors.white,
+            fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 6),

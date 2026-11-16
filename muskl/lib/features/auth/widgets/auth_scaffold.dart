@@ -55,18 +55,25 @@ class AuthScaffold extends StatelessWidget {
                                 : context.go('/login'),
                           )
                         else
-                          const SizedBox(height: 48),
-                        const SizedBox(height: 20),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 20),
+                            child: Row(children: [
+                              Icon(Icons.fitness_center, color: AppColors.red, size: 28),
+                              SizedBox(width: 12),
+                              Text('MUSKL', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 2)),
+                            ]),
+                          ),
+                        const SizedBox(height: 24),
                         if (kicker != null) ...[
                           Text(
-                            kicker!.toUpperCase(),
+                            kicker!,
                             style: theme.textTheme.labelSmall
                                 ?.copyWith(color: AppColors.red),
                           ),
                           const SizedBox(height: 10),
                         ],
                         Text(
-                          title.toUpperCase(),
+                          title,
                           style: theme.textTheme.headlineLarge,
                         ),
                         if (subtitle != null) ...[

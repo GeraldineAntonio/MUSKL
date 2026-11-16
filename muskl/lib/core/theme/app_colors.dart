@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 class AppColors {
   AppColors._();
 
-  static const bg = Color(0xFF121212);
-  static const bgDeep = Color(0xFF0A0A0B);
-  static const surface = Color(0xFF1C1C1F);
-  static const surfaceHigh = Color(0xFF26262A);
+  static const bg = Color(0xFF101216);
+  static const bgDeep = Color(0xFF0B0D10);
+  static const surface = Color(0xFF1A1E24);
+  static const surfaceHigh = Color(0xFF303640);
   static const red = Color(0xFFFF3040);
   static const accent = Color(0xFF42D6D2);
   static const white = Color(0xFFFFFFFF);

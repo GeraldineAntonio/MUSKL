@@ -8,6 +8,7 @@ import '../../core/widgets/muskl_button.dart';
 import '../../core/widgets/muskl_text_field.dart';
 import '../../main.dart';
 import 'auth_models.dart';
+import 'google_auth.dart';
 import 'widgets/auth_scaffold.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -30,7 +31,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   final _id = TextEditingController();
   final _pass = TextEditingController();
-  Future<void>? _googleInitialization;
+  String? _loadingProvider;
   bool _loading = false;
   String? _error;
   AuthErrorType? _errorType;
@@ -96,6 +97,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _signInGoogle() async {
+    if (_loading) return;
+    FocusManager.instance.primaryFocus?.unfocus();
     if (_googleServerClientId.isEmpty) {
       setState(() => _error =
           'Falta configurar el acceso de Google para esta versión de MUSKL.');
@@ -103,6 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     setState(() {
       _loading = true;
+      _loadingProvider = 'google';
       _error = null;
       _errorType = null;
     });
@@ -111,10 +115,11 @@ class _LoginScreenState extends State<LoginScreen> {
     var googleName = '';
     try {
       final google = GoogleSignIn.instance;
-      _googleInitialization ??=
-          google.initialize(serverClientId: _googleServerClientId);
-      await _googleInitialization;
-      final account = await google.authenticate();
+      await GoogleAuth.initialize(_googleServerClientId);
+      final account = await recoverGoogleAuthentication(
+        authenticate: () => google.authenticate(),
+        clearSession: () => google.signOut(),
+      );
       final token = account.authentication.idToken;
       if (token == null || token.isEmpty) {
         throw const AuthException(
@@ -142,15 +147,18 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _error = error is AuthException
             ? error.message
-            : 'No se pudo iniciar sesión con Google: ${error.toString().replaceFirst('Exception: ', '')}';
+            : error is GoogleSignInException
+                ? googleSignInMessage(error)
+                : 'No pudimos conectar con Google. Revisa tu conexión e intenta de nuevo.';
         _errorType = error is AuthException ? error.type : AuthErrorType.server;
       });
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() { _loading = false; _loadingProvider = null; });
     }
   }
 
   Future<void> _signInApple() async {
+    if (_loading) return;
     if (_appleServiceId.isEmpty || _appleRedirectUri.isEmpty) {
       setState(() => _error =
           'Falta configurar el acceso de Apple para esta versión de MUSKL.');
@@ -251,8 +259,8 @@ class _LoginScreenState extends State<LoginScreen> {
               ? 'Reintentar'
               : 'Iniciar sesión',
           icon: Icons.arrow_forward,
-          loading: _loading,
-          onPressed: _submit,
+          loading: _loading && _loadingProvider == null,
+          onPressed: _loading ? null : _submit,
         ),
         const SizedBox(height: 24),
         Row(
@@ -274,8 +282,10 @@ class _LoginScreenState extends State<LoginScreen> {
           label: 'Continuar con Google',
           icon: Icons.g_mobiledata,
           style: MusklButtonStyle.light,
+          loading: _loadingProvider == 'google',
           onPressed: _loading ? null : _signInGoogle,
         ),
+        if (_appleServiceId.isNotEmpty && _appleRedirectUri.isNotEmpty) ...[
         const SizedBox(height: 10),
         MusklButton(
           label: 'Continuar con Apple',
@@ -283,6 +293,7 @@ class _LoginScreenState extends State<LoginScreen> {
           style: MusklButtonStyle.secondary,
           onPressed: _loading ? null : _signInApple,
         ),
+        ],
         const SizedBox(height: 24),
         Center(
           child: TextButton(

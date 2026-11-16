@@ -52,19 +52,11 @@ class MusklButton extends StatelessWidget {
                       end: Alignment.bottomRight,
                       colors: [AppColors.redLight, AppColors.red],
                     )
-                  : enabled && style == MusklButtonStyle.secondary
-                      ? const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [AppColors.glassTop, AppColors.glassBottom],
-                        )
-                      : null,
+                  : null,
               borderRadius: BorderRadius.circular(AppTheme.radius + 3),
               border: style == MusklButtonStyle.secondary
-                  ? Border.all(color: AppColors.glassBorder)
-                  : style == MusklButtonStyle.primary
-                      ? Border.all(color: Colors.white.withValues(alpha: .18))
-                      : null,
+                  ? Border.all(color: AppColors.surfaceHigh)
+                  : null,
               boxShadow: enabled && style == MusklButtonStyle.primary
                   ? [
                       BoxShadow(

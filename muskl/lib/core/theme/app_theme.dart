@@ -10,13 +10,13 @@ class AppTheme {
 
   static ThemeData dark() {
     final base = ThemeData.dark(useMaterial3: true);
-    final text = GoogleFonts.nunitoSansTextTheme(base.textTheme).apply(
+    final text = GoogleFonts.manropeTextTheme(base.textTheme).apply(
       bodyColor: AppColors.white,
       displayColor: AppColors.white,
     );
 
     return base.copyWith(
-      scaffoldBackgroundColor: Colors.transparent,
+      scaffoldBackgroundColor: AppColors.bg,
       colorScheme: const ColorScheme.dark(
         primary: AppColors.red,
         secondary: AppColors.accent,
@@ -64,13 +64,13 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.glassBottom,
+        fillColor: AppColors.surfaceRaised,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         hintStyle: text.bodyMedium?.copyWith(color: AppColors.textMuted),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radius + 2),
-          borderSide: const BorderSide(color: AppColors.glassBorder),
+          borderSide: const BorderSide(color: AppColors.surfaceHigh),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radius + 2),
@@ -86,9 +86,9 @@ class AppTheme {
         ),
       ),
       chipTheme: base.chipTheme.copyWith(
-        backgroundColor: AppColors.glassBottom,
+        backgroundColor: AppColors.surfaceRaised,
         selectedColor: AppColors.red,
-        side: const BorderSide(color: AppColors.glassBorder),
+        side: const BorderSide(color: AppColors.surfaceHigh),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         labelStyle: text.bodySmall?.copyWith(fontWeight: FontWeight.w700),
         secondaryLabelStyle: text.bodySmall?.copyWith(
@@ -98,18 +98,18 @@ class AppTheme {
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 7),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: const Color(0xF21D1A21),
+        backgroundColor: AppColors.surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(22),
-          side: const BorderSide(color: AppColors.glassBorder),
+          side: const BorderSide(color: AppColors.surfaceHigh),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.white,
           minimumSize: const Size(48, 48),
-          side: const BorderSide(color: AppColors.glassBorder),
+          side: const BorderSide(color: AppColors.surfaceHigh),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(radius + 2),
           ),
@@ -129,7 +129,7 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppColors.surfaceHigh,
-        contentTextStyle: GoogleFonts.nunitoSans(
+        contentTextStyle: GoogleFonts.manrope(
           color: AppColors.white,
           fontSize: 16,
           fontWeight: FontWeight.w600,

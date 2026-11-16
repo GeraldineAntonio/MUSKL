@@ -111,7 +111,7 @@ class _Box extends StatelessWidget {
       ),
       child: Text(
         char,
-        style: GoogleFonts.nunitoSans(
+        style: GoogleFonts.manrope(
           fontSize: 30,
           fontWeight: FontWeight.w800,
           color: AppColors.white,

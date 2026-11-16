@@ -174,13 +174,13 @@ class WelcomeScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 28),
                   MusklButton(
-                    label: 'Entrar a mi cuenta',
+                    label: 'Iniciar sesión',
                     icon: Icons.arrow_forward_rounded,
                     onPressed: () => context.push('/login'),
                   ),
                   const SizedBox(height: 12),
                   MusklButton(
-                    label: 'Crear una cuenta',
+                    label: 'Registrarme',
                     style: MusklButtonStyle.secondary,
                     onPressed: () => context.push('/register'),
                   ),
@@ -2575,6 +2575,13 @@ Widget _routineVisualCard({
           : normalizedGoal.contains('peso')
               ? Icons.monitor_weight_outlined
               : Icons.fitness_center;
+  final backgroundImage = normalizedGoal.contains('fuerza')
+      ? 'assets/images/goals/fuerza.jpeg'
+      : normalizedGoal.contains('resistencia')
+          ? 'assets/images/goals/resistencia.jpeg'
+          : normalizedGoal.contains('peso')
+              ? 'assets/images/goals/bajar_de_peso.jpeg'
+              : 'assets/images/goals/masa_muscular.jpg';
   return Padding(
     padding: const EdgeInsets.only(bottom: 10),
     child: InkWell(
@@ -2588,7 +2595,14 @@ Widget _routineVisualCard({
           border: Border.all(color: AppColors.surfaceHigh),
         ),
         child: Stack(fit: StackFit.expand, children: [
-          Image.asset('assets/images/splash.jpg', fit: BoxFit.cover),
+          Image.asset(
+            backgroundImage,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Image.asset(
+              'assets/images/splash.jpg',
+              fit: BoxFit.cover,
+            ),
+          ),
           const DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -5221,9 +5235,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                            color: const Color(0xFF2B2412),
+                            color: const Color(0xFF2B161B),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFF806414))),
+                            border: Border.all(color: const Color(0xFF73313B))),
                         child: Row(children: [
                           const CircleAvatar(
                               backgroundColor: AppColors.accent,

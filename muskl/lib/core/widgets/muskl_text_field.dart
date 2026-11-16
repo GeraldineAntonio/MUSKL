@@ -83,7 +83,7 @@ class _MusklTextFieldState extends State<MusklTextField> {
               color: AppColors.textMuted,
             ),
             filled: true,
-            fillColor: AppColors.glassBottom,
+            fillColor: AppColors.surfaceRaised,
             errorText: widget.errorText,
             errorMaxLines: 3,
             contentPadding:
@@ -105,7 +105,7 @@ class _MusklTextFieldState extends State<MusklTextField> {
                     onPressed: () => setState(() => _hidden = !_hidden),
                   )
                 : null,
-            enabledBorder: _border(AppColors.glassBorder),
+            enabledBorder: _border(AppColors.surfaceHigh),
             focusedBorder: _border(AppColors.red),
             errorBorder: _border(AppColors.red),
             focusedErrorBorder: _border(AppColors.red),

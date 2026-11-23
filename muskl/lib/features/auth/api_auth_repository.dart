@@ -394,7 +394,7 @@ class ApiAuthRepository implements AuthRepository {
           'days': days,
           'exercises': exercises
               .map((exercise) => {
-                    'catalog_id': exercise['catalog_id'] ?? exercise['id'],
+                    'catalog_id': exercise['catalog_id'],
                     'name': exercise['name'],
                     'sets': exercise['sets'] ?? 4,
                     'reps': exercise['reps'] ?? '8-12',
@@ -426,7 +426,33 @@ class ApiAuthRepository implements AuthRepository {
           'days': days,
           'exercises': exercises
               .map((exercise) => {
-                    'catalog_id': exercise['catalog_id'] ?? exercise['id'],
+                    'catalog_id': exercise['catalog_id'],
+                    'name': exercise['name'],
+                    'sets': exercise['sets'] ?? 4,
+                    'reps': exercise['reps'] ?? '8-12',
+                    'rest_seconds': exercise['rest_seconds'] ?? 60,
+                    'day_number': exercise['day_number'],
+                  })
+              .toList(),
+        });
+  }
+
+  @override
+  Future<void> updateAdminPhase(
+      {required String routineId,
+      required String phaseId,
+      required String name,
+      required List<int> days,
+      required List<Map<String, dynamic>> exercises}) async {
+    await _request('PUT',
+        '/api/v1/admin/routines/${Uri.encodeComponent(routineId)}/phases/${Uri.encodeComponent(phaseId)}',
+        authenticated: true,
+        body: {
+          'name': name,
+          'days': days,
+          'exercises': exercises
+              .map((exercise) => {
+                    'catalog_id': exercise['catalog_id'],
                     'name': exercise['name'],
                     'sets': exercise['sets'] ?? 4,
                     'reps': exercise['reps'] ?? '8-12',
@@ -755,7 +781,33 @@ class ApiAuthRepository implements AuthRepository {
           'days': days,
           'exercises': exercises
               .map((exercise) => {
-                    'catalog_id': exercise['catalog_id'] ?? exercise['id'],
+                    'catalog_id': exercise['catalog_id'],
+                    'name': exercise['name'],
+                    'sets': exercise['sets'] ?? 4,
+                    'reps': exercise['reps'] ?? '8-12',
+                    'rest_seconds': exercise['rest_seconds'] ?? 60,
+                    'day_number': exercise['day_number'],
+                  })
+              .toList(),
+        });
+  }
+
+  @override
+  Future<void> updateTrainerPhase(
+      {required String routineId,
+      required String phaseId,
+      required String name,
+      required List<int> days,
+      required List<Map<String, dynamic>> exercises}) async {
+    await _request('PUT',
+        '/api/v1/trainer/routines/${Uri.encodeComponent(routineId)}/phases/${Uri.encodeComponent(phaseId)}',
+        authenticated: true,
+        body: {
+          'name': name,
+          'days': days,
+          'exercises': exercises
+              .map((exercise) => {
+                    'catalog_id': exercise['catalog_id'],
                     'name': exercise['name'],
                     'sets': exercise['sets'] ?? 4,
                     'reps': exercise['reps'] ?? '8-12',

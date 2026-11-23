@@ -1,7 +1,9 @@
+Warning: truncated output (original token count: 69188)
+Total output lines: 7042
+
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -123,79 +125,82 @@ class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-        body: Stack(
-      fit: StackFit.expand,
-      children: [
-        Image.asset(
-          'assets/images/splash.jpg',
-          fit: BoxFit.cover,
-          color: Colors.black.withValues(alpha: .52),
-          colorBlendMode: BlendMode.darken,
-        ),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0x66090A0D),
-                Color(0x99090A0D),
-                Color(0xF2090A0D),
-              ],
-              stops: [0, .48, 1],
-            ),
+          body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            'assets/images/splash.jpg',
+            fit: BoxFit.cover,
+            color: Colors.black.withValues(alpha: .52),
+            colorBlendMode: BlendMode.darken,
           ),
-        ),
-        SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: ListView(
-                padding: const EdgeInsets.all(24),
-                children: [
-                  const SizedBox(height: 16),
-                  const Row(children: [
-                    Icon(Icons.fitness_center, color: AppColors.red),
-                    SizedBox(width: 12),
-                    Text('MUSKL',
-                        style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 2)),
-                  ]),
-                  SizedBox(height: MediaQuery.sizeOf(context).height * .25),
-                  Text('Tu entrenamiento.\nTu siguiente paso.',
-                      style: Theme.of(context).textTheme.headlineLarge),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'Encuentra tu rutina, registra tus visitas y sigue tu progreso con el apoyo de tu entrenador.',
-                    style: TextStyle(
-                        color: AppColors.textMuted, fontSize: 16, height: 1.5),
-                  ),
-                  const SizedBox(height: 28),
-                  MusklButton(
-                    label: 'Iniciar sesión',
-                    icon: Icons.arrow_forward_rounded,
-                    onPressed: () => context.push('/login'),
-                  ),
-                  const SizedBox(height: 12),
-                  MusklButton(
-                    label: 'Registrarme',
-                    style: MusklButtonStyle.secondary,
-                    onPressed: () => context.push('/register'),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text('Tu gimnasio, contigo.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: AppColors.textMuted)),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x66090A0D),
+                  Color(0x99090A0D),
+                  Color(0xF2090A0D),
                 ],
+                stops: [0, .48, 1],
               ),
             ),
           ),
-        ),
-      ],
-    ));
+          SafeArea(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: ListView(
+                  padding: const EdgeInsets.all(24),
+                  children: [
+                    const SizedBox(height: 16),
+                    const Row(children: [
+                      Icon(Icons.fitness_center, color: AppColors.red),
+                      SizedBox(width: 12),
+                      Text('MUSKL',
+                          style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 2)),
+                    ]),
+                    SizedBox(height: MediaQuery.sizeOf(context).height * .25),
+                    Text('Tu entrenamiento.\nTu siguiente paso.',
+                        style: Theme.of(context).textTheme.headlineLarge),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Encuentra tu rutina, registra tus visitas y sigue tu progreso con el apoyo de tu entrenador.',
+                      style: TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 16,
+                          height: 1.5),
+                    ),
+                    const SizedBox(height: 28),
+                    MusklButton(
+                      label: 'Iniciar sesión',
+                      icon: Icons.arrow_forward_rounded,
+                      onPressed: () => context.push('/login'),
+                    ),
+                    const SizedBox(height: 12),
+                    MusklButton(
+                      label: 'Registrarme',
+                      style: MusklButtonStyle.secondary,
+                      onPressed: () => context.push('/register'),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text('Tu gimnasio, contigo.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textMuted)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ));
 }
+
 class WorkspacePage extends StatelessWidget {
   const WorkspacePage(
       {super.key,
@@ -237,22 +242,26 @@ class WorkspacePage extends StatelessWidget {
                   ],
                 ),
                 actions: [
-                  if (authController.session?.role == UserRole.admin)
-                    IconButton(
-                        tooltip: 'Solicitudes pendientes',
-                        onPressed: () {
-                          final route = switch (authController.session?.role) {
-                            UserRole.client => '/home/phase-available',
-                            UserRole.trainer => '/trainer',
-                            UserRole.admin => '/admin/requests',
-                            null => '/',
-                          };
-                          context.push(route);
-                        },
-                        icon: const Icon(Icons.notifications_none)),
+                    if (authController.session?.role == UserRole.admin)
+                      IconButton(
+                          tooltip: 'Solicitudes pendientes',
+                          onPressed: () {
+                            final route =
+                                switch (authController.session?.role) {
+                              UserRole.client => '/home/phase-available',
+                              UserRole.trainer => '/trainer',
+                              UserRole.admin => '/admin/requests',
+                              null => '/',
+                            };
+                            context.push(route);
+                          },
+                          icon: const Icon(Icons.notifications_none)),
                   ])
             : null,
-        body: SafeArea(child: onRefresh == null ? _content() : RefreshIndicator(onRefresh: onRefresh!, child: _content())),
+        body: SafeArea(
+            child: onRefresh == null
+                ? _content()
+                : RefreshIndicator(onRefresh: onRefresh!, child: _content())),
         bottomNavigationBar: MusklBottomNav(
           items: items.map((e) => MusklNavItem(e.$1, e.$2)).toList(),
           currentIndex: selected,
@@ -261,11 +270,16 @@ class WorkspacePage extends StatelessWidget {
       );
 
   Widget _content() => ListView(
-    physics: const AlwaysScrollableScrollPhysics(),
-    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-    padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-    children: [Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 800), child: SizedBox(width: double.infinity, child: child)))],
-  );
+        physics: const AlwaysScrollableScrollPhysics(),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        children: [
+          Center(
+              child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 800),
+                  child: SizedBox(width: double.infinity, child: child)))
+        ],
+      );
 }
 
 const _clientNav = [
@@ -436,28 +450,19 @@ Widget _profileInfoField(String label, String value,
       ]),
     );
 
-Widget _profileBioCard(String value, {VoidCallback? onEdit}) => MusklCard(
-      padding: const EdgeInsets.all(18),
+Widget _profileBioInline(String value, {VoidCallback? onEdit}) => Padding(
+      padding: const EdgeInsets.only(top: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: AppColors.accent.withValues(alpha: .12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.notes_outlined,
-                  color: AppColors.accent, size: 19),
-            ),
-            const SizedBox(width: 10),
+            const Icon(Icons.notes_outlined, color: AppColors.accent, size: 16),
+            const SizedBox(width: 6),
             const Expanded(
               child: Text('BIOGRAFÍA',
                   style: TextStyle(
-                      fontSize: 12,
-                      letterSpacing: 1,
+                      fontSize: 10,
+                      letterSpacing: .8,
                       fontWeight: FontWeight.w800,
                       color: AppColors.textMuted)),
             ),
@@ -465,23 +470,67 @@ Widget _profileBioCard(String value, {VoidCallback? onEdit}) => MusklCard(
               IconButton(
                 tooltip: 'Editar biografía',
                 visualDensity: VisualDensity.compact,
+                constraints:
+                    const BoxConstraints.tightFor(width: 30, height: 30),
                 onPressed: onEdit,
-                icon: const Icon(Icons.edit_outlined),
+                icon: const Icon(Icons.edit_outlined, size: 16),
               ),
           ]),
-          const SizedBox(height: 12),
+          const SizedBox(height: 2),
           Text(
             value.trim().isEmpty
                 ? 'Agrega una descripción para que los demás te conozcan mejor.'
                 : value.trim(),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
             softWrap: true,
             style: TextStyle(
-              color: value.trim().isEmpty ? AppColors.textMuted : AppColors.white,
-              height: 1.5,
-              fontSize: 14,
+              color:
+                  value.trim().isEmpty ? AppColors.textMuted : AppColors.white,
+              height: 1.3,
+              fontSize: 12,
             ),
           ),
         ],
+      ),
+    );
+
+Widget _exerciseThumbnail(Map<String, dynamic> exercise,
+        {required double height}) =>
+    ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: double.infinity,
+        height: height,
+        child: (exercise['media_url'] ?? '').toString().isEmpty ||
+                (exercise['media_mime'] ?? '').toString().startsWith('video/')
+            ? Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.asset('assets/images/splash.jpg',
+                      fit: BoxFit.cover, cacheWidth: 360),
+                  Container(color: AppColors.bgDeep.withValues(alpha: .48)),
+                  Icon(
+                    (exercise['media_mime'] ?? '')
+                            .toString()
+                            .startsWith('video/')
+                        ? Icons.play_circle_outline
+                        : Icons.fitness_center,
+                    color: AppColors.white,
+                    size: 30,
+                  ),
+                ],
+              )
+            : Image.network(
+                exercise['media_url'].toString(),
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  color: AppColors.bg,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.fitness_center,
+                      color: AppColors.red, size: 30),
+                ),
+              ),
       ),
     );
 
@@ -542,13 +591,16 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
         }
         final data = snapshot.data ?? {};
         return WorkspacePage(
-          title: 'Inicio', items: _clientNav, selected: 0,
+          title: 'Inicio',
+          items: _clientNav,
+          selected: 0,
           onRefresh: () async {
             final next = authController.clientDashboard();
             setState(() => _dashboard = next);
             await next;
           },
-          child: ClientHomeContent(data: data, onNavigate: (route) => context.go(route)),
+          child: ClientHomeContent(
+              data: data, onNavigate: (route) => context.go(route)),
         );
       });
 }
@@ -689,7 +741,6 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
   late int _day;
   late Future<Map<String, dynamic>> _routine;
   final Stopwatch _workoutClock = Stopwatch();
-  final AudioPlayer _applausePlayer = AudioPlayer();
   final FlutterTts _speech = FlutterTts();
   final Set<String> _completedExerciseIds = {};
   Timer? _ticker;
@@ -724,7 +775,6 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
       await _speech.setLanguage('es-MX');
       await _speech.setSpeechRate(0.48);
       await _speech.setVolume(0.9);
-      await _applausePlayer.setReleaseMode(ReleaseMode.stop);
     } catch (_) {
       // The visual encouragement still works if device speech is unavailable.
     }
@@ -738,7 +788,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
       if (mounted) setState(_load);
     } else {
       _workoutClock.stop();
-      _stopEncouragementAudio();
+      _stopEncouragementSpeech();
     }
   }
 
@@ -772,19 +822,15 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
 
   Future<void> _playEncouragement(String message) async {
     try {
-      await _applausePlayer.play(AssetSource('audio/applause.wav'),
-          volume: 0.55);
-      await Future<void>.delayed(const Duration(milliseconds: 900));
       if (_isForeground) await _speech.speak(message);
     } catch (_) {
-      // Audio is optional; never interrupt the exercise flow.
+      // Speech is optional; never interrupt the exercise flow.
     }
   }
 
-  Future<void> _stopEncouragementAudio() async {
+  Future<void> _stopEncouragementSpeech() async {
     try {
       await _speech.stop();
-      await _applausePlayer.stop();
     } catch (_) {}
   }
 
@@ -829,7 +875,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
           durationSeconds: durationSeconds, dayNumber: dayNumber);
       _workoutFinished = true;
       _workoutClock.stop();
-      await _stopEncouragementAudio();
+      await _stopEncouragementSpeech();
       if (mounted) {
         context.push(Uri(path: '/home/complete', queryParameters: {
           'exercise_count': completion['exercise_count'].toString(),
@@ -860,8 +906,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
-    _stopEncouragementAudio();
-    _applausePlayer.dispose();
+    _stopEncouragementSpeech();
     _speech.stop();
     super.dispose();
   }
@@ -995,74 +1040,137 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                     ),
                     const SizedBox(height: 12),
                   ],
-                  ...exercises.asMap().entries.map((entry) {
-                    final exercise = entry.value;
-                    final exerciseId = exercise['id'].toString();
-                    final isCompleted = completedIds.contains(exerciseId);
-                    final canCompleteToday = data['can_complete_today'] == true;
-                    final canCompleteExercise =
-                        canCompleteToday && data['completed_today'] != true;
-                    return _record(
-                      exercise['name'].toString(),
-                      '${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s descanso',
-                      badge:
-                          isCompleted ? '✓' : '${exercise['position'] ?? ''}',
-                      icon: isCompleted
-                          ? Icons.check_circle
-                          : Icons.fitness_center,
-                      onTap: () async {
-                        if (!canCompleteToday &&
-                            data['completed_today'] != true) {
-                          final routineDay = int.tryParse(
-                                  (exercise['day_number'] ??
-                                          data['scheduled_day_number'] ??
-                                          _day)
-                                      .toString()) ??
-                              _day;
-                          final dayLabel = routineDay >= 1 && routineDay <= 7
-                              ? _weekDays[routineDay - 1]
-                              : 'el día programado';
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                  'No puedes acceder todavía. Tu rutina toca el $dayLabel.'),
+                  if (exercises.isNotEmpty)
+                    LayoutBuilder(builder: (context, constraints) {
+                      final tileWidth = (constraints.maxWidth - 10) / 2;
+                      return Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: exercises.asMap().entries.map((entry) {
+                          final exercise = entry.value;
+                          final exerciseId = exercise['id'].toString();
+                          final isCompleted = completedIds.contains(exerciseId);
+                          final canCompleteToday =
+                              data['can_complete_today'] == true;
+                          final canCompleteExercise = canCompleteToday &&
+                              data['completed_today'] != true;
+                          return SizedBox(
+                            width: tileWidth,
+                            child: MusklCard(
+                              selected: isCompleted,
+                              padding: const EdgeInsets.all(9),
+                              onTap: () async {
+                                if (!canCompleteToday &&
+                                    data['completed_today'] != true) {
+                                  final routineDay = int.tryParse((exercise[
+                                                  'day_number'] ??
+                                              data['scheduled_day_number'] ??
+                                              _day)
+                                          .toString()) ??
+                                      _day;
+                                  final dayLabel =
+                                      routineDay >= 1 && routineDay <= 7
+                                          ? _weekDays[routineDay - 1]
+                                          : 'el día programado';
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                          'No puedes acceder todavía. Tu rutina toca el $dayLabel.'),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                final finished = await context.push<bool>(Uri(
+                                    path: '/home/exercise',
+                                    queryParameters: {
+                                      'id': exerciseId,
+                                      'name': exercise['name'].toString(),
+                                      'media_url':
+                                          exercise['media_url']?.toString() ??
+                                              '',
+                                      'media_mime':
+                                          exercise['media_mime']?.toString() ??
+                                              '',
+                                      'muscle_group': exercise['muscle_group']
+                                              ?.toString() ??
+                                          'Rutina',
+                                      'instructions': exercise['instructions']
+                                              ?.toString() ??
+                                          '',
+                                      'sets': exercise['sets'].toString(),
+                                      'reps': exercise['reps'].toString(),
+                                      'rest_seconds':
+                                          exercise['rest_seconds'].toString(),
+                                      'can_complete':
+                                          canCompleteExercise.toString(),
+                                      'already_completed':
+                                          isCompleted.toString(),
+                                      'sets_completed':
+                                          ((data['exercise_sets_completed']
+                                                          as Map? ??
+                                                      {})[exerciseId] ??
+                                                  0)
+                                              .toString(),
+                                    }).toString());
+                                if (mounted) {
+                                  setState(() {
+                                    if (finished == true) {
+                                      _completedExerciseIds.add(exerciseId);
+                                    }
+                                    _load();
+                                  });
+                                }
+                              },
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Stack(children: [
+                                    _exerciseThumbnail(exercise, height: 82),
+                                    Positioned(
+                                      right: 5,
+                                      top: 5,
+                                      child: CircleAvatar(
+                                        radius: 12,
+                                        backgroundColor: AppColors.bgDeep
+                                            .withValues(alpha: .8),
+                                        child: Icon(
+                                            isCompleted
+                                                ? Icons.check
+                                                : Icons.play_arrow,
+                                            size: 16,
+                                            color: isCompleted
+                                                ? AppColors.accent
+                                                : AppColors.white),
+                                      ),
+                                    ),
+                                  ]),
+                                  const SizedBox(height: 8),
+                                  Text(exercise['name'].toString(),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontSize: 12,
+                                          height: 1.1,
+                                          fontWeight: FontWeight.w800)),
+                                  const SizedBox(height: 5),
+                                  Text(
+                                      '${exercise['sets']} series · ${exercise['reps']} reps',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          color: AppColors.textMuted,
+                                          fontSize: 10)),
+                                  Text('${exercise['rest_seconds']} s descanso',
+                                      style: const TextStyle(
+                                          color: AppColors.textMuted,
+                                          fontSize: 10)),
+                                ],
+                              ),
                             ),
                           );
-                          return;
-                        }
-                        final finished = await context.push<bool>(
-                            Uri(path: '/home/exercise', queryParameters: {
-                          'id': exerciseId,
-                          'name': exercise['name'].toString(),
-                          'media_url': exercise['media_url']?.toString() ?? '',
-                          'media_mime':
-                              exercise['media_mime']?.toString() ?? '',
-                          'muscle_group':
-                              exercise['muscle_group']?.toString() ?? 'Rutina',
-                          'instructions':
-                              exercise['instructions']?.toString() ?? '',
-                          'sets': exercise['sets'].toString(),
-                          'reps': exercise['reps'].toString(),
-                          'rest_seconds': exercise['rest_seconds'].toString(),
-                          'can_complete': canCompleteExercise.toString(),
-                          'already_completed': isCompleted.toString(),
-                          'sets_completed':
-                              ((data['exercise_sets_completed'] as Map? ??
-                                          {})[exerciseId] ??
-                                      0)
-                                  .toString(),
-                        }).toString());
-                        if (mounted) {
-                          setState(() {
-                            if (finished == true) {
-                              _completedExerciseIds.add(exerciseId);
-                            }
-                            _load();
-                          });
-                        }
-                      },
-                    );
-                  }),
+                        }).toList(),
+                      );
+                    }),
                   if (exercises.isEmpty)
                     const Text('No hay ejercicios programados para este día.'),
                   MusklButton(
@@ -1181,24 +1289,12 @@ class ExerciseDetailScreen extends StatefulWidget {
 class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
   bool _saving = false;
   bool _exerciseFinished = false;
-  final AudioPlayer _completionPlayer = AudioPlayer();
   late int _setsCompleted = widget.setsCompleted;
 
   @override
   void initState() {
     super.initState();
     _exerciseFinished = _setsCompleted >= (int.tryParse(widget.sets) ?? 1);
-    _completionPlayer.setReleaseMode(ReleaseMode.stop);
-  }
-
-  Future<void> _playSetApplause() async {
-    try {
-      await _completionPlayer.stop();
-      await _completionPlayer.play(AssetSource('audio/applause.wav'),
-          volume: 0.65);
-    } catch (_) {
-      // Set progress remains available if audio cannot be played.
-    }
   }
 
   Future<void> _finishExercise() async {
@@ -1215,7 +1311,6 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
         _setsCompleted = savedSets;
         _exerciseFinished = savedSets >= totalSets;
       });
-      await _playSetApplause();
     } catch (error) {
       if (mounted) {
         final message = error is AuthException
@@ -1228,12 +1323,6 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
-  }
-
-  @override
-  void dispose() {
-    _completionPlayer.dispose();
-    super.dispose();
   }
 
   @override
@@ -1777,8 +1866,7 @@ class _ClientProfileWorkspaceScreenState
       _ProfileEditOption(
         key: 'name',
         title: 'Nombre',
-        value:
-            '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'.trim(),
+        value: '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'.trim(),
         icon: Icons.person_outline,
       ),
       _ProfileEditOption(
@@ -1792,6 +1880,12 @@ class _ClientProfileWorkspaceScreenState
         title: 'Teléfono',
         value: (data['phone'] ?? '').toString(),
         icon: Icons.phone_outlined,
+      ),
+      _ProfileEditOption(
+        key: 'bio',
+        title: 'Biografía',
+        value: (data['bio'] ?? '').toString(),
+        icon: Icons.notes_outlined,
       ),
     ]);
     if (!mounted || field == null) return;
@@ -1810,6 +1904,9 @@ class _ClientProfileWorkspaceScreenState
         return;
       case 'phone':
         await _editContact('phone', (data['phone'] ?? '').toString());
+        return;
+      case 'bio':
+        await _editBio((data['bio'] ?? '').toString());
         return;
     }
   }
@@ -1952,80 +2049,83 @@ class _ClientProfileWorkspaceScreenState
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                      Row(children: [
-                        ProfilePhotoAvatar(
-                            radius: 42,
-                            image: photoUrl != null && photoUrl.isNotEmpty
-                                ? NetworkImage(photoUrl)
-                                : photoBytes == null
-                                    ? null
-                                    : MemoryImage(photoBytes),
-                            name:
-                                '${data['first_name']} ${data['last_name']}',
-                            allowEdit: false,
-                            onEdit: () {}),
-                        const SizedBox(width: 14),
-                        Expanded(
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                              Text(
-                                  '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'
-                                      .trim(),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 17)),
-                              Text((data['email'] ?? '').toString(),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      color: AppColors.textMuted,
-                                      fontSize: 12)),
-                              Text((data['phone'] ?? 'Sin teléfono').toString(),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      color: AppColors.textMuted,
-                                      fontSize: 12)),
-                            ])),
-                        IconButton(
-                          tooltip: 'Editar perfil',
-                          onPressed: _savingProfile
-                              ? null
-                              : () => _openProfileEditMenu(data),
-                          icon: const Icon(Icons.edit_outlined),
-                        ),
-                      ]),
-                      const Divider(height: 22),
-                      Text('SOCIO Nº ${data['member_number'] ?? '—'}',
-                          style: const TextStyle(
-                              color: AppColors.red,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: .8,
-                              fontSize: 17)),
-                      const SizedBox(height: 10),
-                      Row(children: [
-                        Expanded(
-                            child: _profileInfoField(
-                                'Cumpleaños',
-                                _profileDateLabel(data['birth_date']),
-                                icon: Icons.cake_outlined)),
-                        const SizedBox(width: 10),
-                        Expanded(
-                            child: _profileInfoField(
-                                'Objetivo',
-                                (data['goal'] ?? 'Pendiente').toString(),
-                                icon: Icons.flag_outlined)),
-                      ]),
-                    ])),
-                _profileBioCard(
-                  (data['bio'] ?? '').toString(),
-                  onEdit: _savingProfile
-                      ? null
-                      : () => _editBio((data['bio'] ?? '').toString()),
-                ),
+                          Row(children: [
+                            ProfilePhotoAvatar(
+                                radius: 42,
+                                image: photoUrl != null && photoUrl.isNotEmpty
+                                    ? NetworkImage(photoUrl)
+                                    : photoBytes == null
+                                        ? null
+                                        : MemoryImage(photoBytes),
+                                name:
+                                    '${data['first_name']} ${data['last_name']}',
+                                allowEdit: false,
+                                onEdit: () {}),
+                            const SizedBox(width: 14),
+                            Expanded(
+                                child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                  Text(
+                                      'SOCIO Nº ${data['member_number'] ?? '—'}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          color: AppColors.red,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: .8)),
+                                  Text(
+                                      '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'
+                                          .trim(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 17)),
+                                  Text((data['email'] ?? '').toString(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          color: AppColors.textMuted,
+                                          fontSize: 12)),
+                                  Text(
+                                      (data['phone'] ?? 'Sin teléfono')
+                                          .toString(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          color: AppColors.textMuted,
+                                          fontSize: 12)),
+                                  _profileBioInline(
+                                    (data['bio'] ?? '').toString(),
+                                    onEdit: _savingProfile
+                                        ? null
+                                        : () => _openProfileEditMenu(data),
+                                  ),
+                                ])),
+                            IconButton(
+                              tooltip: 'Editar perfil',
+                              onPressed: _savingProfile
+                                  ? null
+                                  : () => _openProfileEditMenu(data),
+                              icon: const Icon(Icons.edit_outlined),
+                            ),
+                          ]),
+                          const Divider(height: 22),
+                          Row(children: [
+                            Expanded(
+                                child: _profileInfoField('Cumpleaños',
+                                    _profileDateLabel(data['birth_date']),
+                                    icon: Icons.cake_outlined)),
+                            const SizedBox(width: 10),
+                            Expanded(
+                                child: _profileInfoField('Objetivo',
+                                    (data['goal'] ?? 'Pendiente').toString(),
+                                    icon: Icons.flag_outlined)),
+                          ]),
+                        ])),
                 _section('Contacto y detalles'),
                 _profileInfoField('Entrenador',
                     (data['trainer_name'] ?? 'Sin asignar').toString(),
@@ -2345,1897 +2445,7 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
                                   child: OutlinedButton(
                                       onPressed: () => _reviewAssignment(
                                           request['id'].toString(), false),
-                                      child: const Text('Rechazar'))),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                  child: FilledButton(
-                                      onPressed: () => _reviewAssignment(
-                                          request['id'].toString(), true),
-                                      child: const Text('Aceptar'))),
-                            ]),
-                          ])),
-                  ]);
-            }),
-        FutureBuilder<List<Map<String, dynamic>>>(
-            future: _notifications,
-            builder: (context, snapshot) {
-              final notices = snapshot.data ?? [];
-              if (notices.isEmpty) return const SizedBox.shrink();
-              return Column(children: [
-                _section('Notificaciones'),
-                for (final notice in notices)
-                  _record(notice['title'].toString(), notice['body'].toString(),
-                      icon: Icons.notifications_active_outlined,
-                      onTap: () async {
-                    await authController.markTrainerNotificationRead(
-                        notificationId: notice['id'].toString());
-                    final payload = Map<String, dynamic>.from(
-                        notice['payload'] as Map? ?? {});
-                    if (!mounted) return;
-                    setState(() {
-                      _notifications = authController.trainerNotifications();
-                    });
-                    if (notice['kind'] == 'client_activity' &&
-                        payload['client_id'] != null) {
-                      context
-                          .push(Uri(path: '/trainer/client', queryParameters: {
-                        'id': payload['client_id'].toString(),
-                        'name':
-                            notice['body'].toString().split(' completó').first,
-                      }).toString());
-                    } else if (payload['routine_id'] != null) {
-                      context.push(Uri(
-                          path: '/trainer/phases',
-                          queryParameters: {
-                            'id': payload['routine_id'].toString()
-                          }).toString());
-                    }
-                  }),
-              ]);
-            }),
-        _section('Clientes asignados'),
-        _SearchField(
-            hint: 'Buscar cliente por nombre o correo',
-            onChanged: (v) => setState(() {
-                  search = v;
-                  _loadClients();
-                })),
-        FutureBuilder<List<Map<String, dynamic>>>(
-          future: _clients,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting)
-              return const Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Center(child: CircularProgressIndicator()));
-            if (snapshot.hasError)
-              return Text(
-                  'No se pudieron cargar tus clientes: ${snapshot.error}',
-                  style: const TextStyle(color: AppColors.red));
-            final clients = snapshot.data ?? [];
-            final today = DateTime.now();
-            final atRisk = clients.where((client) {
-              final expiry = DateTime.tryParse(
-                  client['membership_ends_on']?.toString() ?? '');
-              return expiry != null && expiry.difference(today).inDays <= 7;
-            }).length;
-            return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    _metric('${clients.length}', 'Clientes'),
-                    const SizedBox(width: 8),
-                    _metric('${clients.length}', 'Activos',
-                        color: AppColors.red),
-                    const SizedBox(width: 8),
-                    _metric('$atRisk', 'En riesgo', color: AppColors.accent),
-                  ]),
-                  for (final client in clients)
-                    _record('${client['first_name']} ${client['last_name']}',
-                        '${client['routine_name'] ?? 'Sin rutina'} · ${client['membership_plan'] ?? 'Sin membresía'}',
-                        icon: Icons.person_outline,
-                        badge: '${client['attendance_7d'] ?? 0}',
-                        onTap: () => context.push(
-                                Uri(path: '/trainer/client', queryParameters: {
-                              'name':
-                                  '${client['first_name']} ${client['last_name']}',
-                              'id': client['id'].toString(),
-                              'member':
-                                  (client['member_number'] ?? '').toString()
-                            }).toString())),
-                  if (clients.isEmpty)
-                    const Text('Todavía no tienes clientes asignados.'),
-                ]);
-          },
-        ),
-      ]));
-}
-
-class _SearchField extends StatelessWidget {
-  const _SearchField({required this.hint, this.onChanged});
-  final String hint;
-  final ValueChanged<String>? onChanged;
-  @override
-  Widget build(BuildContext context) => TextField(
-      onChanged: onChanged,
-      decoration: InputDecoration(
-          hintText: hint,
-          prefixIcon: const Icon(Icons.search),
-          filled: true,
-          fillColor: AppColors.surface,
-          border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide.none)));
-}
-
-class TrainerClientDetailScreen extends StatefulWidget {
-  const TrainerClientDetailScreen(
-      {super.key, this.name = 'Cliente', required this.clientId});
-  final String name;
-  final String clientId;
-  @override
-  State<TrainerClientDetailScreen> createState() =>
-      _TrainerClientDetailScreenState();
-}
-
-class _TrainerClientDetailScreenState extends State<TrainerClientDetailScreen> {
-  late Future<Map<String, dynamic>> _client;
-
-  @override
-  void initState() {
-    super.initState();
-    _client = authController.trainerClient(clientId: widget.clientId);
-  }
-
-  @override
-  Widget build(BuildContext context) => WorkspacePage(
-      title: 'Detalle de cliente',
-      items: _trainerNav,
-      selected: 0,
-      child: FutureBuilder<Map<String, dynamic>>(
-          future: _client,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasError) {
-              return Text('No se pudo cargar el cliente: ${snapshot.error}',
-                  style: const TextStyle(color: AppColors.red));
-            }
-            final client = snapshot.data ?? {};
-            final dates = (client['attendance_7d_dates'] as List? ?? [])
-                .map((date) => date.toString().substring(0, 10))
-                .toSet();
-            final labels = <String>[];
-            final present = <bool>[];
-            for (var offset = 6; offset >= 0; offset--) {
-              final date = DateTime.now().subtract(Duration(days: offset));
-              labels.add(['L', 'M', 'M', 'J', 'V', 'S', 'D'][date.weekday - 1]);
-              present
-                  .add(dates.contains(date.toIso8601String().substring(0, 10)));
-            }
-            final fullName = client['first_name'] == null
-                ? widget.name
-                : '${client['first_name']} ${client['last_name']}';
-            return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  MusklCard(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Text(fullName.toUpperCase(),
-                            style: const TextStyle(
-                                fontSize: 22, fontWeight: FontWeight.w900)),
-                        Text(
-                            'Socio ${client['member_number'] ?? ''} · ${client['goal'] ?? 'Objetivo pendiente'}'),
-                        Text(
-                            '${client['membership_plan'] ?? 'Sin membresía'} · vence ${client['membership_ends_on'] ?? 'sin fecha'}'),
-                        const SizedBox(height: 12),
-                        Row(children: [
-                          _metric(
-                              '${client['workouts_7d'] ?? 0}', 'Sesiones 7d',
-                              color: AppColors.accent),
-                          const SizedBox(width: 8),
-                          _metric('${client['attendance_total'] ?? 0}',
-                              'Asistencias'),
-                          const SizedBox(width: 8),
-                          _metric('${client['workouts_total'] ?? 0}', 'Rutinas',
-                              color: AppColors.accent)
-                        ])
-                      ])),
-                  _section('Asistencia semanal'),
-                  MusklCard(
-                      child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                        for (var i = 0; i < 7; i++)
-                          Column(children: [
-                            Text(labels[i]),
-                            Icon(
-                                present[i]
-                                    ? Icons.check_circle
-                                    : Icons.circle_outlined,
-                                color: present[i]
-                                    ? AppColors.red
-                                    : AppColors.textMuted),
-                          ])
-                      ])),
-                  _section('Rutina activa'),
-                  _record(
-                      (client['routine_name'] ?? 'Sin rutina asignada')
-                          .toString(),
-                      client['phase_number'] == null
-                          ? 'Sin fase publicada'
-                          : 'Fase ${client['phase_number']} · ${client['routine_goal'] ?? client['goal'] ?? ''} · ${client['days_per_week'] ?? '—'} días',
-                      onTap: () => context.push('/trainer/routines')),
-                  MusklButton(
-                      label: 'Asignar otra rutina',
-                      icon: Icons.swap_horiz,
-                      onPressed: () => context.push('/trainer/routines')),
-                ]);
-          }));
-}
-
-Widget _routineVisualCard({
-  required String name,
-  required String goal,
-  required Object? days,
-  required Object? clients,
-  required VoidCallback onTap,
-  Widget? action,
-}) {
-  final normalizedGoal = goal.toLowerCase();
-  final goalIcon = normalizedGoal.contains('fuerza')
-      ? Icons.bolt
-      : normalizedGoal.contains('resistencia')
-          ? Icons.speed
-          : normalizedGoal.contains('peso')
-              ? Icons.monitor_weight_outlined
-              : Icons.fitness_center;
-  final backgroundImage = normalizedGoal.contains('fuerza')
-      ? 'assets/images/goals/fuerza.jpeg'
-      : normalizedGoal.contains('resistencia')
-          ? 'assets/images/goals/resistencia.jpeg'
-          : normalizedGoal.contains('peso')
-              ? 'assets/images/goals/bajar_de_peso.jpeg'
-              : 'assets/images/goals/masa_muscular.jpg';
-  return Padding(
-    padding: const EdgeInsets.only(bottom: 10),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(19),
-      child: Container(
-        height: 112,
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(19),
-          border: Border.all(color: AppColors.surfaceHigh),
-        ),
-        child: Stack(fit: StackFit.expand, children: [
-          Image.asset(
-            backgroundImage,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Image.asset(
-              'assets/images/splash.jpg',
-              fit: BoxFit.cover,
-            ),
-          ),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  Color.fromRGBO(0, 0, 0, .88),
-                  Color.fromRGBO(0, 0, 0, .58),
-                  Color.fromRGBO(0, 0, 0, .25),
-                ],
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 9, 9, 9),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Container(
-                  constraints: const BoxConstraints(maxWidth: 180),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: AppColors.bgDeep.withValues(alpha: .82),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(goalIcon, color: AppColors.red, size: 11),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(goal.toUpperCase(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: AppColors.red,
-                              fontSize: 8,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: .4)),
-                    ),
-                  ]),
-                ),
-                const Spacer(),
-                if (action != null) action,
-              ]),
-              const Spacer(),
-              Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Expanded(
-                  child: Text(name.toUpperCase(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 20,
-                          height: 1,
-                          fontWeight: FontWeight.w900)),
-                ),
-                const SizedBox(width: 8),
-                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  Text('$days días',
-                      style: const TextStyle(
-                          color: AppColors.white,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800)),
-                  Text('$clients socios',
-                      style: const TextStyle(
-                          color: AppColors.red,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800)),
-                ]),
-              ]),
-            ]),
-          ),
-        ]),
-      ),
-    ),
-  );
-}
-
-Widget _routineListHeader({
-  required BuildContext context,
-  required String count,
-  required String title,
-  required String createRoute,
-}) =>
-    Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(children: [
-        Expanded(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(count,
-                style: const TextStyle(
-                    color: AppColors.red,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.4)),
-            Text(title.toUpperCase(),
-                style: const TextStyle(
-                    fontSize: 24, height: 1.05, fontWeight: FontWeight.w900)),
-          ]),
-        ),
-        IconButton.filled(
-          tooltip: 'Crear rutina',
-          onPressed: () => context.go(createRoute),
-          style: IconButton.styleFrom(
-            backgroundColor: AppColors.red,
-            foregroundColor: AppColors.bgDeep,
-            fixedSize: const Size(42, 42),
-          ),
-          icon: const Icon(Icons.add, size: 23),
-        ),
-      ]),
-    );
-
-class TrainerRoutinesScreen extends StatefulWidget {
-  const TrainerRoutinesScreen({super.key});
-  @override
-  State<TrainerRoutinesScreen> createState() => _TrainerRoutinesScreenState();
-}
-
-class _TrainerRoutinesScreenState extends State<TrainerRoutinesScreen> {
-  late Future<List<Map<String, dynamic>>> _routines;
-
-  @override
-  void initState() {
-    super.initState();
-    _reload();
-  }
-
-  void _reload() => _routines = authController.trainerRoutines();
-
-  Future<void> _publish(Map<String, dynamic> routine) async {
-    try {
-      await authController.publishTrainerRoutine(
-          routineId: routine['id'].toString());
-      if (mounted) {
-        setState(_reload);
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Rutina publicada para asignar.')));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('No se pudo publicar: $e')));
-      }
-    }
-  }
-
-  Future<void> _assign(Map<String, dynamic> routine) async {
-    try {
-      final clients = await authController.trainerClients();
-      final availableClients = clients
-          .where((item) => (item['routine_name'] ?? '').toString().isEmpty)
-          .toList();
-      if (!mounted) return;
-      if (availableClients.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('No tienes clientes activos para asignar.')));
-        return;
-      }
-      final client = await showModalBottomSheet<Map<String, dynamic>>(
-        context: context,
-        builder: (context) => SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              const ListTile(title: Text('ASIGNAR A CLIENTE')),
-              for (final item in availableClients)
-                ListTile(
-                  title: Text('${item['first_name']} ${item['last_name']}'),
-                  subtitle: Text('Socio ${item['member_number'] ?? ''}'),
-                  onTap: () => Navigator.pop(context, item),
-                ),
-            ],
-          ),
-        ),
-      );
-      if (client == null || !mounted) return;
-      await authController.assignTrainerRoutine(
-          routineId: routine['id'].toString(),
-          phaseId: routine['phase_id'].toString(),
-          clientId: client['id'].toString());
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Rutina asignada a ${client['first_name']}.')));
-        setState(_reload);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No se pudo asignar la rutina: $e')));
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => WorkspacePage(
-      title: 'Mis rutinas',
-      items: _trainerNav,
-      selected: 1,
-      showAppBar: false,
-      child: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _routines,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Column(children: [
-              _routineListHeader(
-                  context: context,
-                  count: 'CARGANDO',
-                  title: 'Mis rutinas',
-                  createRoute: '/trainer/routine/new'),
-              const Center(child: CircularProgressIndicator()),
-            ]);
-          }
-          if (snapshot.hasError) {
-            return Column(children: [
-              _routineListHeader(
-                  context: context,
-                  count: 'MIS PLANES',
-                  title: 'Mis rutinas',
-                  createRoute: '/trainer/routine/new'),
-              Text('No se pudieron cargar las rutinas: ${snapshot.error}',
-                  style: const TextStyle(color: AppColors.red)),
-            ]);
-          }
-          final routines = snapshot.data ?? [];
-          return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _routineListHeader(
-                    context: context,
-                    count: '${routines.length} ACTIVAS',
-                    title: 'Mis rutinas',
-                    createRoute: '/trainer/routine/new'),
-                if (routines.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 24),
-                    child: Text('Todavía no has creado rutinas.'),
-                  ),
-                for (final routine in routines)
-                  _routineVisualCard(
-                    name: routine['name'].toString(),
-                    goal: routine['goal'].toString(),
-                    days: routine['days_per_week'] ?? '—',
-                    clients: routine['assigned_clients'] ?? 0,
-                    onTap: () => context.push(Uri(
-                            path: '/trainer/phases',
-                            queryParameters: {'id': routine['id'].toString()})
-                        .toString()),
-                    action: PopupMenuButton<String>(
-                      tooltip: 'Acciones de rutina',
-                      padding: EdgeInsets.zero,
-                      iconSize: 16,
-                      icon: const Icon(Icons.edit_outlined,
-                          color: AppColors.white),
-                      onSelected: (value) {
-                        if (value == 'publish') _publish(routine);
-                        if (value == 'assign') _assign(routine);
-                        if (value == 'open') {
-                          context.push(Uri(
-                              path: '/trainer/phases',
-                              queryParameters: {
-                                'id': routine['id'].toString()
-                              }).toString());
-                        }
-                      },
-                      itemBuilder: (context) => [
-                        const PopupMenuItem(
-                            value: 'open', child: Text('Abrir rutina')),
-                        if (routine['phase_status'] != 'published')
-                          const PopupMenuItem(
-                              value: 'publish', child: Text('Publicar rutina'))
-                        else
-                          const PopupMenuItem(
-                              value: 'assign',
-                              child: Text('Asignar a cliente')),
-                      ],
-                    ),
-                  ),
-              ]);
-        },
-      ));
-}
-
-class CreateRoutineScreen extends StatefulWidget {
-  const CreateRoutineScreen(
-      {super.key, this.routineId, this.adminMode = false});
-  final String? routineId;
-  final bool adminMode;
-  @override
-  State<CreateRoutineScreen> createState() => _CreateRoutineScreenState();
-}
-
-class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
-  final name = TextEditingController();
-  String goal = 'Masa muscular';
-  final Set<String> selectedDays = {'LUN', 'MIÉ', 'VIE'};
-  final Map<String, List<Map<String, dynamic>>> exercisesByDay = {};
-  String activeDay = 'LUN';
-  bool saving = false;
-  bool loadingPhaseTemplate = false;
-  String? error;
-  @override
-  void dispose() {
-    name.dispose();
-    super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.routineId != null) _loadPhaseTemplate();
-  }
-
-  Future<void> _loadPhaseTemplate() async {
-    setState(() => loadingPhaseTemplate = true);
-    try {
-      final routine = widget.adminMode
-          ? await authController.adminRoutine(routineId: widget.routineId!)
-          : await authController.trainerRoutine(routineId: widget.routineId!);
-      final phases = (routine['phases'] as List? ?? [])
-          .map((item) => Map<String, dynamic>.from(item as Map))
-          .toList();
-      final exercises = (routine['exercises'] as List? ?? [])
-          .map((item) => Map<String, dynamic>.from(item as Map))
-          .toList();
-      if (!mounted) return;
-      if (phases.isEmpty) throw StateError('No encontramos fases anteriores.');
-      final latestNumber =
-          int.tryParse(phases.last['phase_number'].toString()) ?? 1;
-      final activeDays = exercises
-          .where((exercise) =>
-              int.tryParse(exercise['phase_number'].toString()) == latestNumber)
-          .map((exercise) => int.tryParse(exercise['day_number'].toString()))
-          .whereType<int>()
-          .toSet()
-          .toList()
-        ..sort();
-      const dayLabels = {
-        1: 'LUN',
-        2: 'MAR',
-        3: 'MIÉ',
-        4: 'JUE',
-        5: 'VIE',
-        6: 'SÁB',
-        7: 'DOM'
-      };
-      setState(() {
-        selectedDays
-          ..clear()
-          ..addAll(
-              activeDays.map((day) => dayLabels[day]!).whereType<String>());
-        if (selectedDays.isEmpty) selectedDays.addAll(['LUN', 'MIÉ', 'VIE']);
-        activeDay = selectedDays.first;
-        name.text = 'Fase ${latestNumber + 1}';
-        loadingPhaseTemplate = false;
-      });
-    } catch (e) {
-      if (mounted)
-        setState(() {
-          loadingPhaseTemplate = false;
-          error = 'No se pudo preparar la fase: $e';
-        });
-    }
-  }
-
-  Future<void> _addExercise() async {
-    final searchController = TextEditingController();
-    var results = widget.adminMode
-        ? authController.adminExerciseCatalog()
-        : authController.trainerExerciseCatalog();
-    final selected = await showModalBottomSheet<Map<String, dynamic>>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => SafeArea(
-          child: SizedBox(
-            height: MediaQuery.sizeOf(context).height * .78,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                  20, 16, 20, 16 + MediaQuery.viewInsetsOf(context).bottom),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Buscar ejercicio',
-                      style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: searchController,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      hintText: 'Nombre, grupo muscular o equipo',
-                    ),
-                    onChanged: (value) => setSheetState(() => results = widget
-                            .adminMode
-                        ? authController.adminExerciseCatalog(search: value)
-                        : authController.trainerExerciseCatalog(search: value)),
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: FutureBuilder<List<Map<String, dynamic>>>(
-                      future: results,
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState ==
-                            ConnectionState.waiting) {
-                          return const Center(
-                              child: CircularProgressIndicator());
-                        }
-                        if (snapshot.hasError) {
-                          return Center(
-                              child:
-                                  Text('No se pudo buscar: ${snapshot.error}'));
-                        }
-                        final rows = snapshot.data ?? [];
-                        if (rows.isEmpty) {
-                          return const Center(
-                              child:
-                                  Text('No hay ejercicios con esa búsqueda.'));
-                        }
-                        return ListView.builder(
-                          itemCount: rows.length,
-                          itemBuilder: (context, index) {
-                            final exercise = rows[index];
-                            return ListTile(
-                              leading: const Icon(Icons.fitness_center),
-                              title: Text(exercise['name'].toString()),
-                              subtitle: Text(
-                                  '${exercise['muscle_group']} · ${exercise['equipment']}'),
-                              onTap: () =>
-                                  Navigator.pop(sheetContext, exercise),
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    searchController.dispose();
-    if (selected != null && mounted) {
-      final values = await _routineExerciseValues(context);
-      if (values == null || !mounted) return;
-      setState(() {
-        exercisesByDay.putIfAbsent(activeDay, () => []).add({
-          ...selected,
-          'sets': values['sets'],
-          'reps': values['reps'],
-          'rest_seconds': values['rest_seconds']
-        });
-        error = null;
-      });
-    }
-  }
-
-  Future<void> _editScheduledDays() async {
-    if (widget.routineId != null) return;
-    final draft = Set<String>.from(selectedDays);
-    final result = await showModalBottomSheet<Set<String>>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('DÍAS PROGRAMADOS',
-                    style: TextStyle(fontWeight: FontWeight.w900)),
-              ),
-              const SizedBox(height: 8),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Selecciona de 3 a 6 días para la rutina.'),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 7,
-                children: ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM']
-                    .map((day) => FilterChip(
-                          label: Text(day),
-                          selected: draft.contains(day),
-                          onSelected: (selected) => setSheetState(() {
-                            if (selected) {
-                              if (draft.length >= 6) {
-                                ScaffoldMessenger.of(sheetContext).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                        'Una rutina puede tener máximo 6 días.'),
-                                  ),
-                                );
-                                return;
-                              }
-                              draft.add(day);
-                            } else {
-                              draft.remove(day);
-                            }
-                          }),
-                        ))
-                    .toList(),
-              ),
-              const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: draft.length < 3
-                      ? null
-                      : () => Navigator.pop(sheetContext, draft),
-                  child: const Text('Aplicar días'),
-                ),
-              ),
-            ]),
-          ),
-        ),
-      ),
-    );
-    if (result == null || !mounted) return;
-    setState(() {
-      final removed = selectedDays.difference(result);
-      for (final day in removed) {
-        exercisesByDay.remove(day);
-      }
-      selectedDays
-        ..clear()
-        ..addAll(result);
-      if (!selectedDays.contains(activeDay)) activeDay = selectedDays.first;
-    });
-  }
-
-  Future<void> _saveRoutine() async {
-    if (saving || loadingPhaseTemplate) return;
-    setState(() {
-      saving = true;
-      error = null;
-    });
-    try {
-      const dayNumber = {
-        'LUN': 1,
-        'MAR': 2,
-        'MIÉ': 3,
-        'JUE': 4,
-        'VIE': 5,
-        'SÁB': 6,
-        'DOM': 7
-      };
-      final phaseDays = selectedDays.map((day) => dayNumber[day]!).toList()
-        ..sort();
-      final List<Map<String, dynamic>> phaseExercises = [
-        for (final day in selectedDays)
-          for (final exercise in exercisesByDay[day] ?? [])
-            <String, dynamic>{...exercise, 'day_number': dayNumber[day]},
-      ];
-      if (widget.routineId == null) {
-        if (widget.adminMode) {
-          await authController.createAdminRoutine(
-              name: name.text.trim(),
-              goal: goal,
-              days: phaseDays,
-              exercises: phaseExercises);
-        } else {
-          await authController.createTrainerRoutine(
-              name: name.text.trim(),
-              goal: goal,
-              days: phaseDays,
-              exercises: phaseExercises);
-        }
-        if (!mounted) return;
-        context.go(widget.adminMode ? '/admin/routines' : '/trainer/routines');
-      } else {
-        if (widget.adminMode) {
-          await authController.createAdminPhase(
-              routineId: widget.routineId!,
-              name: name.text.trim(),
-              days: phaseDays,
-              exercises: phaseExercises);
-        } else {
-          await authController.createTrainerPhase(
-              routineId: widget.routineId!,
-              name: name.text.trim(),
-              days: phaseDays,
-              exercises: phaseExercises);
-        }
-        if (!mounted) return;
-        context.pop(true);
-      }
-    } catch (e) {
-      if (mounted) setState(() => error = 'No se pudo guardar la rutina: $e');
-    } finally {
-      if (mounted) setState(() => saving = false);
-    }
-  }
-
-  Widget _routineMetric(String label, String value) => Expanded(
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-          decoration: BoxDecoration(
-            color: AppColors.bg,
-            borderRadius: BorderRadius.circular(11),
-          ),
-          child: Column(children: [
-            Text(label.toUpperCase(),
-                style: const TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 8,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: .7)),
-            const SizedBox(height: 3),
-            Text(value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w900)),
-          ]),
-        ),
-      );
-
-  @override
-  Widget build(BuildContext context) {
-    final phaseMode = widget.routineId != null;
-    final canSave = selectedDays.length >= 3 &&
-        selectedDays.every((day) => (exercisesByDay[day] ?? []).isNotEmpty) &&
-        name.text.trim().isNotEmpty &&
-        !saving &&
-        !loadingPhaseTemplate;
-    final dayLabels = ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'];
-    return WorkspacePage(
-      title: phaseMode ? 'Nueva fase' : 'Nueva rutina',
-      items: widget.adminMode ? _adminNav : _trainerNav,
-      selected: 2,
-      showAppBar: false,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          IconButton.filledTonal(
-            tooltip: 'Volver',
-            onPressed: () => context.canPop()
-                ? context.pop()
-                : context.go(
-                    widget.adminMode ? '/admin/routines' : '/trainer/routines'),
-            icon: const Icon(Icons.arrow_back_ios_new, size: 17),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(phaseMode ? 'CREAR / EDITAR FASE' : 'CREAR / EDITAR',
-                  style: const TextStyle(
-                      color: AppColors.red,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.5)),
-              Text(phaseMode ? 'NUEVA FASE' : 'NUEVA RUTINA',
-                  style: const TextStyle(
-                      fontSize: 24, height: 1.05, fontWeight: FontWeight.w900)),
-            ]),
-          ),
-        ]),
-        const SizedBox(height: 18),
-        _routineLabel(phaseMode ? 'NOMBRE DE LA FASE' : 'NOMBRE DE LA RUTINA'),
-        const SizedBox(height: 7),
-        TextField(
-          controller: name,
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            hintText: phaseMode ? 'Ej. Fase 2' : 'Ej. Hipertrofia 6 días',
-            prefixIcon: const Icon(Icons.assignment_outlined, size: 19),
-            filled: true,
-            fillColor: AppColors.surface,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
-              borderSide: const BorderSide(color: AppColors.surfaceHigh),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
-              borderSide: const BorderSide(color: AppColors.red, width: 1.5),
-            ),
-          ),
-        ),
-        if (!phaseMode) ...[
-          const SizedBox(height: 14),
-          _routineLabel('OBJETIVO'),
-          const SizedBox(height: 7),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(children: [
-              for (final option in [
-                'Bajar de peso',
-                'Masa muscular',
-                'Resistencia',
-                'Fuerza'
-              ]) ...[
-                ChoiceChip(
-                  label: Text(option),
-                  selected: goal == option,
-                  showCheckmark: false,
-                  onSelected: (_) => setState(() => goal = option),
-                  selectedColor: AppColors.red,
-                  backgroundColor: AppColors.surface,
-                  side: BorderSide(
-                      color: goal == option
-                          ? AppColors.red
-                          : AppColors.surfaceHigh),
-                  labelStyle: TextStyle(
-                      color: goal == option
-                          ? AppColors.white
-                          : AppColors.textMuted,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(width: 6),
-              ],
-            ]),
-          ),
-        ],
-        const SizedBox(height: 12),
-        Row(children: [
-          Expanded(child: _routineLabel('DÍAS DE ENTRENAMIENTO')),
-          if (!phaseMode)
-            TextButton.icon(
-              onPressed: _editScheduledDays,
-              icon: const Icon(Icons.tune, size: 16),
-              label: Text('${selectedDays.length} días'),
-              style: TextButton.styleFrom(foregroundColor: AppColors.accent),
-            ),
-        ]),
-        if (phaseMode && loadingPhaseTemplate)
-          const LinearProgressIndicator(color: AppColors.red),
-        if (phaseMode && !loadingPhaseTemplate)
-          const Padding(
-            padding: EdgeInsets.only(bottom: 7),
-            child: Text('Se conservan los días de la rutina.',
-                style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
-          ),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(children: [
-            for (final day in dayLabels.where(selectedDays.contains)) ...[
-              _routineDayChip(
-                  day, activeDay == day, () => setState(() => activeDay = day)),
-              const SizedBox(width: 7),
-            ],
-          ]),
-        ),
-        const SizedBox(height: 15),
-        Row(children: [
-          Expanded(child: _routineLabel('EJERCICIOS · $activeDay')),
-          TextButton.icon(
-            onPressed: saving || loadingPhaseTemplate ? null : _addExercise,
-            icon: const Icon(Icons.add, size: 17),
-            label: const Text('Agregar'),
-            style: TextButton.styleFrom(foregroundColor: AppColors.red),
-          ),
-        ]),
-        for (var i = 0; i < (exercisesByDay[activeDay] ?? []).length; i++)
-          _routineExerciseCard(exercisesByDay[activeDay]![i], i),
-        if ((exercisesByDay[activeDay] ?? []).isEmpty)
-          MusklCard(
-            child: Row(children: [
-              const Icon(Icons.fitness_center, color: AppColors.textMuted),
-              const SizedBox(width: 10),
-              const Expanded(
-                  child: Text('Agrega ejercicios para este día.',
-                      style: TextStyle(color: AppColors.textMuted))),
-              IconButton(
-                tooltip: 'Agregar ejercicio',
-                onPressed: saving || loadingPhaseTemplate ? null : _addExercise,
-                icon:
-                    const Icon(Icons.add_circle_outline, color: AppColors.red),
-              ),
-            ]),
-          ),
-        if (error != null) ...[
-          const SizedBox(height: 8),
-          Text(error!, style: const TextStyle(color: AppColors.red)),
-        ],
-        const SizedBox(height: 8),
-        SizedBox(
-          width: double.infinity,
-          child: MusklButton(
-            label: phaseMode ? 'Guardar fase' : 'Guardar rutina',
-            icon: Icons.save_outlined,
-            loading: saving,
-            onPressed: canSave ? _saveRoutine : null,
-          ),
-        ),
-      ]),
-    );
-  }
-
-  Widget _routineLabel(String value) => Text(value,
-      style: const TextStyle(
-          color: AppColors.textMuted,
-          fontSize: 9,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 1.15));
-
-  Widget _routineDayChip(String day, bool selected, VoidCallback onTap) =>
-      InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(11),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          width: 43,
-          height: 38,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected ? AppColors.white : AppColors.surface,
-            borderRadius: BorderRadius.circular(11),
-            border: Border.all(
-                color: selected ? AppColors.white : AppColors.surfaceHigh),
-          ),
-          child: Text(day,
-              style: TextStyle(
-                  color: selected ? AppColors.bgDeep : AppColors.textMuted,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900)),
-        ),
-      );
-
-  Widget _routineExerciseCard(Map<String, dynamic> exercise, int index) =>
-      Container(
-        margin: const EdgeInsets.only(bottom: 9),
-        padding: const EdgeInsets.fromLTRB(11, 8, 9, 10),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.surfaceHigh),
-        ),
-        child: Column(children: [
-          Row(children: [
-            Expanded(
-              child: Text(exercise['name'].toString(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w800)),
-            ),
-            IconButton(
-              tooltip: 'Quitar ejercicio',
-              visualDensity: VisualDensity.compact,
-              onPressed: saving
-                  ? null
-                  : () => setState(
-                      () => exercisesByDay[activeDay]!.removeAt(index)),
-              icon: const Icon(Icons.remove_circle_outline,
-                  color: AppColors.accent, size: 19),
-            ),
-          ]),
-          Row(children: [
-            _routineMetric('Series', exercise['sets'].toString()),
-            const SizedBox(width: 6),
-            _routineMetric('Reps', exercise['reps'].toString()),
-            const SizedBox(width: 6),
-            _routineMetric('Descanso', '${exercise['rest_seconds']}s'),
-          ]),
-        ]),
-      );
-}
-
-class _PrototypeSettings {
-  static String gymName = '';
-  static String gymAddress = '';
-  static String gymPhone = '';
-  static Map<String, String> hours = {
-    for (final day in _weekDays) day: 'Cerrado',
-  };
-}
-
-const _weekDays = [
-  'Lunes',
-  'Martes',
-  'Miércoles',
-  'Jueves',
-  'Viernes',
-  'Sábado',
-  'Domingo'
-];
-
-String _formatGymHours(Map<String, dynamic> hours) => _weekDays
-    .map((day) => '$day: ${hours[day]?.toString() ?? 'Cerrado'}')
-    .join('\n');
-
-Map<String, String> _readGymHours(Map<String, dynamic> value) {
-  final result = {for (final day in _weekDays) day: 'Cerrado'};
-  for (final day in _weekDays) {
-    final schedule = value[day]?.toString();
-    if (schedule != null && schedule.isNotEmpty) result[day] = schedule;
-  }
-  final legacy = value['display']?.toString();
-  if (legacy != null) {
-    for (final line in legacy.split('\n')) {
-      final parts = line.split(':');
-      if (parts.length < 2) continue;
-      final label = parts.first.trim().toLowerCase();
-      final schedule = parts.skip(1).join(':').trim();
-      final range = RegExp(
-              r'^(lunes|martes|miércoles|jueves|viernes|sábado|domingo)\s+a\s+(lunes|martes|miércoles|jueves|viernes|sábado|domingo)$',
-              caseSensitive: false)
-          .firstMatch(label);
-      if (range != null) {
-        final start = _weekDays.indexWhere(
-            (d) => d.toLowerCase() == range.group(1)!.toLowerCase());
-        final end = _weekDays.indexWhere(
-            (d) => d.toLowerCase() == range.group(2)!.toLowerCase());
-        if (start >= 0 && end >= start) {
-          for (var i = start; i <= end; i++) {
-            result[_weekDays[i]] = schedule;
-          }
-        }
-      } else {
-        for (final day in _weekDays) {
-          if (day.toLowerCase() == label) result[day] = schedule;
-        }
-      }
-    }
-  }
-  return result;
-}
-
-class _GymDayHoursEditor extends StatelessWidget {
-  const _GymDayHoursEditor(
-      {required this.day, required this.value, required this.onChanged});
-
-  final String day;
-  final String value;
-  final ValueChanged<String> onChanged;
-
-  Future<void> _pickTime(BuildContext context, {required bool opening}) async {
-    final parts = value.split(RegExp(r'[–-]'));
-    final current = parts.length == 2
-        ? (opening ? parts.first.trim() : parts.last.trim())
-        : opening
-            ? '05:00'
-            : '23:00';
-    final parsed = current.split(':');
-    final initial = TimeOfDay(
-      hour: int.tryParse(parsed.first) ?? (opening ? 5 : 23),
-      minute: parsed.length > 1 ? int.tryParse(parsed[1]) ?? 0 : 0,
-    );
-    final picked = await showTimePicker(context: context, initialTime: initial);
-    if (picked == null) return;
-    final formatted =
-        '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-    final start = opening
-        ? formatted
-        : (parts.length == 2 ? parts.first.trim() : '05:00');
-    final end =
-        opening ? (parts.length == 2 ? parts.last.trim() : '23:00') : formatted;
-    onChanged('$start–$end');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isOpen = value.toLowerCase() != 'cerrado';
-    final parts = value.split(RegExp(r'[–-]'));
-    return Column(children: [
-      SwitchListTile(
-        contentPadding: EdgeInsets.zero,
-        title: Text(day),
-        subtitle: Text(isOpen ? value : 'No se labora'),
-        value: isOpen,
-        onChanged: (enabled) => onChanged(enabled ? '05:00–23:00' : 'Cerrado'),
-      ),
-      if (isOpen)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Row(children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _pickTime(context, opening: true),
-                icon: const Icon(Icons.access_time),
-                label: Text(
-                    'De ${parts.isNotEmpty ? parts.first.trim() : '05:00'}'),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _pickTime(context, opening: false),
-                icon: const Icon(Icons.access_time),
-                label:
-                    Text('A ${parts.length > 1 ? parts.last.trim() : '23:00'}'),
-              ),
-            ),
-          ]),
-        ),
-      const Divider(height: 1),
-    ]);
-  }
-}
-
-Future<void> _showCertificationPreview(
-  BuildContext context, {
-  required String title,
-  required String url,
-}) async {
-  final extension = title.split('.').last.toLowerCase();
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) => Dialog.fullscreen(
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-          leading: IconButton(
-            tooltip: 'Cerrar',
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            icon: const Icon(Icons.close),
-          ),
-        ),
-        body: extension == 'pdf'
-            ? PdfViewer.uri(Uri.parse(url))
-            : InteractiveViewer(
-                minScale: 0.5,
-                maxScale: 5,
-                child: Center(
-                  child: Image.network(
-                    url,
-                    fit: BoxFit.contain,
-                    loadingBuilder: (context, child, progress) =>
-                        progress == null
-                            ? child
-                            : const Center(child: CircularProgressIndicator()),
-                    errorBuilder: (context, error, stackTrace) => const Center(
-                      child: Text('No se pudo cargar la imagen.'),
-                    ),
-                  ),
-                ),
-              ),
-      ),
-    ),
-  );
-}
-
-class TrainerSettingsScreen extends StatefulWidget {
-  const TrainerSettingsScreen({super.key});
-  @override
-  State<TrainerSettingsScreen> createState() => _TrainerSettingsScreenState();
-}
-
-class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
-  Map<String, dynamic> _profile = {};
-  bool _loading = true;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      final profile = await authController.trainerProfile();
-      if (!mounted) return;
-      setState(() {
-        _profile = profile;
-        _loading = false;
-      });
-    } catch (e) {
-      if (mounted) setState(() => _loading = false);
-      _message('No se pudo cargar tu perfil: $e');
-    }
-  }
-
-  String _value(String key) => (_profile[key] ?? '').toString();
-
-  Map<String, bool> get _preferences => Map<String, bool>.from(
-      _profile['notification_preferences'] as Map? ?? {});
-
-  void _message(String text) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
-    }
-  }
-
-  Future<void> _save({
-    String? firstName,
-    String? lastName,
-    String? email,
-    String? phone,
-    String? specialty,
-    String? bio,
-    Map<String, bool>? preferences,
-  }) async {
-    setState(() => _saving = true);
-    try {
-      final saved = await authController.updateTrainerProfile(
-        firstName: firstName ?? _value('first_name'),
-        lastName: lastName ?? _value('last_name'),
-        email: email ?? _value('email'),
-        phone: phone ?? _value('phone'),
-        specialty: specialty ?? _value('specialty'),
-        bio: bio ?? _value('bio'),
-        notificationPreferences: preferences ?? _preferences,
-      );
-      if (mounted) setState(() => _profile = saved);
-      _message('Cambios guardados.');
-    } catch (e) {
-      _message('No se pudieron guardar los cambios: $e');
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  Future<void> _changeProfilePhoto() async {
-    final selected = await _pickOwnProfilePhoto();
-    if (selected == null) return;
-    setState(() => _saving = true);
-    try {
-      final saved = await authController.updateOwnProfilePhoto(
-          photoData: base64Encode(selected.bytes),
-          photoMime: selected.mimeType);
-      if (mounted) {
-        setState(
-            () => _profile['profile_photo_url'] = saved['profile_photo_url']);
-      }
-      _message('Foto de perfil actualizada.');
-    } catch (e) {
-      _message('No se pudo guardar la foto: $e');
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  Future<ProfilePhotoSelection?> _pickOwnProfilePhoto() async {
-    try {
-      return await pickProfilePhoto(context);
-    } catch (e) {
-      _message(e.toString().replaceFirst('FormatException: ', ''));
-      return null;
-    }
-  }
-
-  Future<void> _editPersonal() async {
-    final result = await _editProfileFields(
-        context,
-        'EDITAR NOMBRE',
-        ['Nombre', 'Apellidos'],
-        [_value('first_name'), _value('last_name')]);
-    if (result == null) return;
-    await _save(firstName: result[0], lastName: result[1]);
-  }
-
-  Future<void> _editTrainerBio() async {
-    final result = await _editProfileFields(
-      context,
-      'EDITAR BIOGRAFÍA',
-      ['Cuéntanos sobre ti'],
-      [_value('bio')],
-      multiline: const {0},
-    );
-    if (result == null || !mounted) return;
-    await _save(bio: result.first);
-  }
-
-  Future<void> _editTrainerContact(String field) async {
-    final emailField = field == 'email';
-    if (emailField) {
-      final changed = await context.push<bool>(Uri(
-        path: '/trainer/email',
-        queryParameters: {'email': _value('email')},
-      ).toString());
-      if (changed == true && mounted) await _load();
-      return;
-    }
-    const label = 'Teléfono';
-    final oldValue = _value(field);
-    final result =
-        await _editProfileFields(context, 'EDITAR $label', [label], [oldValue]);
-    if (result == null) return;
-    await _save(phone: result[0]);
-  }
-
-  Future<void> _openProfileEditMenu() async {
-    final field = await _chooseProfileField(context, [
-      const _ProfileEditOption(
-        key: 'photo',
-        title: 'Foto de perfil',
-        value: 'Elegir una foto nueva',
-        icon: Icons.camera_alt_outlined,
-      ),
-      _ProfileEditOption(
-        key: 'name',
-        title: 'Nombre',
-        value: '${_value('first_name')} ${_value('last_name')}'.trim(),
-        icon: Icons.person_outline,
-      ),
-      _ProfileEditOption(
-        key: 'email',
-        title: 'Correo electrónico',
-        value: _value('email'),
-        icon: Icons.mail_outline,
-      ),
-      _ProfileEditOption(
-        key: 'phone',
-        title: 'Teléfono',
-        value: _value('phone'),
-        icon: Icons.phone_outlined,
-      ),
-    ]);
-    if (!mounted || field == null) return;
-    switch (field) {
-      case 'photo':
-        await _changeProfilePhoto();
-        return;
-      case 'name':
-        await _editPersonal();
-        return;
-      case 'email':
-        await _editTrainerContact('email');
-        return;
-      case 'phone':
-        await _editTrainerContact('phone');
-        return;
-    }
-  }
-
-  Future<void> _editSpecialties() async {
-    const options = [
-      'Fuerza',
-      'Hipertrofia',
-      'Pérdida de peso',
-      'Resistencia',
-      'Entrenamiento funcional',
-      'Movilidad',
-      'Acondicionamiento físico'
-    ];
-    final selected = _value('specialty')
-        .split(',')
-        .map((value) => value.trim())
-        .where((value) => value.isNotEmpty)
-        .toSet();
-    final result = await showModalBottomSheet<Set<String>>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => StatefulBuilder(
-          builder: (context, setSheetState) => SafeArea(
-                child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const Text('ELIGE TUS ESPECIALIDADES',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.w900)),
-                        const SizedBox(height: 6),
-                        const Text('Puedes elegir más de una opción.',
-                            style: TextStyle(color: AppColors.textMuted)),
-                        const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final option in options)
-                              FilterChip(
-                                label: Text(option),
-                                selected: selected.contains(option),
-                                onSelected: (value) => setSheetState(() {
-                                  if (value) {
-                                    selected.add(option);
-                                  } else {
-                                    selected.remove(option);
-                                  }
-                                }),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        FilledButton(
-                            onPressed: () =>
-                                Navigator.pop(sheetContext, selected),
-                            child: const Text('Guardar especialidades')),
-                      ],
-                    )),
-              )),
-    );
-    if (result == null) return;
-    await _save(specialty: options.where(result.contains).join(', '));
-  }
-
-  Future<void> _viewOwnCertification(Map certificate) async {
-    try {
-      final url = await authController.ownTrainerCertificationDownloadUrl(
-        certificationId: certificate['id'].toString(),
-      );
-      if (!mounted) return;
-      await _showCertificationPreview(
-        context,
-        title: certificate['title']?.toString() ?? 'Certificado',
-        url: url,
-      );
-    } catch (e) {
-      _message('No se pudo abrir tu certificado: $e');
-    }
-  }
-
-  Future<void> _replaceOwnCertification(Map certificate) async {
-    try {
-      final picked = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg'],
-        allowMultiple: false,
-        withData: true,
-      );
-      if (!mounted || picked == null) return;
-      final file = picked.files.single;
-      final bytes = file.bytes;
-      if (bytes == null || bytes.isEmpty) {
-        _message('No se pudo leer el archivo seleccionado.');
-        return;
-      }
-      if (bytes.length > 10 * 1024 * 1024) {
-        _message('El certificado debe pesar máximo 10 MB.');
-        return;
-      }
-      await authController.replaceOwnTrainerCertification(
-        certificationId: certificate['id'].toString(),
-        filename: file.name,
-        bytes: bytes,
-      );
-      if (!mounted) return;
-      final certifications = List<Map<String, dynamic>>.from(
-        (_profile['certifications'] as List? ?? [])
-            .map((item) => Map<String, dynamic>.from(item as Map)),
-      );
-      final index = certifications.indexWhere(
-          (item) => item['id'].toString() == certificate['id'].toString());
-      if (index >= 0) {
-        certifications[index] = {
-          ...certifications[index],
-          'title': file.name,
-          'verified_at': null,
-        };
-      }
-      setState(() => _profile['certifications'] = certifications);
-      _message('Certificado actualizado y enviado para verificación.');
-    } catch (e) {
-      _message('No se pudo actualizar el certificado: $e');
-    }
-  }
-
-  Future<void> _changePassword() async {
-    if (mounted) context.push('/trainer/password');
-  }
-
-  Widget _preference(String label, String key, bool fallback) {
-    final preferences = _preferences;
-    return SwitchListTile(
-      title: Text(label),
-      value: preferences[key] ?? fallback,
-      activeThumbColor: AppColors.red,
-      onChanged: _saving
-          ? null
-          : (enabled) {
-              final updated = {...preferences, key: enabled};
-              setState(() => _profile['notification_preferences'] = updated);
-              _save(preferences: updated);
-            },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => WorkspacePage(
-      title: 'Ajustes',
-      kicker: 'ENTRENADOR · ${_value('first_name').toUpperCase()}',
-      items: _trainerNav,
-      selected: 3,
-      child: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(children: [
-              if (_saving) const LinearProgressIndicator(),
-              MusklCard(
-                  child: Column(children: [
-                Row(children: [
-                  ProfilePhotoAvatar(
-                      image: _value('profile_photo_url').isEmpty
-                          ? null
-                          : NetworkImage(_value('profile_photo_url')),
-                      name: '${_value('first_name')} ${_value('last_name')}',
-                      allowEdit: false,
-                      onEdit: () {}),
-                  const SizedBox(width: 14),
-                  Expanded(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Text(
-                            '${_value('first_name')} ${_value('last_name')}'
-                                .trim(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w900, fontSize: 17)),
-                        Text(_value('email'),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                color: AppColors.textMuted, fontSize: 12)),
-                        Text(_value('phone').isEmpty
-                            ? 'Sin teléfono'
-                            : _value('phone'),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                color: AppColors.textMuted, fontSize: 12)),
-                      ])),
-                  IconButton(
-                    tooltip: 'Editar perfil',
-                    onPressed: _saving ? null : _openProfileEditMenu,
-                    icon: const Icon(Icons.edit_outlined),
-                  ),
-                ]),
-              ])),
-              _profileBioCard(
-                _value('bio'),
-                onEdit: _saving ? null : _editTrainerBio,
-              ),
-              MusklCard(
-                  padding: const EdgeInsets.all(18),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: AppColors.red.withValues(alpha: .14),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(Icons.fitness_center,
-                              color: AppColors.red, size: 20),
-                        ),
-                        const SizedBox(width: 11),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('ESPECIALIDADES',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      letterSpacing: .8,
-                                      fontWeight: FontWeight.w900)),
-                              SizedBox(height: 3),
-                              Text('Áreas en las que te especializas',
-                                  style: TextStyle(
-                                      color: AppColors.textMuted,
-                                      fontSize: 12)),
-                            ],
-                          ),
-                        ),
-                        TextButton.icon(
-                          onPressed: _saving ? null : _editSpecialties,
-                          icon: const Icon(Icons.tune, size: 17),
-                          label: const Text('Editar'),
-                        ),
-                      ]),
-                      const SizedBox(height: 14),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _value('specialty')
-                            .split(',')
-                            .map((item) => item.trim())
-                            .where((item) => item.isNotEmpty)
-                            .map((item) => Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.red.withValues(alpha: .12),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                        color: AppColors.red
-                                            .withValues(alpha: .32)),
-                                  ),
-                                  child: Text(item,
-                                      style: const TextStyle(
-                                          color: AppColors.white,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700)),
-                                ))
-                            .toList(),
-                      ),
-                      if (_value('specialty').trim().isEmpty)
-                        const Text('Agrega tus áreas de especialidad.',
-                            style: TextStyle(color: AppColors.textMuted)),
-                    ],
-                  )),
-              for (final certificate
-                  in (_profile['certifications'] as List? ?? []))
-                MusklCard(
-                    child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.workspace_premium_outlined,
-                      color: AppColors.accent),
-                  title: Text((certificate as Map)['title'].toString()),
-                  subtitle: Text(certificate['verified_at'] == null
-                      ? 'Documento registrado · pendiente de verificación'
-                      : 'Certificación verificada'),
-                  onTap: () => _viewOwnCertification(certificate),
-                  trailing: IconButton(
-                    tooltip: 'Reemplazar certificado',
-                    onPressed: () => _replaceOwnCertification(certificate),
-                    icon: const Icon(Icons.upload_file),
-                  ),
-                )),
-              _setting('Cambiar contraseña',
-                  'Actualiza tus credenciales de acceso', Icons.lock_outline,
-                  onTap: _changePassword),
-              _section('Notificaciones'),
-              _preference('Actividad de clientes', 'client_activity', true),
-              _preference('Rutinas por vencer', 'routine_expiry', true),
-              _preference('Recordatorio diario', 'daily_reminder', false),
-              const SizedBox(height: 14),
-              MusklButton(
-                  label: 'Cerrar sesión',
-                  style: MusklButtonStyle.secondary,
-                  onPressed: authController.signOut),
-            ]));
-}
-
-Future<Map<String, dynamic>?> _routineExerciseValues(BuildContext context) =>
-    showModalBottomSheet<Map<String, dynamic>>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => const _RoutineExerciseValuesSheet(),
-    );
-
-class _RoutineExerciseValuesSheet extends StatefulWidget {
-  const _RoutineExerciseValuesSheet();
-
-  @override
-  State<_RoutineExerciseValuesSheet> createState() =>
-      _RoutineExerciseValuesSheetState();
-}
-
-class _RoutineExerciseValuesSheetState
-    extends State<_RoutineExerciseValuesSheet> {
-  static const _repsOptions = ['6', '8', '10', '12', '15', '20', '8-12', '10-15'];
-
-  final _reps = TextEditingController(text: '8-12');
-  final _manualSets = TextEditingController(text: '4');
-  final _manualRest = TextEditingController(text: '1:00');
-  late final _setsPicker = FixedExtentScrollController(initialItem: 3);
-  late final _repsPicker = FixedExtentScrollController(initialItem: 6);
-  int _sets = 4;
-  Duration _rest = const Duration(minutes: 1);
-  bool _useManualRest = false;
-  bool _useManualSets = false;
-  bool _useManualReps = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _reps.dispose();
-    _manualSets.dispose();
-    _manualRest.dispose();
-    _setsPicker.dispose();
-    _repsPicker.dispose();
-    super.dispose();
-  }
-
-  void _save() {
-    final repsValue = _reps.text.trim();
-    final setCount = _useManualSets ? int.tryParse(_manualSets.text.trim()) : _sets;
-    var restSeconds = _rest.inSeconds;
-    if (_useManualRest) {
-      final value = _manualRest.text.trim();
-      final parts = value.split(':');
-      if (parts.length == 2) {
-        final minutes = int.tryParse(parts[0]);
-        final seconds = int.tryParse(parts[1]);
-        if (minutes == null || seconds == null || minutes < 0 || seconds < 0 || seconds > 59) {
-          setState(() => _error = 'Escribe el descanso como m:ss, por ejemplo 1:30.');
-          return;
-        }
-        restSeconds = minutes * 60 + seconds;
-      } else {
-        final parsed = int.tryParse(value);
-        if (parsed == null || parsed < 0) {
-          setState(() => _error = 'Escribe el descanso como m:ss, por ejemplo 1:30.');
-          return;
-        }
-        restSeconds = parsed;
-      }
-    }
-    if (setCount == null || setCount < 1 || setCount > 20) {
-      setState(() => _error = 'El número de series debe estar entre 1 y 20.');
-      return;
-    }
-    if (repsValue.isEmpty) {
-      setState(() => _error = 'Escribe las repeticiones del ejercicio.');
-      return;
-    }
-    if (restSeconds > 3600) {
-      setState(() => _error = 'El descanso no puede superar 60 minutos.');
-      return;
-    }
-    Navigator.pop(context, {
-      'sets': setCount,
-      'reps': repsValue,
-      'rest_seconds': restSeconds,
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => SafeArea(
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-              20, 16, 20, 16 + MediaQuery.viewInsetsOf(context).bottom),
+                                      child: co…19188 tokens truncated…wInsetsOf(context).bottom),
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -4389,7 +2599,6 @@ class _RoutineExerciseValuesSheetState
         ),
       );
 }
-
 
 Future<List<String>?> _editProfileFields(
   BuildContext context,
@@ -4583,10 +2792,10 @@ class _ProfileEditMenuScreen extends StatelessWidget {
 }
 
 Future<List<String>?> _editFields(BuildContext context, String title,
-    List<String> labels, List<String> values,
-    {bool obscure = false,
-    bool trim = true,
-    Set<int> multiline = const {}}) =>
+        List<String> labels, List<String> values,
+        {bool obscure = false,
+        bool trim = true,
+        Set<int> multiline = const {}}) =>
     showDialog<List<String>>(
       context: context,
       builder: (_) => _EditFieldsDialog(
@@ -4695,9 +2904,8 @@ class _EditFieldsDialogState extends State<_EditFieldsDialog> {
             onPressed: () => Navigator.pop(
               context,
               _controllers
-                  .map((controller) => widget.trim
-                      ? controller.text.trim()
-                      : controller.text)
+                  .map((controller) =>
+                      widget.trim ? controller.text.trim() : controller.text)
                   .toList(),
             ),
             child: const Text('Guardar'),
@@ -5763,11 +3971,6 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
               .map((client) => Map<String, dynamic>.from(client as Map));
           final exercises = (data['exercises'] as List? ?? [])
               .map((exercise) => Map<String, dynamic>.from(exercise as Map));
-          final exercisesByDay = <String, List<Map<String, dynamic>>>{};
-          for (final exercise in exercises) {
-            final key = '${exercise['phase_number']}-${exercise['day_number']}';
-            exercisesByDay.putIfAbsent(key, () => []).add(exercise);
-          }
           return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -5791,37 +3994,133 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
                                   const TextStyle(color: AppColors.textMuted))
                         ])),
                 _section('Fases'),
-                for (final phase in phases) ...[
-                  _record('${phase['name']} · Fase ${phase['phase_number']}',
-                      '${phase['status'] == 'published' ? 'Publicada' : 'Borrador'} · ${phase['duration_weeks']} semanas · ${phase['exercise_count']} ejercicios',
-                      icon: phase['status'] == 'published'
-                          ? Icons.check_circle_outline
-                          : Icons.edit_outlined),
-                  if (phase['status'] != 'published')
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: OutlinedButton.icon(
-                          onPressed: () => _publishPhase(phase),
-                          icon: const Icon(Icons.publish),
-                          label: const Text('Publicar fase'),
-                        ),
+                for (final phase in phases)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: MusklCard(
+                      child: ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: EdgeInsets.zero,
+                        title: Text(
+                            '${phase['name']} · Fase ${phase['phase_number']}',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w900)),
+                        subtitle: Text(
+                            '${phase['status'] == 'published' ? 'Publicada' : 'Borrador'} · ${phase['duration_weeks']} semanas · ${phase['exercise_count']} ejercicios'),
+                        children: [
+                          for (var day = 1; day <= 7; day++)
+                            if (exercises.any((exercise) =>
+                                exercise['phase_number'] ==
+                                    phase['phase_number'] &&
+                                (exercise['day_number'] as num).toInt() == day))
+                              ExpansionTile(
+                                tilePadding: EdgeInsets.zero,
+                                title: Text(_weekDays[day - 1]),
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: LayoutBuilder(
+                                      builder: (context, constraints) {
+                                        final tileWidth =
+                                            (constraints.maxWidth - 10) / 2;
+                                        return Wrap(
+                                          spacing: 10,
+                                          runSpacing: 10,
+                                          children: [
+                                            for (final exercise
+                                                in exercises.where((exercise) =>
+                                                    exercise['phase_number'] ==
+                                                        phase['phase_number'] &&
+                                                    (exercise['day_number']
+                                                                as num)
+                                                            .toInt() ==
+                                                        day))
+                                              SizedBox(
+                                                width: tileWidth,
+                                                child: MusklCard(
+                                                  padding:
+                                                      const EdgeInsets.all(9),
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      _exerciseThumbnail(
+                                                          exercise,
+                                                          height: 82),
+                                                      const SizedBox(height: 7),
+                                                      Text(
+                                                          exercise['name']
+                                                              .toString(),
+                                                          maxLines: 2,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: const TextStyle(
+                                                              fontSize: 12,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w800)),
+                                                      const SizedBox(height: 5),
+                                                      Text(
+                                                          '${exercise['sets']} series · ${exercise['reps']} reps · ${exercise['rest_seconds']}s',
+                                                          maxLines: 2,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: const TextStyle(
+                                                              color: AppColors
+                                                                  .textMuted,
+                                                              fontSize: 10)),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  final changed = await context.push<bool>(Uri(
+                                    path: '/admin/phase/new',
+                                    queryParameters: {
+                                      'routine_id': widget.routineId,
+                                      'phase_id': phase['id'].toString(),
+                                    },
+                                  ).toString());
+                                  if (changed == true && mounted) {
+                                    setState(() => _routine =
+                                        authController.adminRoutine(
+                                            routineId: widget.routineId));
+                                  }
+                                },
+                                icon: const Icon(Icons.edit_outlined),
+                                label: const Text('Editar fase'),
+                              ),
+                              if (phase['status'] != 'published')
+                                OutlinedButton.icon(
+                                  onPressed: () => _publishPhase(phase),
+                                  icon: const Icon(Icons.publish),
+                                  label: const Text('Publicar'),
+                                ),
+                              if (phase['status'] == 'published')
+                                OutlinedButton.icon(
+                                  onPressed: () => _assignToClient(phase),
+                                  icon: const Icon(Icons.person_add_alt_1),
+                                  label: const Text('Asignar a socio'),
+                                ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                  if (phase['status'] == 'published')
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: OutlinedButton.icon(
-                          onPressed: () => _assignToClient(phase),
-                          icon: const Icon(Icons.person_add_alt_1),
-                          label: const Text('Asignar esta fase a un socio'),
-                        ),
-                      ),
-                    ),
-                ],
+                  ),
                 if (phases.isNotEmpty && phases.last['status'] == 'published')
                   OutlinedButton.icon(
                     onPressed: () => context.go(Uri(
@@ -5830,18 +4129,6 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
                     ).toString()),
                     icon: const Icon(Icons.add),
                     label: const Text('Crear siguiente fase'),
-                  ),
-                _section('Ejercicios por fase y día'),
-                for (final entry in exercisesByDay.entries)
-                  ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
-                    title: Text(
-                        'Fase ${entry.key.split('-').first} · ${_weekDays[(int.tryParse(entry.key.split('-').last) ?? 1) - 1]} · ${entry.value.length} ejercicios'),
-                    children: [
-                      for (final exercise in entry.value)
-                        _record(exercise['name'].toString(),
-                            '${exercise['sets']} series · ${exercise['reps']} repeticiones · ${exercise['rest_seconds']} s')
-                    ],
                   ),
                 _section('Clientes asignados'),
                 for (final client in clients)
@@ -6009,6 +4296,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         value: (_ownProfile['phone'] ?? '').toString(),
         icon: Icons.phone_outlined,
       ),
+      _ProfileEditOption(
+        key: 'bio',
+        title: 'Biografía',
+        value: (_ownProfile['bio'] ?? '').toString(),
+        icon: Icons.notes_outlined,
+      ),
     ]);
     if (!mounted || field == null) return;
     switch (field) {
@@ -6023,6 +4316,9 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         return;
       case 'phone':
         await _editAdminPhone();
+        return;
+      case 'bio':
+        await _editAdminBio();
         return;
     }
   }
@@ -6417,13 +4713,18 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                         color: AppColors.textMuted, fontSize: 12)),
-                Text((_ownProfile['phone'] ?? '').toString().isEmpty
-                    ? 'Sin teléfono'
-                    : _ownProfile['phone'].toString(),
+                Text(
+                    (_ownProfile['phone'] ?? '').toString().isEmpty
+                        ? 'Sin teléfono'
+                        : _ownProfile['phone'].toString(),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                         color: AppColors.textMuted, fontSize: 12)),
+                _profileBioInline(
+                  (_ownProfile['bio'] ?? '').toString(),
+                  onEdit: _savingPhoto ? null : _openProfileEditMenu,
+                ),
               ])),
           IconButton(
             tooltip: 'Editar perfil',
@@ -6431,10 +4732,6 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             icon: const Icon(Icons.edit_outlined),
           ),
         ])),
-        _profileBioCard(
-          (_ownProfile['bio'] ?? '').toString(),
-          onEdit: _editAdminBio,
-        ),
         _SwitchSetting(
             label: 'Notificaciones de nuevas solicitudes',
             value: _newRequestNotifications,

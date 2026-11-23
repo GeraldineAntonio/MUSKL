@@ -77,6 +77,10 @@ abstract class AuthRepository {
       required String name,
       required List<int> days,
       required List<Map<String, dynamic>> exercises});
+  Future<void> updateAdminPhase(
+      {required String routineId, required String phaseId,
+      required String name, required List<int> days,
+      required List<Map<String, dynamic>> exercises});
   Future<void> publishAdminPhase(
       {required String routineId, required String phaseId});
   Future<void> assignAdminRoutine(
@@ -145,6 +149,10 @@ abstract class AuthRepository {
       {required String routineId,
       required String name,
       required List<int> days,
+      required List<Map<String, dynamic>> exercises});
+  Future<void> updateTrainerPhase(
+      {required String routineId, required String phaseId,
+      required String name, required List<int> days,
       required List<Map<String, dynamic>> exercises});
   Future<void> publishTrainerPhase(
       {required String routineId, required String phaseId});
@@ -564,6 +572,12 @@ class FakeAuthRepository implements AuthRepository {
       required List<Map<String, dynamic>> exercises}) async {}
 
   @override
+  Future<void> updateAdminPhase(
+      {required String routineId, required String phaseId, required String name,
+      required List<int> days,
+      required List<Map<String, dynamic>> exercises}) async {}
+
+  @override
   Future<void> publishAdminPhase(
       {required String routineId, required String phaseId}) async {}
 
@@ -928,6 +942,12 @@ class FakeAuthRepository implements AuthRepository {
   Future<void> createTrainerPhase(
       {required String routineId,
       required String name,
+      required List<int> days,
+      required List<Map<String, dynamic>> exercises}) async {}
+
+  @override
+  Future<void> updateTrainerPhase(
+      {required String routineId, required String phaseId, required String name,
       required List<int> days,
       required List<Map<String, dynamic>> exercises}) async {}
 

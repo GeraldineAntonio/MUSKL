@@ -124,6 +124,14 @@ class AuthController extends ChangeNotifier {
       repository.createAdminPhase(
           routineId: routineId, name: name, days: days, exercises: exercises);
 
+  Future<void> updateAdminPhase(
+          {required String routineId, required String phaseId,
+          required String name, required List<int> days,
+          required List<Map<String, dynamic>> exercises}) =>
+      repository.updateAdminPhase(
+          routineId: routineId, phaseId: phaseId, name: name,
+          days: days, exercises: exercises);
+
   Future<void> publishAdminPhase(
           {required String routineId, required String phaseId}) =>
       repository.publishAdminPhase(routineId: routineId, phaseId: phaseId);
@@ -276,6 +284,14 @@ class AuthController extends ChangeNotifier {
           required List<Map<String, dynamic>> exercises}) =>
       repository.createTrainerPhase(
           routineId: routineId, name: name, days: days, exercises: exercises);
+
+  Future<void> updateTrainerPhase(
+          {required String routineId, required String phaseId,
+          required String name, required List<int> days,
+          required List<Map<String, dynamic>> exercises}) =>
+      repository.updateTrainerPhase(
+          routineId: routineId, phaseId: phaseId, name: name,
+          days: days, exercises: exercises);
 
   Future<void> publishTrainerPhase(
           {required String routineId, required String phaseId}) =>

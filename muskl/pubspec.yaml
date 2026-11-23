@@ -16,7 +16,6 @@ dependencies:
   flutter_secure_storage: ^9.2.4
   google_sign_in: ^7.2.0
   sign_in_with_apple: ^8.2.0
-  audioplayers: ^6.8.1
   flutter_tts: ^4.2.5
   pdfrx: ^2.6.5
   video_player: '>=2.9.5 <2.15.0'
@@ -32,4 +31,3 @@ flutter:
     - assets/images/splash.jpg
     - assets/images/splash_loading.jpg
     - assets/images/goals/
-    - assets/audio/applause.wav

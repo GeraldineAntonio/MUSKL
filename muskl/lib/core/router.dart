@@ -208,7 +208,8 @@ GoRouter buildRouter(AuthController auth) {
       GoRoute(
           path: '/trainer/routine/new',
           builder: (_, state) => CreateRoutineScreen(
-              routineId: state.uri.queryParameters['routine_id'])),
+              routineId: state.uri.queryParameters['routine_id'],
+              phaseId: state.uri.queryParameters['phase_id'])),
       GoRoute(
           path: '/trainer/settings',
           builder: (_, __) => const TrainerSettingsScreen()),
@@ -248,7 +249,8 @@ GoRouter buildRouter(AuthController auth) {
           path: '/admin/phase/new',
           builder: (_, state) => CreateRoutineScreen(
               adminMode: true,
-              routineId: state.uri.queryParameters['routine_id'])),
+              routineId: state.uri.queryParameters['routine_id'],
+              phaseId: state.uri.queryParameters['phase_id'])),
       GoRoute(
           path: '/admin/settings',
           builder: (_, __) => const AdminSettingsScreen()),

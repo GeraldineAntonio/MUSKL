@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 21334)
+Total output lines: 2269
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -117,6 +120,80 @@ String _weekdayName(int day) => [
       'Sábado',
       'Domingo'
     ][day - 1];
+
+Widget _phaseExerciseCard(Map<String, dynamic> exercise) {
+  final mediaUrl = (exercise['media_url'] ?? '').toString();
+  final mediaMime = (exercise['media_mime'] ?? '').toString();
+  final hasImage = mediaUrl.isNotEmpty && !mediaMime.startsWith('video/');
+  return MusklCard(
+    padding: const EdgeInsets.all(9),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(11),
+        child: SizedBox(
+          width: double.infinity,
+          height: 88,
+          child: hasImage
+              ? Image.network(mediaUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                      color: AppColors.surface,
+                      alignment: Alignment.center,
+                      child: const Icon(Icons.fitness_center,
+                          color: AppColors.red, size: 28)))
+              : Container(
+                  color: AppColors.surface,
+                  alignment: Alignment.center,
+                  child: Icon(
+                    mediaUrl.isNotEmpty && mediaMime.startsWith('video/')
+                        ? Icons.play_circle_outline
+                        : Icons.fitness_center,
+                    color: AppColors.red,
+                    size: 30,
+                  ),
+                ),
+        ),
+      ),
+      const SizedBox(height: 7),
+      Text(exercise['name'].toString(),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+      const SizedBox(height: 7),
+      Row(children: [
+        _phaseExerciseMetric('SERIES', '${exercise['sets'] ?? '—'}'),
+        const SizedBox(width: 5),
+        _phaseExerciseMetric('REPS', '${exercise['reps'] ?? '—'}'),
+        const SizedBox(width: 5),
+        _phaseExerciseMetric('DESCANSO', '${exercise['rest_seconds'] ?? '—'}s'),
+      ]),
+    ]),
+  );
+}
+
+Widget _phaseExerciseMetric(String label, String value) => Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 3),
+        decoration: BoxDecoration(
+          color: AppColors.bg,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(children: [
+          Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 7,
+                  fontWeight: FontWeight.w800)),
+          Text(value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style:
+                  const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+        ]),
+      ),
+    );
 
 class _GroupMemberFields {
   final firstName = TextEditingController();
@@ -792,578 +869,7 @@ class AdminMembersScreen extends StatelessWidget {
                     const Icon(Icons.person_outline, color: AppColors.accent),
                     const SizedBox(width: 14),
                     Expanded(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                          Text(item.$2,
-                              style: Theme.of(context).textTheme.titleMedium),
-                          Text('${item.$1} · ${item.$3}',
-                              style:
-                                  const TextStyle(color: AppColors.textMuted))
-                        ])),
-                    const Icon(Icons.chevron_right)
-                  ])))),
-        const SizedBox(height: 8),
-        MusklButton(
-            label: 'Cerrar sesión',
-            style: MusklButtonStyle.secondary,
-            onPressed: authController.signOut),
-      ]));
-}
-
-class AdminMemberDetailScreen extends StatefulWidget {
-  const AdminMemberDetailScreen(
-      {super.key,
-      this.deactivated = false,
-      this.userId,
-      this.memberNumber = '',
-      this.name = 'Socio',
-      this.email = '',
-      this.phone = '',
-      this.plan = '',
-      this.role = 'client',
-      this.status = 'active',
-      this.deactivatedBy = '',
-      this.trainerId = '',
-      this.trainerName = '',
-      this.trainerReassignmentRequired = false,
-      this.reactivationUntil = ''});
-  final bool deactivated;
-  final String? userId;
-  final String memberNumber,
-      name,
-      email,
-      phone,
-      plan,
-      role,
-      status,
-      deactivatedBy,
-      trainerId,
-      trainerName,
-      reactivationUntil;
-  final bool trainerReassignmentRequired;
-
-  @override
-  State<AdminMemberDetailScreen> createState() =>
-      _AdminMemberDetailScreenState();
-}
-
-class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
-  bool _assigningTrainer = false;
-
-  Future<void> _assignTrainer() async {
-    final clientId = widget.userId;
-    if (clientId == null || clientId.isEmpty || _assigningTrainer) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('No se encontró el identificador del socio.')));
-      return;
-    }
-    setState(() => _assigningTrainer = true);
-    try {
-      final trainers =
-          await authController.adminUsers(role: 'trainer', status: 'active');
-      if (!mounted) return;
-      if (trainers.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Primero debe haber un entrenador aprobado.')));
-        return;
-      }
-      final trainer = await showModalBottomSheet<Map<String, dynamic>>(
-        context: context,
-        builder: (sheetContext) => SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              const ListTile(title: Text('ASIGNAR ENTRENADOR')),
-              for (final option in trainers)
-                ListTile(
-                  leading: const Icon(Icons.fitness_center),
-                  title: Text('${option['first_name']} ${option['last_name']}'),
-                  subtitle: Text(option['specialty']?.toString() ?? ''),
-                  trailing: option['id'].toString() == widget.trainerId
-                      ? const Icon(Icons.check_circle, color: AppColors.red)
-                      : null,
-                  onTap: () => Navigator.pop(sheetContext, option),
-                ),
-            ],
-          ),
-        ),
-      );
-      if (trainer == null || !mounted) return;
-      if (trainer['id'].toString() == widget.trainerId) return;
-      await authController.reassignClientTrainer(
-          clientId: clientId, trainerId: trainer['id'].toString());
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              'Socio asignado a ${trainer['first_name']} ${trainer['last_name']}.')));
-      Navigator.of(context).pop(true);
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('No se pudo asignar el entrenador: $error')));
-      }
-    } finally {
-      if (mounted) setState(() => _assigningTrainer = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => PrototypePage(
-      title: widget.role == 'trainer'
-          ? 'Detalle de entrenador'
-          : 'Detalle de socio',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          _profileDetail('Nombre completo', widget.name,
-              icon: Icons.person_outline),
-          _profileDetail(
-              'Estado',
-              '${widget.deactivated ? 'Baja' : widget.status == 'pending' ? 'En revisión' : widget.status == 'rejected' ? 'Rechazado' : 'Activo'}',
-              icon: Icons.verified_user_outlined),
-          if (widget.memberNumber.isNotEmpty)
-            _profileDetail('Número de socio', widget.memberNumber,
-                icon: Icons.badge_outlined),
-          if (widget.plan.isNotEmpty)
-            _profileDetail('Plan', widget.plan, icon: Icons.card_membership),
-          _profileDetail('Correo electrónico', widget.email,
-              icon: Icons.mail_outline),
-          _profileDetail('Teléfono', widget.phone, icon: Icons.phone_outlined),
-          if (widget.role == 'client')
-            _profileDetail(
-                'Entrenador',
-                widget.trainerName.isEmpty
-                    ? 'Sin entrenador asignado'
-                    : widget.trainerName,
-                icon: Icons.fitness_center),
-          if (widget.deactivatedBy.isNotEmpty)
-            _profileDetail('Baja registrada por', widget.deactivatedBy,
-                icon: Icons.person_off_outlined),
-          if (widget.deactivated)
-            _profileDetail(
-                'Reactivación disponible hasta',
-                widget.reactivationUntil.isEmpty
-                    ? '—'
-                    : widget.reactivationUntil.substring(0, 10),
-                icon: Icons.event_outlined),
-        ]),
-        const SizedBox(height: 16),
-        if (!widget.deactivated &&
-            (widget.role == 'client' || widget.role == 'trainer')) ...[
-          if (widget.role == 'client' && widget.trainerReassignmentRequired)
-            MusklButton(
-                label: 'Reasignar entrenador',
-                icon: Icons.fitness_center,
-                loading: _assigningTrainer,
-                onPressed: _assigningTrainer ? null : _assignTrainer),
-          if (widget.role == 'client' && widget.trainerReassignmentRequired)
-            const SizedBox(height: 10),
-          MusklButton(
-              label:
-                  'Dar de baja al ${widget.role == 'trainer' ? 'entrenador' : 'socio'}',
-              icon: Icons.person_off_outlined,
-              style: MusklButtonStyle.primary,
-              onPressed: () async {
-                final changed = await context.push<bool>(
-                    Uri(path: '/admin/deactivate', queryParameters: {
-                  'member': widget.memberNumber,
-                  'id': widget.userId ?? '',
-                  'name': widget.name,
-                  'role': widget.role,
-                }).toString());
-                if (changed == true && context.mounted) {
-                  Navigator.of(context).pop(true);
-                }
-              }),
-        ],
-        if (widget.deactivated)
-          MusklButton(
-              label:
-                  'Reactivar ${widget.role == 'trainer' ? 'entrenador' : 'socio'}',
-              icon: Icons.person_add_alt,
-              style: MusklButtonStyle.secondary,
-              onPressed: () async {
-                try {
-                  await authController.repository.reactivateMember(
-                      memberNumber: widget.memberNumber,
-                      userId: widget.userId,
-                      by: 'Admin MUSKL');
-                  if (context.mounted) Navigator.of(context).pop(true);
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('No se pudo reactivar: $e')));
-                  }
-                }
-              }),
-      ]));
-}
-
-class DeactivateMemberScreen extends StatefulWidget {
-  const DeactivateMemberScreen(
-      {super.key,
-      this.memberNumber = '',
-      this.userId,
-      this.name = 'Diego Martínez',
-      this.role = 'client'});
-  final String memberNumber, name;
-  final String role;
-  final String? userId;
-  @override
-  State<DeactivateMemberScreen> createState() => _DeactivateMemberScreenState();
-}
-
-class _DeactivateMemberScreenState extends State<DeactivateMemberScreen> {
-  String? reason;
-  bool _saving = false;
-  final note = TextEditingController();
-  final reasons = [
-    'Membresía vencida sin renovar',
-    'Incumplimiento de reglas',
-    'Solicitud del socio',
-    'Otro'
-  ];
-  @override
-  void dispose() {
-    note.dispose();
-    super.dispose();
-  }
-
-  String get _roleLabel => widget.role == 'trainer' ? 'entrenador' : 'socio';
-
-  @override
-  Widget build(BuildContext context) => PrototypePage(
-      title: 'Dar de baja al $_roleLabel',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        MusklCard(
-            child: Text('${widget.name.toUpperCase()} · ${widget.memberNumber}',
-                style: const TextStyle(fontWeight: FontWeight.bold))),
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-            decoration: const InputDecoration(labelText: 'Motivo'),
-            items: reasons
-                .map((v) => DropdownMenuItem(value: v, child: Text(v)))
-                .toList(),
-            onChanged: (v) => setState(() => reason = v)),
-        const SizedBox(height: 14),
-        MusklTextField(
-            label: 'Nota (opcional)', controller: note, icon: Icons.notes),
-        const SizedBox(height: 14),
-        MusklCard(
-            child: Text(
-                widget.role == 'trainer'
-                    ? 'El entrenador perderá acceso de inmediato. Sus clientes quedarán sin entrenador asignado para que el administrador pueda reasignarlos. Sus datos se eliminarán después de 30 días si no se reactiva.'
-                    : 'El socio perderá acceso de inmediato. La cuenta y sus datos se eliminarán después de 30 días si no se reactiva.',
-                style: TextStyle(color: AppColors.red))),
-        MusklButton(
-            label: _saving ? 'Procesando…' : 'Confirmar baja',
-            style: MusklButtonStyle.primary,
-            loading: _saving,
-            onPressed: reason == null || _saving
-                ? null
-                : () async {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (dialogContext) => AlertDialog(
-                        title: const Text('¿Confirmas la baja?'),
-                        content: Text(
-                          'Se desactivará el acceso de ${widget.name} a MUSKL. '
-                          '${widget.role == 'trainer' ? 'Sus clientes activos quedarán sin entrenador y podrán reasignarse después. ' : ''}'
-                          'Podrás reactivar la cuenta durante 30 días; después se eliminarán sus datos. '
-                          'Se intentará avisar al correo registrado.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => dialogContext.pop(false),
-                            child: const Text('Cancelar'),
-                          ),
-                          FilledButton(
-                            onPressed: () => dialogContext.pop(true),
-                            child: const Text('Sí, dar de baja'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirmed != true || !mounted) return;
-                    setState(() => _saving = true);
-                    try {
-                      final detail = note.text.trim();
-                      final channel = await authController.repository
-                          .deactivateMember(
-                              memberNumber: widget.memberNumber,
-                              userId: widget.userId,
-                              reason: detail.isEmpty
-                                  ? reason!
-                                  : '${reason!}: $detail',
-                              by: 'Admin MUSKL',
-                              at: DateTime.now());
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text(channel == 'email'
-                              ? 'Baja registrada. Aviso enviado al correo.'
-                              : 'Baja registrada, pero no se pudo enviar el correo. Revisa la configuración de Brevo.'),
-                        ));
-                        context.pop(true);
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                            content: Text('No se pudo dar de baja: $e')));
-                      }
-                    } finally {
-                      if (mounted) setState(() => _saving = false);
-                    }
-                  }),
-        const SizedBox(height: 8),
-        MusklButton(
-            label: 'Cancelar',
-            style: MusklButtonStyle.secondary,
-            onPressed: () => context.pop()),
-      ]));
-}
-
-class TrainerPhasesScreen extends StatefulWidget {
-  const TrainerPhasesScreen({super.key, required this.routineId});
-  final String routineId;
-
-  @override
-  State<TrainerPhasesScreen> createState() => _TrainerPhasesScreenState();
-}
-
-class _TrainerPhasesScreenState extends State<TrainerPhasesScreen> {
-  late Future<Map<String, dynamic>> _routine;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _reload();
-  }
-
-  void _reload() =>
-      _routine = authController.trainerRoutine(routineId: widget.routineId);
-
-  Future<void> _createPhase(Map<String, dynamic> data) async {
-    if (data['phases'] is! List || (data['phases'] as List).isEmpty) return;
-    final created = await context
-        .push<bool>(Uri(path: '/trainer/routine/new', queryParameters: {
-      'routine_id': widget.routineId,
-    }).toString());
-    if (created == true && mounted) setState(_reload);
-  }
-
-  Future<void> _publish(Map<String, dynamic> phase) async {
-    setState(() => _saving = true);
-    try {
-      if (phase['phase_number'] == 1) {
-        await authController.publishTrainerRoutine(routineId: widget.routineId);
-      } else {
-        await authController.publishTrainerPhase(
-            routineId: widget.routineId, phaseId: phase['id'].toString());
-      }
-      if (mounted) {
-        setState(_reload);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Fase publicada.')));
-      }
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('No se pudo publicar: $e')));
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => PrototypePage(
-      title: 'Fases de rutina',
-      child: FutureBuilder<Map<String, dynamic>>(
-        future: _routine,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting)
-            return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError)
-            return Text('No se pudieron cargar las fases: ${snapshot.error}',
-                style: const TextStyle(color: AppColors.red));
-          final data = snapshot.data ?? {};
-          final phases = (data['phases'] as List? ?? [])
-              .map((phase) => Map<String, dynamic>.from(phase as Map))
-              .toList();
-          final exercises = (data['exercises'] as List? ?? [])
-              .map((item) => Map<String, dynamic>.from(item as Map))
-              .toList();
-          final latest = phases.isEmpty ? null : phases.last;
-          return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final phase in phases)
-                  Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: MusklCard(
-                          child: ExpansionTile(
-                        tilePadding: EdgeInsets.zero,
-                        childrenPadding: EdgeInsets.zero,
-                        title: Text('FASE ${phase['phase_number']}',
-                            style:
-                                const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(
-                            '${phase['status'] == 'published' ? 'Publicada' : 'Borrador'} · Plan semanal'),
-                        children: [
-                          for (final dayGroup in _groupExercises(exercises
-                                  .where((exercise) =>
-                                      exercise['phase_number'] ==
-                                      phase['phase_number'])
-                                  .toList())
-                              .entries)
-                            ExpansionTile(
-                              tilePadding: EdgeInsets.zero,
-                              title: Text(_weekdayName(dayGroup.key)),
-                              children: [
-                                for (final exercise in dayGroup.value)
-                                  ListTile(
-                                    dense: true,
-                                    title: Text(exercise['name'].toString()),
-                                  )
-                              ],
-                            ),
-                        ],
-                      ))),
-                if (_saving) const LinearProgressIndicator(),
-                if (latest != null && latest['status'] != 'published')
-                  MusklButton(
-                      label: latest['phase_number'] == 1
-                          ? 'Publicar rutina'
-                          : 'Publicar fase',
-                      icon: Icons.publish,
-                      loading: _saving,
-                      onPressed: _saving ? null : () => _publish(latest)),
-                if (latest != null && latest['status'] == 'published')
-                  MusklButton(
-                      label: 'Crear fase siguiente',
-                      icon: Icons.add,
-                      onPressed: _saving ? null : () => _createPhase(data)),
-              ]);
-        },
-      ));
-}
-
-class NewPhaseScreen extends StatefulWidget {
-  const NewPhaseScreen({super.key});
-  @override
-  State<NewPhaseScreen> createState() => _NewPhaseScreenState();
-}
-
-class _NewPhaseScreenState extends State<NewPhaseScreen> {
-  late Future<List<Map<String, dynamic>>> _notifications;
-
-  @override
-  void initState() {
-    super.initState();
-    _notifications = authController.clientNotifications();
-  }
-
-  Future<void> _openRoutine(Map<String, dynamic>? notice) async {
-    if (notice != null) {
-      await authController.markClientNotificationRead(
-          notificationId: notice['id'].toString());
-    }
-    if (mounted) context.go('/home/routine');
-  }
-
-  @override
-  Widget build(BuildContext context) => PrototypePage(
-      title: 'Nueva fase disponible',
-      child: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _notifications,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting)
-            return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError)
-            return Text('No se pudo cargar el aviso: ${snapshot.error}');
-          final notice =
-              (snapshot.data ?? []).isEmpty ? null : snapshot.data!.first;
-          final payload = notice?['payload'] is Map
-              ? Map<String, dynamic>.from(notice!['payload'] as Map)
-              : <String, dynamic>{};
-          return Column(children: [
-            MusklCard(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Text(
-                      notice == null
-                          ? 'SIN CAMBIOS NUEVOS'
-                          : 'FASE ${payload['phase_number'] ?? 'NUEVA'} · 8 SEMANAS',
-                      style: const TextStyle(color: AppColors.accent)),
-                  const SizedBox(height: 10),
-                  Text(notice?['body']?.toString() ??
-                      'No tienes una fase nueva por revisar.'),
-                ])),
-            const SizedBox(height: 18),
-            MusklButton(
-                label: 'Ver mi rutina', onPressed: () => _openRoutine(notice)),
-          ]);
-        },
-      ));
-}
-
-class ClientProfileScreen extends StatelessWidget {
-  const ClientProfileScreen({super.key});
-  @override
-  Widget build(BuildContext context) => PrototypePage(
-      title: 'Perfil',
-      child: Column(children: [
-        const MusklCard(
-            child: Text(
-                'Diego Ramírez · MSK-0142\n+52 55 1234 5678 · Ciudad de México')),
-        const SizedBox(height: 16),
-        MusklButton(
-            label: 'Solicitar eliminación de mi cuenta',
-            icon: Icons.delete_outline,
-            style: MusklButtonStyle.primary,
-            onPressed: () => showDialog<void>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                        title: const Text('Solicitar eliminación'),
-                        content: const Text(
-                            'La solicitud se enviará al administrador del gimnasio.'),
-                        actions: [
-                          TextButton(
-                              onPressed: () => Navigator.pop(ctx),
-                              child: const Text('Cancelar')),
-                          TextButton(
-                              onPressed: () {
-                                Navigator.pop(ctx);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                        content: Text(
-                                            'Solicitud registrada en el prototipo.')));
-                              },
-                              child: const Text('Enviar solicitud'))
-                        ]))),
-      ]));
-}
-
-class HomePrototypeScreen extends StatelessWidget {
-  const HomePrototypeScreen({super.key});
-  @override
-  Widget build(BuildContext context) => PrototypePage(
-      title: 'Inicio del socio',
-      child: Column(children: [
-        const MusklCard(
-            child: Column(children: [
-          Text('NÚMERO DE SOCIO'),
-          SizedBox(height: 8),
-          Text('MSK-0142',
-              style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.accent)),
-          Text('Racha: 4 semanas · Asistencias: 32')
-        ])),
-        const SizedBox(height: 12),
-        MusklButton(
+                        child: …6334 tokens truncated…     MusklButton(
             label: 'Nueva fase disponible',
             icon: Icons.notifications_active_outlined,
             style: MusklButtonStyle.secondary,

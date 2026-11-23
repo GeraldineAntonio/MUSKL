@@ -49,7 +49,9 @@ android {
 
     buildTypes {
         release {
+            // Use the local debug key for installable test APKs when no release key is configured.
             signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
         }
     }
 }

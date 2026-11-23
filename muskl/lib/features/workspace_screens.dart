@@ -362,6 +362,12 @@ String _restTimeLabel(Object? value) {
   return '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
 }
 
+String _profileDateLabel(Object? value) {
+  final date = DateTime.tryParse(value?.toString() ?? '');
+  if (date == null) return 'Sin fecha';
+  return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+}
+
 Widget _record(String title, String subtitle,
         {IconData icon = Icons.fitness_center,
         String? badge,
@@ -1776,12 +1782,6 @@ class _ClientProfileWorkspaceScreenState
         icon: Icons.person_outline,
       ),
       _ProfileEditOption(
-        key: 'bio',
-        title: 'Biografía',
-        value: (data['bio'] ?? '').toString(),
-        icon: Icons.notes_outlined,
-      ),
-      _ProfileEditOption(
         key: 'email',
         title: 'Correo electrónico',
         value: (data['email'] ?? '').toString(),
@@ -1804,9 +1804,6 @@ class _ClientProfileWorkspaceScreenState
           (data['first_name'] ?? '').toString(),
           (data['last_name'] ?? '').toString(),
         );
-        return;
-      case 'bio':
-        await _editBio((data['bio'] ?? '').toString());
         return;
       case 'email':
         await _editContact('email', (data['email'] ?? '').toString());
@@ -1951,56 +1948,78 @@ class _ClientProfileWorkspaceScreenState
               children: [
                 if (_savingProfile) const LinearProgressIndicator(),
                 MusklCard(
-                    child: Row(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                      ProfilePhotoAvatar(
-                          radius: 42,
-                          image: photoUrl != null && photoUrl.isNotEmpty
-                              ? NetworkImage(photoUrl)
-                              : photoBytes == null
-                                  ? null
-                                  : MemoryImage(photoBytes),
-                          name: '${data['first_name']} ${data['last_name']}',
-                          onEdit: _savingProfile
-                              ? () {}
-                              : () => _openProfileEditMenu(data)),
-                      const SizedBox(width: 14),
-                      Expanded(
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                            Text(
-                                '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'
-                                    .trim(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w900, fontSize: 17)),
-                            Text((data['email'] ?? '').toString(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    color: AppColors.textMuted, fontSize: 12)),
-                            Text((data['phone'] ?? 'Sin teléfono').toString(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    color: AppColors.textMuted, fontSize: 12)),
-                            Text('SOCIO Nº ${data['member_number'] ?? '—'}',
-                                style: TextStyle(
-                                    color: AppColors.textMuted,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: .8,
-                                    fontSize: 10)),
-                          ])),
+                      Row(children: [
+                        ProfilePhotoAvatar(
+                            radius: 42,
+                            image: photoUrl != null && photoUrl.isNotEmpty
+                                ? NetworkImage(photoUrl)
+                                : photoBytes == null
+                                    ? null
+                                    : MemoryImage(photoBytes),
+                            name:
+                                '${data['first_name']} ${data['last_name']}',
+                            allowEdit: false,
+                            onEdit: () {}),
+                        const SizedBox(width: 14),
+                        Expanded(
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                              Text(
+                                  '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'
+                                      .trim(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 17)),
+                              Text((data['email'] ?? '').toString(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: AppColors.textMuted,
+                                      fontSize: 12)),
+                              Text((data['phone'] ?? 'Sin teléfono').toString(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: AppColors.textMuted,
+                                      fontSize: 12)),
+                            ])),
+                        IconButton(
+                          tooltip: 'Editar perfil',
+                          onPressed: _savingProfile
+                              ? null
+                              : () => _openProfileEditMenu(data),
+                          icon: const Icon(Icons.edit_outlined),
+                        ),
+                      ]),
+                      const Divider(height: 22),
+                      Text('SOCIO Nº ${data['member_number'] ?? '—'}',
+                          style: const TextStyle(
+                              color: AppColors.red,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: .8,
+                              fontSize: 17)),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        Expanded(
+                            child: _profileInfoField(
+                                'Cumpleaños',
+                                _profileDateLabel(data['birth_date']),
+                                icon: Icons.cake_outlined)),
+                        const SizedBox(width: 10),
+                        Expanded(
+                            child: _profileInfoField(
+                                'Objetivo',
+                                (data['goal'] ?? 'Pendiente').toString(),
+                                icon: Icons.flag_outlined)),
+                      ]),
                     ])),
-                _profileInfoField('Fecha de nacimiento',
-                    (data['birth_date'] ?? 'Sin fecha').toString(),
-                    icon: Icons.cake_outlined),
-                _profileInfoField(
-                    'Objetivo', (data['goal'] ?? 'Pendiente').toString(),
-                    icon: Icons.flag_outlined),
                 _profileBioCard(
                   (data['bio'] ?? '').toString(),
                   onEdit: _savingProfile
@@ -2171,8 +2190,6 @@ class _ClientProfileWorkspaceScreenState
                             style: const TextStyle(
                                 color: AppColors.red,
                                 fontWeight: FontWeight.w800)),
-                        Text('Membresía hasta ${membershipEnds ?? '—'}',
-                            style: const TextStyle(color: AppColors.textMuted)),
                       ])),
                   const Text('ACTIVO', style: TextStyle(color: AppColors.red)),
                 ])),
@@ -3796,12 +3813,6 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
         icon: Icons.person_outline,
       ),
       _ProfileEditOption(
-        key: 'bio',
-        title: 'Biografía',
-        value: _value('bio'),
-        icon: Icons.notes_outlined,
-      ),
-      _ProfileEditOption(
         key: 'email',
         title: 'Correo electrónico',
         value: _value('email'),
@@ -3821,9 +3832,6 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
         return;
       case 'name':
         await _editPersonal();
-        return;
-      case 'bio':
-        await _editTrainerBio();
         return;
       case 'email':
         await _editTrainerContact('email');
@@ -3856,25 +3864,42 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
           builder: (context, setSheetState) => SafeArea(
                 child: Padding(
                     padding: const EdgeInsets.all(20),
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      const Text('ESPECIALIDADES',
-                          style: TextStyle(fontWeight: FontWeight.w900)),
-                      for (final option in options)
-                        CheckboxListTile(
-                            title: Text(option),
-                            value: selected.contains(option),
-                            onChanged: (value) => setSheetState(() {
-                                  if (value == true) {
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text('ELIGE TUS ESPECIALIDADES',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 6),
+                        const Text('Puedes elegir más de una opción.',
+                            style: TextStyle(color: AppColors.textMuted)),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final option in options)
+                              FilterChip(
+                                label: Text(option),
+                                selected: selected.contains(option),
+                                onSelected: (value) => setSheetState(() {
+                                  if (value) {
                                     selected.add(option);
                                   } else {
                                     selected.remove(option);
                                   }
-                                })),
-                      FilledButton(
-                          onPressed: () =>
-                              Navigator.pop(sheetContext, selected),
-                          child: const Text('Guardar')),
-                    ])),
+                                }),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        FilledButton(
+                            onPressed: () =>
+                                Navigator.pop(sheetContext, selected),
+                            child: const Text('Guardar especialidades')),
+                      ],
+                    )),
               )),
     );
     if (result == null) return;
@@ -3980,7 +4005,8 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                           ? null
                           : NetworkImage(_value('profile_photo_url')),
                       name: '${_value('first_name')} ${_value('last_name')}',
-                      onEdit: _saving ? () {} : _openProfileEditMenu),
+                      allowEdit: false,
+                      onEdit: () {}),
                   const SizedBox(width: 14),
                   Expanded(
                       child: Column(
@@ -4006,6 +4032,11 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                             style: const TextStyle(
                                 color: AppColors.textMuted, fontSize: 12)),
                       ])),
+                  IconButton(
+                    tooltip: 'Editar perfil',
+                    onPressed: _saving ? null : _openProfileEditMenu,
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
                 ]),
               ])),
               _profileBioCard(
@@ -4013,26 +4044,76 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                 onEdit: _saving ? null : _editTrainerBio,
               ),
               MusklCard(
+                  padding: const EdgeInsets.all(18),
                   child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                    Row(children: [
-                      const Expanded(
-                          child: Text('ESPECIALIDADES',
-                              style: TextStyle(fontWeight: FontWeight.w800))),
-                      IconButton(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: AppColors.red.withValues(alpha: .14),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(Icons.fitness_center,
+                              color: AppColors.red, size: 20),
+                        ),
+                        const SizedBox(width: 11),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('ESPECIALIDADES',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      letterSpacing: .8,
+                                      fontWeight: FontWeight.w900)),
+                              SizedBox(height: 3),
+                              Text('Áreas en las que te especializas',
+                                  style: TextStyle(
+                                      color: AppColors.textMuted,
+                                      fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                        TextButton.icon(
                           onPressed: _saving ? null : _editSpecialties,
-                          icon: const Icon(Icons.edit_outlined))
-                    ]),
-                    Wrap(
-                        spacing: 6,
+                          icon: const Icon(Icons.tune, size: 17),
+                          label: const Text('Editar'),
+                        ),
+                      ]),
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
                         children: _value('specialty')
                             .split(',')
                             .map((item) => item.trim())
                             .where((item) => item.isNotEmpty)
-                            .map((item) => Chip(label: Text(item)))
-                            .toList()),
-                  ])),
+                            .map((item) => Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.red.withValues(alpha: .12),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                        color: AppColors.red
+                                            .withValues(alpha: .32)),
+                                  ),
+                                  child: Text(item,
+                                      style: const TextStyle(
+                                          color: AppColors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700)),
+                                ))
+                            .toList(),
+                      ),
+                      if (_value('specialty').trim().isEmpty)
+                        const Text('Agrega tus áreas de especialidad.',
+                            style: TextStyle(color: AppColors.textMuted)),
+                    ],
+                  )),
               for (final certificate
                   in (_profile['certifications'] as List? ?? []))
                 MusklCard(
@@ -5917,12 +5998,6 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         icon: Icons.person_outline,
       ),
       _ProfileEditOption(
-        key: 'bio',
-        title: 'Biografía',
-        value: (_ownProfile['bio'] ?? '').toString(),
-        icon: Icons.notes_outlined,
-      ),
-      _ProfileEditOption(
         key: 'email',
         title: 'Correo electrónico',
         value: (_ownProfile['email'] ?? '').toString(),
@@ -5942,9 +6017,6 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         return;
       case 'name':
         await _editAdminProfile();
-        return;
-      case 'bio':
-        await _editAdminBio();
         return;
       case 'email':
         await _changeAdminEmail();
@@ -6326,7 +6398,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                   : NetworkImage(_ownProfile['profile_photo_url'].toString()),
               name:
                   '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}',
-              onEdit: _savingPhoto ? () {} : _openProfileEditMenu),
+              allowEdit: false,
+              onEdit: () {}),
           const SizedBox(width: 14),
           Expanded(
               child: Column(
@@ -6352,6 +6425,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                     style: const TextStyle(
                         color: AppColors.textMuted, fontSize: 12)),
               ])),
+          IconButton(
+            tooltip: 'Editar perfil',
+            onPressed: _savingPhoto ? null : _openProfileEditMenu,
+            icon: const Icon(Icons.edit_outlined),
+          ),
         ])),
         _profileBioCard(
           (_ownProfile['bio'] ?? '').toString(),

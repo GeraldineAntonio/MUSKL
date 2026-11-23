@@ -44,6 +44,8 @@ El comando aplica todas las migraciones numeradas de `db/` en orden, guarda las 
 
 La migración `021_client_trainer_requests.sql` permite que los socios entren a su panel sin entrenador ni rutina, soliciten entrenador y esperen aceptación. La rutina se asigna después desde el panel del entrenador. Si un entrenador se da de baja, sus socios quedan marcados para reasignación administrativa.
 
+La migración `031_arm_leg_exercise_catalog.sql` agrega 50 ejercicios de brazos y piernas al catálogo sin duplicar los nombres existentes. Render la aplica automáticamente al iniciar el API.
+
 Para crear el primer administrador en Neon desde tu computadora, instala los requisitos de `backend/requirements.txt` y ejecuta desde `backend`:
 
 ```bash

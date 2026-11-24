@@ -206,6 +206,7 @@ class WorkspacePage extends StatelessWidget {
       required this.items,
       required this.selected,
       this.kicker,
+      this.header,
       this.onRefresh,
       this.showAppBar = true});
   final String title;
@@ -213,6 +214,7 @@ class WorkspacePage extends StatelessWidget {
   final List<(String, IconData, String)> items;
   final int selected;
   final String? kicker;
+  final Widget? header;
   final bool showAppBar;
   final Future<void> Function()? onRefresh;
 
@@ -220,7 +222,10 @@ class WorkspacePage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
         appBar: showAppBar
             ? AppBar(
-                title: Column(
+                toolbarHeight: header == null
+                    ? null
+                    : 96 * MediaQuery.textScalerOf(context).scale(1),
+                title: header ?? Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -447,7 +452,7 @@ Widget _profileInfoField(String label, String value,
       ]),
     );
 
-Widget _profileBioInline(String value, {VoidCallback? onEdit}) => Padding(
+Widget _profileBioInline(String value) => Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -463,15 +468,6 @@ Widget _profileBioInline(String value, {VoidCallback? onEdit}) => Padding(
                       fontWeight: FontWeight.w800,
                       color: AppColors.textMuted)),
             ),
-            if (onEdit != null)
-              IconButton(
-                tooltip: 'Editar biografía',
-                visualDensity: VisualDensity.compact,
-                constraints:
-                    const BoxConstraints.tightFor(width: 30, height: 30),
-                onPressed: onEdit,
-                icon: const Icon(Icons.edit_outlined, size: 16),
-              ),
           ]),
           const SizedBox(height: 2),
           Text(
@@ -911,6 +907,57 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
   @override
   Widget build(BuildContext context) => WorkspacePage(
       title: 'Mi rutina',
+      header: FutureBuilder<Map<String, dynamic>>(
+        future: _routine,
+        builder: (context, snapshot) {
+          final data = snapshot.data;
+          final assigned = snapshot.connectionState == ConnectionState.done &&
+              !snapshot.hasError &&
+              data?['assigned'] == true;
+          final name = assigned
+              ? (data?['routine_name'] ?? '').toString().trim()
+              : '';
+          final details = assigned
+              ? [data?['phase_name'], data?['goal']]
+                  .where((value) =>
+                      value != null && value.toString().trim().isNotEmpty)
+                  .map((value) => value.toString().trim())
+                  .join(' · ')
+              : '';
+          return Row(
+            children: [
+              const Text('Tu rutina',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+              if (assigned) ...[
+                const SizedBox(width: 14),
+                Container(width: 2, height: 42, color: AppColors.accent),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(name.isEmpty ? 'Rutina asignada' : name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w800)),
+                      if (details.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(details,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 12, color: AppColors.textMuted)),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          );
+        },
+      ),
       items: _clientNav,
       selected: 1,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1004,15 +1051,6 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
             return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  MusklCard(
-                      child: Row(children: [
-                    const Icon(Icons.local_fire_department,
-                        color: AppColors.accent),
-                    const SizedBox(width: 8),
-                    Expanded(
-                        child: Text(
-                            '${data['routine_name']} · ${data['phase_name']} · ${data['goal']}')),
-                  ])),
                   if (data['scheduled_for_date'] != null &&
                       data['today'] != data['scheduled_for_date'])
                     Padding(
@@ -2097,9 +2135,6 @@ class _ClientProfileWorkspaceScreenState
                                           fontSize: 12)),
                                   _profileBioInline(
                                     (data['bio'] ?? '').toString(),
-                                    onEdit: _savingProfile
-                                        ? null
-                                        : () => _openProfileEditMenu(data),
                                   ),
                                 ])),
                             IconButton(
@@ -4255,7 +4290,6 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                                 color: AppColors.textMuted, fontSize: 12)),
                         _profileBioInline(
                           _value('bio'),
-                          onEdit: _saving ? null : _openProfileEditMenu,
                         ),
                       ])),
                   IconButton(
@@ -6751,7 +6785,6 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                         color: AppColors.textMuted, fontSize: 12)),
                 _profileBioInline(
                   (_ownProfile['bio'] ?? '').toString(),
-                  onEdit: _savingPhoto ? null : _openProfileEditMenu,
                 ),
               ])),
           IconButton(

@@ -983,4 +983,470 @@ class ApiAuthRepository implements AuthRepository {
 
   @override
   Future<void> reviewStaffRequest(
-      {required String userId, required bool approved, Strin
+      {required String userId, required bool approved, String? reason}) async {
+    await _request('POST',
+        '/api/v1/admin/staff-requests/${Uri.encodeComponent(userId)}/review',
+        authenticated: true, body: {'approved': approved, 'reason': reason});
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getAccountDeletionRequests() async {
+    final rows = await _request(
+        'GET', '/api/v1/admin/account-deletion-requests',
+        authenticated: true) as List;
+    return rows.map((row) => Map<String, dynamic>.from(row as Map)).toList();
+  }
+
+  @override
+  Future<void> reviewAccountDeletionRequest(
+      {required String requestId, required bool approved, String? note}) async {
+    await _request('POST',
+        '/api/v1/admin/account-deletion-requests/${Uri.encodeComponent(requestId)}/review',
+        authenticated: true, body: {'approved': approved, 'note': note});
+  }
+
+  Future<dynamic> _request(String method, String path,
+      {Object? body,
+      bool authenticated = false,
+      bool retriedAfterRefresh = false}) async {
+    try {
+      final request =
+          await _client.openUrl(method, Uri.parse('$_baseUrl$path'));
+      request.headers.contentType = ContentType.json;
+      if (authenticated && _accessToken != null) {
+        request.headers
+            .set(HttpHeaders.authorizationHeader, 'Bearer $_accessToken');
+      }
+      if (body != null) request.write(jsonEncode(body));
+      final response =
+          await request.close().timeout(const Duration(seconds: 90));
+      final text = await response.transform(utf8.decoder).join();
+      final decoded = text.isEmpty ? null : jsonDecode(text);
+      if (response.statusCode >= 400) {
+        final detail = decoded is Map ? decoded['detail'] : null;
+        final code = detail is Map ? detail['code']?.toString() : null;
+        final message =
+            detail is Map ? detail['message']?.toString() : detail?.toString();
+        final unknownApiRoute = response.statusCode == 404 &&
+            (code == null || code.isEmpty) &&
+            (message == null || message.toLowerCase() == 'not found');
+        if (response.statusCode == 401 &&
+            authenticated &&
+            !retriedAfterRefresh &&
+            _refreshToken != null) {
+          if (await _refreshAccessToken()) {
+            return await _request(method, path,
+                body: body,
+                authenticated: authenticated,
+                retriedAfterRefresh: true);
+          }
+        }
+        final errorType = switch (code) {
+          'INVALID_CREDENTIALS' => AuthErrorType.invalidCredentials,
+          'USER_NOT_FOUND' => AuthErrorType.notFound,
+          'NOT_FOUND' => AuthErrorType.notFound,
+          'INVALID_CODE' => AuthErrorType.invalidCode,
+          'EMAIL_NOT_VERIFIED' => AuthErrorType.emailNotVerified,
+          _ when response.statusCode == 404 => AuthErrorType.notFound,
+          _ => AuthErrorType.server,
+        };
+        throw AuthException.withCode(
+          errorType,
+          unknownApiRoute
+              ? 'El API de MUSKL no tiene activa esta función. Actualiza el servicio e inténtalo de nuevo.'
+              : message,
+          code: code,
+        );
+      }
+      return decoded;
+    } on SocketException catch (e) {
+      throw AuthException(AuthErrorType.offline, e.message);
+    } on TimeoutException {
+      throw const AuthException(AuthErrorType.offline);
+    } on FormatException catch (e) {
+      throw AuthException(AuthErrorType.server,
+          'Respuesta inválida del servidor: ${e.message}');
+    }
+  }
+
+  Future<bool> _refreshAccessToken() async {
+    final running = _refreshing;
+    if (running != null) return running;
+    final task = _performRefresh();
+    _refreshing = task;
+    try {
+      return await task;
+    } finally {
+      _refreshing = null;
+    }
+  }
+
+  Future<bool> _performRefresh() async {
+    final refreshToken = _refreshToken;
+    if (refreshToken == null) return false;
+    try {
+      final response = await _request('POST', '/api/v1/auth/refresh',
+          body: {'refresh_token': refreshToken});
+      final session = await _sessionFromResponse(
+          Map<String, dynamic>.from(response as Map));
+      onSessionChanged?.call(session);
+      return true;
+    } on AuthException catch (error) {
+      if (error.type == AuthErrorType.offline) rethrow;
+      try {
+        final status = await _request('POST', '/api/v1/auth/session-status',
+            body: {'refresh_token': refreshToken});
+        final user = Map<String, dynamic>.from((status as Map)['user'] as Map);
+        final session = _sessionFromUser(user);
+        if (session.status == AccountStatus.deactivated) {
+          await _storeDeactivatedSession(session);
+          onSessionChanged?.call(session);
+          return false;
+        }
+      } on AuthException catch (statusError) {
+        if (statusError.type == AuthErrorType.offline) rethrow;
+      } catch (_) {}
+      await _clearStoredSession();
+      onSessionChanged?.call(null);
+      return false;
+    } catch (_) {
+      await _clearStoredSession();
+      onSessionChanged?.call(null);
+      return false;
+    }
+  }
+
+  Future<Session> _sessionFromResponse(Map<String, dynamic> response) async {
+    final user = Map<String, dynamic>.from(response['user'] as Map);
+    if (response.containsKey('access_token')) {
+      _accessToken = response['access_token'] as String?;
+    }
+    if (response.containsKey('refresh_token')) {
+      _refreshToken = response['refresh_token'] as String?;
+    }
+    final session = _sessionFromUser(user);
+    if (session.status == AccountStatus.deactivated &&
+        !response.containsKey('access_token')) {
+      await _storeDeactivatedSession(session);
+      return session;
+    }
+    return _saveSessionFromUser(user);
+  }
+
+  Session _sessionFromUser(Map<String, dynamic> user) {
+    final role = switch (user['role']) {
+      'trainer' => UserRole.trainer,
+      'admin' => UserRole.admin,
+      _ => UserRole.client,
+    };
+    final status = switch (user['status']) {
+      'active_no_onboarding' => AccountStatus.activeNoOnboarding,
+      'pending' => AccountStatus.pending,
+      'rejected' => AccountStatus.rejected,
+      'deactivated' => AccountStatus.deactivated,
+      _ => AccountStatus.activeOnboarded,
+    };
+    return Session(
+      role: role,
+      status: status,
+      userId: user['id']?.toString(),
+      memberNumber: user['member_number'] as String?,
+      reason: (user['deactivation_reason'] ?? user['status_reason']) as String?,
+      deactivatedAt:
+          DateTime.tryParse(user['deactivated_at']?.toString() ?? ''),
+      deactivatedBy: user['deactivated_by'] as String?,
+      reactivationUntil:
+          DateTime.tryParse(user['reactivation_until']?.toString() ?? ''),
+    );
+  }
+
+  @override
+  Future<Session> signIn(
+      {required String identifier, required String password}) async {
+    final result = await _request('POST', '/api/v1/auth/login', body: {
+      'identifier': identifier,
+      'password': password,
+    });
+    return _sessionFromResponse(Map<String, dynamic>.from(result as Map));
+  }
+
+  @override
+  Future<Session> signInWithProvider({
+    required String provider,
+    String? identityToken,
+    String? authorizationCode,
+  }) async {
+    final result = await _request(
+      'POST',
+      '/api/v1/auth/social/${Uri.encodeComponent(provider)}',
+      body: {
+        if (identityToken != null) 'identity_token': identityToken,
+        if (authorizationCode != null) 'authorization_code': authorizationCode,
+      },
+    );
+    final session =
+        await _sessionFromResponse(Map<String, dynamic>.from(result as Map));
+    return session;
+  }
+
+  @override
+  Future<Session> registerGoogleClient({
+    required String identityToken,
+    required String firstName,
+    required String lastName,
+    required String memberNumber,
+    required DateTime birthDate,
+    String? phone,
+    String? memberRegistryId,
+  }) async {
+    final result = await _request(
+      'POST',
+      '/api/v1/auth/social/google/register-client',
+      body: {
+        'identity_token': identityToken,
+        'first_name': firstName,
+        'last_name': lastName,
+        'phone': phone,
+        'member_number': memberNumber.trim(),
+        'birth_date': birthDate.toIso8601String().substring(0, 10),
+        if (memberRegistryId != null) 'member_registry_id': memberRegistryId,
+      },
+    );
+    return _sessionFromResponse(Map<String, dynamic>.from(result as Map));
+  }
+
+  @override
+  Future<void> sendResetCode(String email) async {
+    await _request('POST', '/api/v1/auth/password/reset-code',
+        body: {'email': email});
+  }
+
+  @override
+  Future<void> resendRegistrationEmailCode(String email) async {
+    await _request('POST', '/api/v1/auth/register/resend-code',
+        body: {'email': email});
+  }
+
+  @override
+  Future<Session> verifyRegistrationEmail(
+      {required String email, required String code}) async {
+    final result = await _request('POST', '/api/v1/auth/register/verify-email',
+        body: {'email': email, 'code': code});
+    return _sessionFromResponse(Map<String, dynamic>.from(result as Map));
+  }
+
+  @override
+  Future<void> verifyResetCode(
+      {required String email, required String code}) async {
+    await _request('POST', '/api/v1/auth/password/verify-code',
+        body: {'email': email, 'code': code});
+  }
+
+  @override
+  Future<void> resetPassword(
+      {required String email,
+      required String code,
+      required String newPassword}) async {
+    await _request('POST', '/api/v1/auth/password/reset', body: {
+      'email': email,
+      'code': code,
+      'new_password': newPassword,
+    });
+    await _clearStoredSession();
+  }
+
+  @override
+  Future<void> signOut() async {
+    try {
+      if (_accessToken != null) {
+        try {
+          await _request('DELETE', '/api/v1/push-token', authenticated: true)
+              .timeout(const Duration(seconds: 3));
+        } catch (_) {}
+        await _request('POST', '/api/v1/auth/logout',
+                authenticated: true, retriedAfterRefresh: true)
+            .timeout(const Duration(seconds: 3));
+      }
+    } catch (_) {
+      // Cierra la sesión local aunque el backend no esté disponible.
+    } finally {
+      await _clearStoredSession();
+    }
+  }
+
+  @override
+  Future<String?> deactivateMember(
+      {required String memberNumber,
+      String? userId,
+      required String reason,
+      required String by,
+      DateTime? at,
+      DateTime? reactivationUntil}) async {
+    final parts = reason.split(':');
+    final category = parts.first.trim();
+    final path = userId == null
+        ? '/api/v1/admin/members/${Uri.encodeComponent(memberNumber)}/deactivate'
+        : '/api/v1/admin/users/${Uri.encodeComponent(userId)}/deactivate';
+    final result = await _request('PATCH', path, authenticated: true, body: {
+      'reason': category,
+      'note': parts.length > 1 ? parts.skip(1).join(':').trim() : null,
+    }) as Map;
+    return result['notification_channel']?.toString();
+  }
+
+  @override
+  Future<Map<String, dynamic>> getClientDashboard() async =>
+      Map<String, dynamic>.from(
+          await _request('GET', '/api/v1/client/dashboard', authenticated: true)
+              as Map);
+
+  Future<bool> getClientPushReminders() async {
+    final result = Map<String, dynamic>.from(await _request(
+        'GET', '/api/v1/client/push-reminders', authenticated: true) as Map);
+    return result['enabled'] == true;
+  }
+
+  Future<void> setClientPushReminders(bool enabled) async {
+    await _request('PATCH', '/api/v1/client/push-reminders',
+        authenticated: true, body: {'enabled': enabled});
+  }
+
+  Future<void> registerClientPushToken(
+      {required String token, required String platform}) async {
+    await _request('POST', '/api/v1/client/push-token', authenticated: true,
+        body: {'token': token, 'platform': platform});
+  }
+
+  @override
+  Future<Map<String, dynamic>> getClientTrainers() async =>
+      Map<String, dynamic>.from(
+          await _request('GET', '/api/v1/client/trainers', authenticated: true)
+              as Map);
+
+  @override
+  Future<void> requestClientTrainer({required String trainerId}) async {
+    await _request('POST', '/api/v1/client/trainer-requests',
+        authenticated: true, body: {'trainer_id': trainerId});
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateClientProfile(
+      {String? firstName,
+      String? lastName,
+      String? email,
+      String? phone,
+      String? bio,
+      String? photoData,
+      String? photoMime,
+      bool removePhoto = false}) async {
+    final body = <String, dynamic>{
+      if (firstName != null) 'first_name': firstName,
+      if (lastName != null) 'last_name': lastName,
+      if (email != null) 'email': email,
+      if (phone != null) 'phone': phone,
+      if (bio != null) 'bio': bio,
+      if (photoData != null) 'photo_data': photoData,
+      if (photoMime != null) 'photo_mime': photoMime,
+      if (removePhoto) 'remove_photo': true,
+    };
+    return Map<String, dynamic>.from(await _request(
+            'PATCH', '/api/v1/client/profile', authenticated: true, body: body)
+        as Map);
+  }
+
+  @override
+  Future<Map<String, dynamic>> getClientAttendance(
+      {required int year, required int month}) async {
+    final path = Uri(
+        path: '/api/v1/client/attendance',
+        queryParameters: {'year': '$year', 'month': '$month'}).toString();
+    return Map<String, dynamic>.from(
+        await _request('GET', path, authenticated: true) as Map);
+  }
+
+  @override
+  Future<Map<String, dynamic>> checkInClientAttendance() async =>
+      Map<String, dynamic>.from(await _request(
+              'POST', '/api/v1/client/attendance/check-in', authenticated: true)
+          as Map);
+
+  @override
+  Future<Map<String, dynamic>> getClientRoutine({required int day}) async {
+    final path =
+        Uri(path: '/api/v1/client/routine', queryParameters: {'day': '$day'})
+            .toString();
+    return Map<String, dynamic>.from(
+        await _request('GET', path, authenticated: true) as Map);
+  }
+
+  @override
+  Future<Map<String, dynamic>> completeClientExercise(
+      {required String exerciseId, required int setsCompleted}) async {
+    final result = await _request(
+      'POST',
+      '/api/v1/client/routine/exercises/${Uri.encodeComponent(exerciseId)}/complete',
+      authenticated: true,
+      body: {'sets_completed': setsCompleted},
+    );
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getClientNotifications() async {
+    final rows = await _request('GET', '/api/v1/client/notifications',
+        authenticated: true) as List;
+    return rows.map((row) => Map<String, dynamic>.from(row as Map)).toList();
+  }
+
+  @override
+  Future<void> markClientNotificationRead(
+      {required String notificationId}) async {
+    await _request('POST',
+        '/api/v1/client/notifications/${Uri.encodeComponent(notificationId)}/read',
+        authenticated: true);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getTrainerNotifications() async {
+    final rows = await _request('GET', '/api/v1/trainer/notifications',
+        authenticated: true) as List;
+    return rows.map((row) => Map<String, dynamic>.from(row as Map)).toList();
+  }
+
+  @override
+  Future<void> markTrainerNotificationRead(
+      {required String notificationId}) async {
+    await _request('POST',
+        '/api/v1/trainer/notifications/${Uri.encodeComponent(notificationId)}/read',
+        authenticated: true);
+  }
+
+  @override
+  Future<Map<String, dynamic>> completeClientWorkout(
+      {int? durationSeconds, int? dayNumber}) async {
+    final result = await _request('POST', '/api/v1/client/routine/complete',
+        authenticated: true,
+        body: {
+          'duration_seconds': durationSeconds,
+          'day_number': dayNumber,
+        });
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  @override
+  Future<void> requestAccountDeletion() async {
+    await _request('POST', '/api/v1/client/account-deletion-request',
+        authenticated: true);
+  }
+
+  @override
+  Future<void> reactivateMember(
+      {required String memberNumber,
+      String? userId,
+      required String by}) async {
+    final path = userId == null
+        ? '/api/v1/admin/members/${Uri.encodeComponent(memberNumber)}/reactivate'
+        : '/api/v1/admin/users/${Uri.encodeComponent(userId)}/reactivate';
+    await _request('PATCH', path, authenticated: true);
+  }
+}

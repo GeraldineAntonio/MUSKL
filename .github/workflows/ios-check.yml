@@ -1,4 +1,4 @@
-name: Build iOS simulator app
+name: Build iOS IPA (unsigned)
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  ios-simulator:
+  ios-ipa:
     runs-on: macos-latest
     timeout-minutes: 35
     defaults:
@@ -27,7 +27,7 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings
-      - name: Build iOS simulator app
+      - name: Build unsigned iOS app
         env:
           FIREBASE_IOS_API_KEY: ${{ vars.FIREBASE_IOS_API_KEY }}
           FIREBASE_IOS_APP_ID: ${{ vars.FIREBASE_IOS_APP_ID }}
@@ -35,10 +35,23 @@ jobs:
           FIREBASE_MESSAGING_SENDER_ID: ${{ vars.FIREBASE_MESSAGING_SENDER_ID }}
           FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
         run: >-
-          flutter build ios --simulator --no-codesign
+          flutter build ios --release --no-codesign
           --dart-define=MUSKL_API_URL=https://muskl-api.onrender.com
           --dart-define=FIREBASE_IOS_API_KEY="$FIREBASE_IOS_API_KEY"
           --dart-define=FIREBASE_IOS_APP_ID="$FIREBASE_IOS_APP_ID"
           --dart-define=FIREBASE_IOS_BUNDLE_ID="$FIREBASE_IOS_BUNDLE_ID"
           --dart-define=FIREBASE_MESSAGING_SENDER_ID="$FIREBASE_MESSAGING_SENDER_ID"
           --dart-define=FIREBASE_PROJECT_ID="$FIREBASE_PROJECT_ID"
+      - name: Package unsigned IPA for manual signing
+        run: |
+          mkdir -p build/ios/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/Runner.app
+          cd build/ios/ipa
+          zip -qry MUSKL-iOS-unsigned.ipa Payload
+          ls -lh MUSKL-iOS-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MUSKL-iOS-unsigned-IPA
+          path: muskl/build/ios/ipa/MUSKL-iOS-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14

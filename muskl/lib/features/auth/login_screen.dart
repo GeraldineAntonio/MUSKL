@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:go_router/go_router.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
@@ -28,6 +30,8 @@ class _LoginScreenState extends State<LoginScreen> {
       String.fromEnvironment('MUSKL_APPLE_SERVICE_ID');
   static const _appleRedirectUri =
       String.fromEnvironment('MUSKL_APPLE_REDIRECT_URI');
+  static const _appleIosEnabled =
+      bool.fromEnvironment('MUSKL_APPLE_IOS_ENABLED');
 
   final _id = TextEditingController();
   final _pass = TextEditingController();
@@ -153,13 +157,20 @@ class _LoginScreenState extends State<LoginScreen> {
         _errorType = error is AuthException ? error.type : AuthErrorType.server;
       });
     } finally {
-      if (mounted) setState(() { _loading = false; _loadingProvider = null; });
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _loadingProvider = null;
+        });
     }
   }
 
   Future<void> _signInApple() async {
     if (_loading) return;
-    if (_appleServiceId.isEmpty || _appleRedirectUri.isEmpty) {
+    final nativeIos = defaultTargetPlatform == TargetPlatform.iOS;
+    if ((nativeIos && !_appleIosEnabled) ||
+        (!nativeIos &&
+            (_appleServiceId.isEmpty || _appleRedirectUri.isEmpty))) {
       setState(() => _error =
           'Falta configurar el acceso de Apple para esta versión de MUSKL.');
       return;
@@ -169,23 +180,49 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
       _errorType = null;
     });
+    String? appleEmail;
+    var appleName = '';
     try {
       final credential = await SignInWithApple.getAppleIDCredential(
         scopes: const [
           AppleIDAuthorizationScopes.email,
           AppleIDAuthorizationScopes.fullName,
         ],
-        webAuthenticationOptions: WebAuthenticationOptions(
-          clientId: _appleServiceId,
-          redirectUri: Uri.parse(_appleRedirectUri),
-        ),
+        webAuthenticationOptions: nativeIos
+            ? null
+            : WebAuthenticationOptions(
+                clientId: _appleServiceId,
+                redirectUri: Uri.parse(_appleRedirectUri),
+              ),
       );
+      final identityToken = credential.identityToken;
+      if (identityToken == null || identityToken.isEmpty) {
+        throw const AuthException(
+            AuthErrorType.server, 'Apple no devolvió un token de identidad.');
+      }
+      appleEmail = credential.email?.trim().toLowerCase();
+      appleName = [
+        credential.givenName?.trim() ?? '',
+        credential.familyName?.trim() ?? '',
+      ].where((part) => part.isNotEmpty).join(' ');
       await authController.signInWithProvider(
         provider: 'apple',
-        identityToken: credential.identityToken,
-        authorizationCode: credential.authorizationCode,
+        identityToken: identityToken,
+        // Android's web flow exchanges the one-time code on the API. Native
+        // iOS passes its signed identity token directly for server validation.
+        authorizationCode: nativeIos ? null : credential.authorizationCode,
       );
     } catch (error) {
+      if (error is AuthException &&
+          error.code == 'SOCIAL_ACCOUNT_NOT_FOUND' &&
+          mounted) {
+        context.push('/register', extra: {
+          'initial_role': 'Cliente',
+          'email': appleEmail ?? '',
+          'name': appleName,
+        });
+        return;
+      }
       if (!mounted) return;
       setState(() {
         _error = error is AuthException
@@ -285,14 +322,15 @@ class _LoginScreenState extends State<LoginScreen> {
           loading: _loadingProvider == 'google',
           onPressed: _loading ? null : _signInGoogle,
         ),
-        if (_appleServiceId.isNotEmpty && _appleRedirectUri.isNotEmpty) ...[
-        const SizedBox(height: 10),
-        MusklButton(
-          label: 'Continuar con Apple',
-          icon: Icons.apple,
-          style: MusklButtonStyle.secondary,
-          onPressed: _loading ? null : _signInApple,
-        ),
+        if ((defaultTargetPlatform == TargetPlatform.iOS && _appleIosEnabled) ||
+            (_appleServiceId.isNotEmpty && _appleRedirectUri.isNotEmpty)) ...[
+          const SizedBox(height: 10),
+          MusklButton(
+            label: 'Continuar con Apple',
+            icon: Icons.apple,
+            style: MusklButtonStyle.secondary,
+            onPressed: _loading ? null : _signInApple,
+          ),
         ],
         const SizedBox(height: 24),
         Center(

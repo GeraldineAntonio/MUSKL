@@ -73,13 +73,15 @@ Los botones de la app autentican una cuenta MUSKL existente. En el primer acceso
 1. En Google Cloud crea un cliente OAuth de tipo **Web application** y otro de tipo **Android**. Al cliente Android asígnale el nombre de paquete `mx.muskl.muskl` y la huella SHA-1 del certificado con que firmarás la app. Para debug puedes obtenerla con `cd muskl/android && ./gradlew signingReport`; crea también un cliente para la huella de distribución cuando configures la firma release.
 2. El ID Web `355323290179-5t96b3a4efp9lqju4dvt4hk3vu11m1m4.apps.googleusercontent.com` ya está configurado como valor predeterminado en la app y el API. Si usas otro ID, reemplázalo en `GOOGLE_OAUTH_CLIENT_IDS` del servicio API y al compilar la app con `MUSKL_GOOGLE_SERVER_CLIENT_ID`. Para aceptar varias audiencias, sepáralas con comas en la variable del API.
 
-**Apple (Android)**
+**Apple**
 
-1. En Apple Developer crea un **App ID** con Sign in with Apple habilitado, una clave Sign in with Apple y un **Services ID** asociado a ese App ID. Habilita Sign in with Apple en el Services ID y registra como dominio el host HTTPS público del API.
-2. Registra como Return URL exactamente `https://TU_API/api/v1/auth/apple/callback` (sin barra final). En la configuración del servicio API establece `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_SERVICE_ID`, `APPLE_REDIRECT_URI` con esa misma URL y `APPLE_PRIVATE_KEY` con el contenido de la clave `.p8`. La app Android usa `APPLE_SERVICE_ID` como `MUSKL_APPLE_SERVICE_ID` y la misma Return URL como `MUSKL_APPLE_REDIRECT_URI`.
+1. En Apple Developer crea el **App ID** `mx.muskl.muskl` y activa Sign in with Apple. Esto requiere una membresía activa de Apple Developer Program. La app iOS usa el diálogo nativo y manda su `identityToken` al API para validarlo; el API acepta `mx.muskl.muskl` por defecto. Si cambias el bundle ID, actualiza `APPLE_BUNDLE_ID` en Render o define `APPLE_CLIENT_IDS` con los audiencias permitidos. El botón iOS permanece oculto hasta compilar con `--dart-define=MUSKL_APPLE_IOS_ENABLED=true`.
+2. Android usa el flujo web de Apple. Crea un **Services ID** asociado al App ID, habilita Sign in with Apple en él y registra como dominio el host HTTPS público del API. Registra como Return URL exactamente `https://TU_API/api/v1/auth/apple/callback` (sin barra final). En Render establece `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_SERVICE_ID`, `APPLE_REDIRECT_URI` con esa misma URL y `APPLE_PRIVATE_KEY` con el contenido de la clave `.p8`. Para compilar Android define `MUSKL_APPLE_SERVICE_ID` y `MUSKL_APPLE_REDIRECT_URI`.
 3. La migración `025_social_identities.sql` se aplica al desplegar el API mediante el comando de migraciones del servicio.
 
-Guarda las claves privadas solo en el entorno del API y los argumentos locales de compilación; no las agregues a Git ni compartas la clave `.p8`. Los IDs de cliente OAuth son identificadores públicos. Con las variables de Apple configuradas, compila desde `muskl` así:
+Guarda las claves privadas solo en el entorno del API y los argumentos locales de compilación; no las agregues a Git ni compartas la clave `.p8`. Los IDs de cliente OAuth son identificadores públicos. En iOS, cuando el usuario todavía no tiene cuenta MUSKL, el registro se abre con su correo de Apple para que pueda crear el perfil y vincularlo en el siguiente acceso.
+
+Con las variables de Apple Android configuradas, compila desde `muskl` así:
 
 ```bash
 flutter build apk --release \

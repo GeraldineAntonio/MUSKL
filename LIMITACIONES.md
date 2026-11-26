@@ -2,8 +2,10 @@
 
 ## iOS
 
-- El proyecto tiene un target iOS y compiló para el simulador, pero todavía no se ha instalado ni validado en un iPhone real.
-- **Iniciar sesión con Apple no está disponible todavía.** Para habilitarlo, la cuenta debe tener una membresía activa de Apple Developer Program y el App ID `mx.muskl.muskl` debe tener activada la capacidad Sign in with Apple. Hasta entonces, el botón permanece oculto en la app iOS.
-- Las notificaciones push remotas de iOS también están pendientes de configurar con APNs y Firebase.
+- El proyecto tiene un target iOS y GitHub Actions genera un IPA sin firma. Ese archivo sirve para comprobar la compilación, pero no se instala directamente en un iPhone.
+- **Las pruebas en iPhone y la distribución de iOS quedan pausadas por ahora.** Para instalar en un dispositivo se necesita firmar la app desde Xcode en una Mac. Una cuenta Apple gratuita permite pruebas personales limitadas: hasta tres dispositivos y perfiles que vencen cada siete días, por lo que hay que volver a firmar e instalar la app periódicamente.
+- Para distribuir MUSKL a otras personas mediante TestFlight o App Store se necesita la membresía paga de Apple Developer Program. También se requiere configurar las capacidades y credenciales de Apple correspondientes.
+- **Iniciar sesión con Apple no está disponible todavía.** Requiere una membresía activa de Apple Developer Program y activar Sign in with Apple en el App ID `mx.muskl.muskl`; hasta entonces, el botón permanece oculto en iOS.
+- Las notificaciones push remotas de iOS también quedan pendientes de configurar con APNs y Firebase, lo que requiere las capacidades de Apple correspondientes.
 
-La app puede seguir probándose en iOS con los demás métodos de acceso y funciones que no dependan de esas capacidades, una vez instalada con una firma de desarrollo válida.
+El desarrollo y las pruebas de Android continúan disponibles. El código y el target de iOS se conservan en Flutter para retomarlos cuando se cuente con acceso a una Mac y se decida configurar la firma y distribución de Apple.

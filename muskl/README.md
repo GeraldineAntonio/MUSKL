@@ -45,9 +45,13 @@ El archivo queda en `build/app/outputs/flutter-apk/app-debug.apk`. El acceso por
 ## Integraciones que requieren configuración
 
 - La recuperación de contraseña envía correo por SMTP. Sin SMTP, en modo desarrollo el código aparece en el log del contenedor API.
-- Las notificaciones se guardan en la base; falta conectar un proveedor de push.
+- Las notificaciones push de Android requieren la configuración de Firebase indicada en el workflow y en las variables de GitHub. Las notificaciones push remotas de iOS están pendientes de configurar con APNs y Firebase.
 - Google y Apple autentican cuentas MUSKL existentes cuyo correo verificado coincide con el proveedor; consulta `backend/README.md` para configurar las credenciales.
 - Las certificaciones se guardan en el volumen local `backend/uploads`; para despliegue se necesita almacenamiento privado y HTTPS.
+
+## Estado de iOS
+
+El target iOS se conserva en Flutter y GitHub Actions puede compilar un IPA sin firma. Ese artefacto no se instala directamente en un iPhone: para probarlo en un dispositivo se debe firmar desde Xcode en una Mac. La cuenta Apple gratuita permite pruebas personales limitadas a tres dispositivos y perfiles de siete días; para distribuir la app mediante TestFlight o App Store se necesita la membresía paga de Apple Developer Program. Por ahora, las pruebas y la distribución de iOS quedan pausadas; Android continúa disponible. Consulta [LIMITACIONES.md](../LIMITACIONES.md) para el detalle.
 
 ## Estructura
 

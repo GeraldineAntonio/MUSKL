@@ -48,7 +48,7 @@ La migración `031_arm_leg_exercise_catalog.sql` agrega 50 ejercicios de brazos 
 
 ### Recordatorios push para socios
 
-Configura un proyecto Firebase con la aplicación Android `mx.muskl.muskl` y Cloud Messaging habilitado. Compila Flutter con `FIREBASE_API_KEY`, `FIREBASE_APP_ID`, `FIREBASE_MESSAGING_SENDER_ID` y `FIREBASE_PROJECT_ID` como `--dart-define`. En Render agrega `FIREBASE_SERVICE_ACCOUNT_JSON` como secreto con el JSON de una cuenta de servicio autorizada a enviar mensajes FCM; puedes definir también `FIREBASE_PROJECT_ID`. No guardes esa clave privada en GitHub ni en el APK. La migración `034_push_reminders.sql` crea los tokens, la preferencia y el registro diario de entregas.
+Configura un proyecto Firebase con la aplicación Android `mx.muskl.muskl` y Cloud Messaging habilitado. En los ajustes del repositorio de GitHub agrega estas **Actions variables**: `FIREBASE_API_KEY`, `FIREBASE_APP_ID`, `FIREBASE_MESSAGING_SENDER_ID` y `FIREBASE_PROJECT_ID`. El workflow `android-apk.yml` las incluye como `--dart-define` al compilar el APK. En Render agrega `FIREBASE_SERVICE_ACCOUNT_JSON` como secreto con el JSON de una cuenta de servicio autorizada a enviar mensajes FCM y `FIREBASE_PROJECT_ID` con el ID del proyecto. No guardes esa clave privada en GitHub ni en el APK. La migración `034_push_reminders.sql` crea los tokens, la preferencia y el registro diario de entregas; Render aplica las migraciones al arrancar.
 
 Para crear el primer administrador en Neon desde tu computadora, instala los requisitos de `backend/requirements.txt` y ejecuta desde `backend`:
 

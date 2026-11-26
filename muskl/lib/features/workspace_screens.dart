@@ -76,8 +76,9 @@ class _SplashScreenState extends State<SplashScreen> {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(32, 24, 32, 28),
                 child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const Spacer(),
                     Container(
                       width: 66,
                       height: 66,
@@ -90,9 +91,11 @@ class _SplashScreenState extends State<SplashScreen> {
                     ),
                     const SizedBox(height: 14),
                     Text('MUSKL',
+                        textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.headlineLarge),
                     const SizedBox(height: 8),
                     Text('ENTRENA · REGISTRA · SUPERA',
+                        textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
                               color: AppColors.textMuted,
                               letterSpacing: 2,

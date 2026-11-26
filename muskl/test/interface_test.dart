@@ -58,7 +58,7 @@ void main() {
       onNavigate: (value) => route = value,
     ))));
     await capture(tester, 'inicio');
-    await tester.tap(find.text('Ver mi rutina'));
+    await tester.tap(find.text('FUERZA Y MOVILIDAD'));
     expect(route, '/home/routine');
   });
 

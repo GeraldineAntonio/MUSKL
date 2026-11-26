@@ -1,0 +1,44 @@
+name: Build iOS simulator app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'muskl/**'
+      - '.github/workflows/ios-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  ios-simulator:
+    runs-on: macos-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: muskl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.0'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Build iOS simulator app
+        env:
+          FIREBASE_IOS_API_KEY: ${{ vars.FIREBASE_IOS_API_KEY }}
+          FIREBASE_IOS_APP_ID: ${{ vars.FIREBASE_IOS_APP_ID }}
+          FIREBASE_IOS_BUNDLE_ID: ${{ vars.FIREBASE_IOS_BUNDLE_ID }}
+          FIREBASE_MESSAGING_SENDER_ID: ${{ vars.FIREBASE_MESSAGING_SENDER_ID }}
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+        run: >-
+          flutter build ios --simulator --no-codesign
+          --dart-define=MUSKL_API_URL=https://muskl-api.onrender.com
+          --dart-define=FIREBASE_IOS_API_KEY="$FIREBASE_IOS_API_KEY"
+          --dart-define=FIREBASE_IOS_APP_ID="$FIREBASE_IOS_APP_ID"
+          --dart-define=FIREBASE_IOS_BUNDLE_ID="$FIREBASE_IOS_BUNDLE_ID"
+          --dart-define=FIREBASE_MESSAGING_SENDER_ID="$FIREBASE_MESSAGING_SENDER_ID"
+          --dart-define=FIREBASE_PROJECT_ID="$FIREBASE_PROJECT_ID"

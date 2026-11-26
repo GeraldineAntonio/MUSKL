@@ -50,6 +50,10 @@ La migración `031_arm_leg_exercise_catalog.sql` agrega 50 ejercicios de brazos 
 
 Configura un proyecto Firebase con la aplicación Android `mx.muskl.muskl` y Cloud Messaging habilitado. En los ajustes del repositorio de GitHub agrega estas **Actions variables**: `FIREBASE_API_KEY`, `FIREBASE_APP_ID`, `FIREBASE_MESSAGING_SENDER_ID` y `FIREBASE_PROJECT_ID`. El workflow `android-apk.yml` las incluye como `--dart-define` al compilar el APK. En Render agrega `FIREBASE_SERVICE_ACCOUNT_JSON` como secreto con el JSON de una cuenta de servicio autorizada a enviar mensajes FCM y `FIREBASE_PROJECT_ID` con el ID del proyecto. No guardes esa clave privada en GitHub ni en el APK. Las migraciones `034_push_reminders.sql` y `035_push_event_notifications.sql` registran los dispositivos, preferencias, recordatorios diarios y eventos push. Los avisos de fases, solicitudes, actividad y otros avisos guardados en la bandeja de la app se envían a los dispositivos de usuarios que activaron las notificaciones push. Render aplica las migraciones al arrancar.
 
+### Aplicación iOS y APNs
+
+El target iOS usa el bundle ID `mx.muskl.muskl`. Registra ese identificador como aplicación iOS en el mismo proyecto Firebase y crea una clave APNs de Apple; carga el archivo `.p8`, su Key ID y el Team ID en Firebase Console → Configuración del proyecto → Cloud Messaging. En GitHub agrega las Actions variables `FIREBASE_IOS_API_KEY`, `FIREBASE_IOS_APP_ID` y `FIREBASE_IOS_BUNDLE_ID`; `FIREBASE_PROJECT_ID` y `FIREBASE_MESSAGING_SENDER_ID` son compartidas con Android. La clave `.p8` se configura solo en Firebase y no se almacena en el repositorio. El target solicita permiso de notificaciones y registra el token APNs/FCM del dispositivo.
+
 Para crear el primer administrador en Neon desde tu computadora, instala los requisitos de `backend/requirements.txt` y ejecuta desde `backend`:
 
 ```bash

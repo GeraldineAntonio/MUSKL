@@ -24,13 +24,22 @@ class PushNotificationService {
 
   static const _apiKey = String.fromEnvironment('FIREBASE_API_KEY');
   static const _appId = String.fromEnvironment('FIREBASE_APP_ID');
-  static const _senderId = String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID');
+  static const _iosApiKey = String.fromEnvironment('FIREBASE_IOS_API_KEY');
+  static const _iosAppId = String.fromEnvironment('FIREBASE_IOS_APP_ID');
+  static const _senderId =
+      String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID');
   static const _projectId = String.fromEnvironment('FIREBASE_PROJECT_ID');
   static const _iosBundleId = String.fromEnvironment('FIREBASE_IOS_BUNDLE_ID');
 
+  bool get _isIOS => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  String get _activeApiKey =>
+      _isIOS ? (_iosApiKey.isEmpty ? _apiKey : _iosApiKey) : _apiKey;
+  String get _activeAppId => _isIOS ? _iosAppId : _appId;
+
   bool get isConfigured =>
-      _apiKey.isNotEmpty &&
-      _appId.isNotEmpty &&
+      _activeApiKey.isNotEmpty &&
+      _activeAppId.isNotEmpty &&
       _senderId.isNotEmpty &&
       _projectId.isNotEmpty;
 
@@ -52,11 +61,13 @@ class PushNotificationService {
       if (Firebase.apps.isEmpty) {
         await Firebase.initializeApp(
           options: FirebaseOptions(
-            apiKey: _apiKey,
-            appId: _appId,
+            apiKey: _activeApiKey,
+            appId: _activeAppId,
             messagingSenderId: _senderId,
             projectId: _projectId,
-            iosBundleId: _iosBundleId.isEmpty ? null : _iosBundleId,
+            iosBundleId: _isIOS
+                ? (_iosBundleId.isEmpty ? 'mx.muskl.muskl' : _iosBundleId)
+                : null,
           ),
         );
       }
@@ -118,6 +129,21 @@ class PushNotificationService {
         'Permite las notificaciones de MUSKL en los ajustes del teléfono.',
       );
     }
+    if (_isIOS) {
+      String? apnsToken;
+      for (var attempt = 0; attempt < 20 && apnsToken == null; attempt++) {
+        apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+        if (apnsToken == null) {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
+      }
+      if (apnsToken == null) {
+        throw const AuthException(
+          AuthErrorType.server,
+          'No se pudo conectar con Apple Push Notifications. Revisa la configuración APNs de Firebase e inténtalo de nuevo en un iPhone.',
+        );
+      }
+    }
     final token = await FirebaseMessaging.instance.getToken();
     if (token == null || token.isEmpty) {
       throw const AuthException(
@@ -144,6 +170,7 @@ class PushNotificationService {
 
   Future<void> _saveToken(String token) => _repository.registerClientPushToken(
         token: token,
-        platform: defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
+        platform:
+            defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
       );
 }

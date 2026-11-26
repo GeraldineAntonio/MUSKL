@@ -78,9 +78,9 @@ class PushNotificationService {
   }
 
   Future<void> syncSession(Session? session) async {
-    if (session?.role != UserRole.client || !await _initialize()) return;
+    if (session == null || !await _initialize()) return;
     try {
-      final enabled = await _repository.getClientPushReminders();
+      final enabled = await _repository.getPushNotificationsEnabled();
       if (!enabled) return;
       final token = await FirebaseMessaging.instance.getToken();
       if (token != null && token.isNotEmpty) await _saveToken(token);
@@ -90,6 +90,16 @@ class PushNotificationService {
   }
 
   Future<void> enableClientReminders() async {
+    await _requestPermissionAndRegisterToken();
+    await _repository.setClientPushReminders(true);
+  }
+
+  Future<void> enablePushNotifications() async {
+    await _requestPermissionAndRegisterToken();
+    await _repository.setPushNotificationsEnabled(true);
+  }
+
+  Future<void> _requestPermissionAndRegisterToken() async {
     if (!isConfigured || !await _initialize()) {
       throw const AuthException(
         AuthErrorType.server,
@@ -116,15 +126,19 @@ class PushNotificationService {
       );
     }
     await _saveToken(token);
-    await _repository.setClientPushReminders(true);
   }
 
   Future<void> disableClientReminders() =>
       _repository.setClientPushReminders(false);
 
+  Future<void> disablePushNotifications() =>
+      _repository.setPushNotificationsEnabled(false);
+
   Future<void> _refreshToken(String token) async {
     try {
-      if (await _repository.getClientPushReminders()) await _saveToken(token);
+      if (await _repository.getPushNotificationsEnabled()) {
+        await _saveToken(token);
+      }
     } catch (_) {}
   }
 

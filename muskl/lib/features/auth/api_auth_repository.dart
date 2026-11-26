@@ -1306,6 +1306,17 @@ class ApiAuthRepository implements AuthRepository {
     return result['enabled'] == true;
   }
 
+  Future<bool> getPushNotificationsEnabled() async {
+    final result = Map<String, dynamic>.from(await _request(
+        'GET', '/api/v1/push-settings', authenticated: true) as Map);
+    return result['enabled'] == true;
+  }
+
+  Future<void> setPushNotificationsEnabled(bool enabled) async {
+    await _request('PATCH', '/api/v1/push-settings',
+        authenticated: true, body: {'enabled': enabled});
+  }
+
   Future<void> setClientPushReminders(bool enabled) async {
     await _request('PATCH', '/api/v1/client/push-reminders',
         authenticated: true, body: {'enabled': enabled});
@@ -1313,7 +1324,7 @@ class ApiAuthRepository implements AuthRepository {
 
   Future<void> registerClientPushToken(
       {required String token, required String platform}) async {
-    await _request('POST', '/api/v1/client/push-token', authenticated: true,
+    await _request('POST', '/api/v1/push-token', authenticated: true,
         body: {'token': token, 'platform': platform});
   }
 

@@ -1994,8 +1994,8 @@ class _ClientProfileWorkspaceScreenState
       if (!mounted) return;
       setState(() => _profile = authController.clientDashboard());
       _showProfileMessage(enabled
-          ? 'Recordatorios activados en este teléfono.'
-          : 'Recordatorios desactivados.');
+          ? 'Notificaciones push activadas en este teléfono.'
+          : 'Notificaciones push desactivadas.');
     } catch (error) {
       _showProfileMessage(
           'No se pudo cambiar la preferencia: ${_readableProfileError(error)}');
@@ -2351,10 +2351,10 @@ class _ClientProfileWorkspaceScreenState
                         ? null
                         : _setPushReminders,
                     activeThumbColor: AppColors.red,
-                    title: const Text('Recordatorios de entrenamiento'),
+                    title: const Text('Notificaciones push'),
                     subtitle: Text(_savingPushPreference
                         ? 'Guardando preferencia…'
-                        : 'Aviso diario desde las 19:00 si tienes una sesión pendiente.'),
+                        : 'Fases nuevas, avisos de tu cuenta y recordatorio diario de rutina.'),
                     secondary: const Icon(Icons.notifications_active_outlined,
                         color: AppColors.accent),
                   ),
@@ -4263,6 +4263,26 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
     if (mounted) context.push('/trainer/password');
   }
 
+  Future<void> _setPushNotifications(bool enabled) async {
+    setState(() => _saving = true);
+    try {
+      if (enabled) {
+        await pushNotificationService.enablePushNotifications();
+      } else {
+        await pushNotificationService.disablePushNotifications();
+      }
+      if (!mounted) return;
+      setState(() => _profile['push_notifications_enabled'] = enabled);
+      _message(enabled
+          ? 'Notificaciones push activadas en este teléfono.'
+          : 'Notificaciones push desactivadas.');
+    } catch (e) {
+      _message('No se pudieron cambiar las notificaciones: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Widget _preference(String label, String key, bool fallback) {
     final preferences = _preferences;
     return SwitchListTile(
@@ -4428,6 +4448,17 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                   'Actualiza tus credenciales de acceso', Icons.lock_outline,
                   onTap: _changePassword),
               _section('Notificaciones'),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Notificaciones push en este teléfono'),
+                subtitle: const Text(
+                    'Recibe avisos de actividad, solicitudes y fases nuevas.'),
+                secondary: const Icon(Icons.notifications_active_outlined,
+                    color: AppColors.accent),
+                value: _profile['push_notifications_enabled'] == true,
+                activeThumbColor: AppColors.red,
+                onChanged: _saving ? null : _setPushNotifications,
+              ),
               _preference('Actividad de clientes', 'client_activity', true),
               _preference('Rutinas por vencer', 'routine_expiry', true),
               _preference('Recordatorio diario', 'daily_reminder', false),
@@ -6249,6 +6280,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   List<Map<String, dynamic>> _invites = [];
   List<Map<String, dynamic>> _admins = [];
   bool _newRequestNotifications = true;
+  bool _pushNotificationsEnabled = false;
   bool _savingPreferences = false;
   Map<String, dynamic> _ownProfile = {};
   bool _savingPhoto = false;
@@ -6265,7 +6297,13 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   Future<void> _loadOwnProfile() async {
     try {
       final profile = await authController.ownProfile();
-      if (mounted) setState(() => _ownProfile = profile);
+      if (mounted) {
+        setState(() {
+          _ownProfile = profile;
+          _pushNotificationsEnabled =
+              profile['push_notifications_enabled'] == true;
+        });
+      }
     } catch (e) {
       if (mounted) _showLocalMessage('No se pudo cargar el perfil: $e');
     }
@@ -6450,6 +6488,30 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       setState(() => _newRequestNotifications = saved['new_requests'] == true);
     } catch (e) {
       if (mounted) _showLocalMessage('No se guardó la preferencia: $e');
+    } finally {
+      if (mounted) setState(() => _savingPreferences = false);
+    }
+  }
+
+  Future<void> _setAdminPushNotifications(bool enabled) async {
+    if (_savingPreferences) return;
+    setState(() => _savingPreferences = true);
+    try {
+      if (enabled) {
+        await pushNotificationService.enablePushNotifications();
+      } else {
+        await pushNotificationService.disablePushNotifications();
+      }
+      if (mounted) {
+        setState(() => _pushNotificationsEnabled = enabled);
+        _showLocalMessage(enabled
+            ? 'Notificaciones push activadas en este teléfono.'
+            : 'Notificaciones push desactivadas.');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showLocalMessage('No se pudieron cambiar las notificaciones: $e');
+      }
     } finally {
       if (mounted) setState(() => _savingPreferences = false);
     }
@@ -6834,6 +6896,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             value: _newRequestNotifications,
             enabled: !_savingPreferences,
             onChanged: _setNewRequestNotifications),
+        _SwitchSetting(
+            label: 'Notificaciones push en este teléfono',
+            value: _pushNotificationsEnabled,
+            enabled: !_savingPreferences,
+            onChanged: _setAdminPushNotifications),
         _setting(
             _PrototypeSettings.gymName,
             '${_PrototypeSettings.gymAddress} · ${_PrototypeSettings.gymPhone}',

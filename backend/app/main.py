@@ -76,13 +76,17 @@ async def lifespan(_: FastAPI):
     pool.open(wait=True)
     cleanup = asyncio.create_task(_expired_account_cleanup_loop())
     phase_maintenance = asyncio.create_task(_routine_phase_maintenance_loop())
+    notification_push = asyncio.create_task(_notification_push_loop())
     yield
     cleanup.cancel()
     phase_maintenance.cancel()
+    notification_push.cancel()
     with suppress(asyncio.CancelledError):
         await cleanup
     with suppress(asyncio.CancelledError):
         await phase_maintenance
+    with suppress(asyncio.CancelledError):
+        await notification_push
     pool.close()
 
 
@@ -186,6 +190,16 @@ async def _routine_phase_maintenance_loop() -> None:
         await asyncio.sleep(30 * 60)
 
 
+async def _notification_push_loop() -> None:
+    """Deliver opted-in in-app notifications as device push notifications."""
+    while True:
+        try:
+            await asyncio.to_thread(_deliver_pending_notification_pushes)
+        except Exception:
+            log.exception('Notification push delivery failed; it will retry')
+        await asyncio.sleep(30)
+
+
 def _validate_strong_password(value: str) -> str:
     requirements = (
         (r'[A-Z]', 'una letra mayúscula'),
@@ -237,6 +251,10 @@ class PushTokenPayload(BaseModel):
 
 
 class PushReminderPreference(BaseModel):
+    enabled: bool
+
+
+class PushNotificationPreference(BaseModel):
     enabled: bool
 
 
@@ -1771,6 +1789,7 @@ def own_profile(user: dict = Depends(current_user)) -> dict:
         'phone': user['phone'],
         'bio': user.get('bio'),
         'role': user['role'],
+        'push_notifications_enabled': bool(user.get('push_notifications_enabled')),
         'profile_photo_url': _signed_profile_photo(user.get('profile_photo_storage_key')),
         'profile_photo_mime': user.get('profile_photo_mime'),
     }
@@ -1950,6 +1969,7 @@ def deactivated_session_status(payload: RefreshRequest) -> dict:
 def trainer_profile(trainer: dict = Depends(active_trainer)) -> dict:
     with pool.connection() as conn:
         profile = conn.execute("""SELECT u.first_name, u.last_name, u.email, u.phone,
+                u.push_notifications_enabled,
                 u.profile_photo_storage_key, u.profile_photo_mime,
                 tp.specialty, tp.bio, tp.notification_preferences,
                 coalesce((SELECT jsonb_agg(jsonb_build_object('id', tc.id, 'title', tc.title,
@@ -3457,6 +3477,75 @@ def _firebase_admin_app():
         return None
 
 
+def _deliver_pending_notification_pushes() -> int:
+    """Send newly-created in-app notifications to opted-in users' devices."""
+    app_instance = _firebase_admin_app()
+    if app_instance is None:
+        return 0
+    from firebase_admin import messaging
+
+    delivered = 0
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            events = cur.execute("""SELECT n.id, n.user_id, n.kind, n.title,
+                    n.body, u.push_notifications_enabled
+                FROM notifications n
+                JOIN users u ON u.id = n.user_id
+                WHERE n.push_processed_at IS NULL
+                ORDER BY n.created_at, n.id
+                LIMIT 100
+                FOR UPDATE OF n SKIP LOCKED""").fetchall()
+            for event in events:
+                user_id = event['user_id']
+                tokens = cur.execute("""SELECT token FROM user_push_tokens
+                    WHERE user_id = %s""", (user_id,)).fetchall()
+                if not event['push_notifications_enabled'] or not tokens:
+                    cur.execute("""UPDATE notifications SET push_processed_at = now()
+                        WHERE id = %s""", (event['id'],))
+                    continue
+
+                sent = False
+                retry = False
+                for token_row in tokens:
+                    token = token_row['token']
+                    try:
+                        messaging.send(messaging.Message(
+                            token=token,
+                            notification=messaging.Notification(
+                                title=event['title'], body=event['body']),
+                            data={
+                                'notification_id': str(event['id']),
+                                'kind': event['kind'],
+                            },
+                            android=messaging.AndroidConfig(
+                                priority='high',
+                                notification=messaging.AndroidNotification(
+                                    channel_id='workout_reminders'))),
+                            app=app_instance)
+                        sent = True
+                    except Exception as error:
+                        error_code = getattr(error, 'code', '')
+                        if error_code in (
+                                'messaging/registration-token-not-registered',
+                                'messaging/invalid-registration-token'):
+                            cur.execute(
+                                'DELETE FROM user_push_tokens WHERE token = %s',
+                                (token,))
+                        else:
+                            retry = True
+                        log.warning(
+                            'FCM event notification failed for user %s (%s)',
+                            user_id, error_code or type(error).__name__)
+
+                # Retry temporary provider failures. Invalid tokens are removed,
+                # and successful delivery to at least one device completes the event.
+                if sent or not retry:
+                    cur.execute("""UPDATE notifications SET push_processed_at = now()
+                        WHERE id = %s""", (event['id'],))
+                    delivered += int(sent)
+    return delivered
+
+
 def _deliver_client_push_reminders() -> int:
     """Send at most one workout reminder per opted-in client and local day."""
     app_instance = _firebase_admin_app()
@@ -4376,6 +4465,30 @@ def client_push_reminder_settings(client: dict = Depends(active_client)) -> dict
     return {'enabled': bool(row and row['push_reminders_enabled'])}
 
 
+@app.get('/api/v1/push-settings')
+def push_notification_settings(user: dict = Depends(current_user)) -> dict:
+    return {'enabled': bool(user.get('push_notifications_enabled'))}
+
+
+@app.patch('/api/v1/push-settings')
+def update_push_notification_settings(
+        payload: PushNotificationPreference,
+        user: dict = Depends(current_user)) -> dict:
+    if user['status'] not in ('active', 'active_no_onboarding'):
+        raise _problem(403, 'ACTIVE_ACCOUNT_REQUIRED',
+                       'La cuenta debe estar activa para recibir notificaciones.')
+    with pool.connection() as conn:
+        if payload.enabled and not conn.execute(
+                'SELECT 1 FROM user_push_tokens WHERE user_id = %s LIMIT 1',
+                (user['id'],)).fetchone():
+            raise _problem(409, 'PUSH_DEVICE_NOT_REGISTERED',
+                           'Activa las notificaciones en este teléfono primero.')
+        conn.execute("""UPDATE users SET push_notifications_enabled = %s,
+            updated_at = now() WHERE id = %s""",
+            (payload.enabled, user['id']))
+    return {'enabled': payload.enabled}
+
+
 @app.patch('/api/v1/client/push-reminders')
 def update_client_push_reminder_settings(
         payload: PushReminderPreference,
@@ -4390,19 +4503,26 @@ def update_client_push_reminder_settings(
             SET push_reminders_enabled = %s, updated_at = now()
             WHERE user_id = %s RETURNING push_reminders_enabled""",
             (payload.enabled, client['id'])).fetchone()
+        conn.execute("""UPDATE users SET push_notifications_enabled = %s,
+            updated_at = now() WHERE id = %s""",
+            (payload.enabled, client['id']))
     return {'enabled': bool(row and row['push_reminders_enabled'])}
 
 
 @app.post('/api/v1/client/push-token', status_code=204)
-def register_client_push_token(payload: PushTokenPayload,
-                               client: dict = Depends(active_client)) -> None:
+@app.post('/api/v1/push-token', status_code=204)
+def register_push_token(payload: PushTokenPayload,
+                        user: dict = Depends(current_user)) -> None:
+    if user['status'] not in ('active', 'active_no_onboarding'):
+        raise _problem(403, 'ACTIVE_ACCOUNT_REQUIRED',
+                       'La cuenta debe estar activa para registrar este teléfono.')
     with pool.connection() as conn:
         conn.execute("""INSERT INTO user_push_tokens (token, user_id, platform)
             VALUES (%s, %s, %s)
             ON CONFLICT (token) DO UPDATE
                 SET user_id = EXCLUDED.user_id, platform = EXCLUDED.platform,
                     updated_at = now()""",
-            (payload.token, client['id'], payload.platform))
+            (payload.token, user['id'], payload.platform))
 
 
 @app.delete('/api/v1/push-token', status_code=204)

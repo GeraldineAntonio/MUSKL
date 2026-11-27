@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'core/router.dart';
 import 'core/theme/app_theme.dart';
@@ -17,6 +18,8 @@ final apiAuthRepository = ApiAuthRepository(_apiUrl);
 final pushNotificationService = PushNotificationService(apiAuthRepository);
 final authController = AuthController(apiAuthRepository);
 final rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+final appTextScaleNotifier = ValueNotifier<double>(1.0);
+const appPreferencesStorage = FlutterSecureStorage();
 void _connectSessionUpdates() {
   apiAuthRepository.onSessionChanged = (session) {
     authController.updateSessionFromRepository(session);
@@ -43,11 +46,20 @@ class _MusklAppState extends State<MusklApp> {
   void initState() {
     super.initState();
     _connectSessionUpdates();
+    unawaited(_restoreTextScale());
     _pushSubscription = pushNotificationService.foregroundNotifications.listen(
       (notification) => rootScaffoldMessengerKey.currentState?.showSnackBar(
         SnackBar(content: Text('${notification.$1}\n${notification.$2}')),
       ),
     );
+  }
+
+  Future<void> _restoreTextScale() async {
+    final saved = await appPreferencesStorage.read(key: 'app_text_scale');
+    final scale = double.tryParse(saved ?? '');
+    if (scale != null && scale >= 1 && scale <= 1.25) {
+      appTextScaleNotifier.value = scale;
+    }
   }
 
   @override
@@ -58,13 +70,27 @@ class _MusklAppState extends State<MusklApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp.router(
-      title: 'MUSKL',
-      debugShowCheckedModeBanner: false,
-      scaffoldMessengerKey: rootScaffoldMessengerKey,
-      theme: AppTheme.dark(),
-      themeMode: ThemeMode.dark,
-      routerConfig: _router,
-    );
+    return ValueListenableBuilder<double>(
+        valueListenable: appTextScaleNotifier,
+        builder: (context, textScale, _) => MaterialApp.router(
+              title: 'MUSKL',
+              debugShowCheckedModeBanner: false,
+              scaffoldMessengerKey: rootScaffoldMessengerKey,
+              theme: AppTheme.dark(),
+              themeMode: ThemeMode.dark,
+              routerConfig: _router,
+              builder: (context, child) {
+                final media = MediaQuery.of(context);
+                final systemScale = media.textScaler.scale(1);
+                final effectiveScale =
+                    systemScale > textScale ? systemScale : textScale;
+                return MediaQuery(
+                  data: media.copyWith(
+                    textScaler: TextScaler.linear(effectiveScale),
+                  ),
+                  child: child ?? const SizedBox.shrink(),
+                );
+              },
+            ));
   }
 }

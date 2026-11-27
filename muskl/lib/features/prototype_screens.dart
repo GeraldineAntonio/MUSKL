@@ -60,7 +60,7 @@ Widget _registrationRoleOption({
               const SizedBox(height: 4),
               Text(description,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: AppColors.textMuted, fontSize: 10, height: 1.2)),
             ],
           ),
@@ -79,7 +79,7 @@ Widget _profileDetail(String label, String value, {IconData? icon}) => Padding(
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(label.toUpperCase(),
-                style: const TextStyle(
+                style: TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
@@ -179,7 +179,7 @@ Widget _phaseExerciseMetric(String label, String value) => Expanded(
           Text(label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                   color: AppColors.textMuted,
                   fontSize: 7,
                   fontWeight: FontWeight.w800)),
@@ -265,7 +265,7 @@ class PrototypePage extends StatelessWidget {
               child: ListView(padding: const EdgeInsets.all(20), children: [
             if (step != null) ...[
               Text(step!,
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: AppColors.accent, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
             ],
@@ -594,7 +594,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         MusklCard(
             child: Row(children: [
-          const Icon(Icons.shield_outlined, color: AppColors.accent),
+          Icon(Icons.shield_outlined, color: AppColors.accent),
           const SizedBox(width: 12),
           Expanded(
               child: Text(_role == 'Cliente'
@@ -602,7 +602,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   : 'Completa tus datos para continuar con el registro.')),
         ])),
         const SizedBox(height: 14),
-        const Align(
+        Align(
             alignment: Alignment.centerLeft,
             child: Text('ELIGE TU TIPO DE CUENTA',
                 style: TextStyle(
@@ -667,7 +667,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             _memberLookupLoading
                 ? 'Validando tu número…'
                 : 'Lo validaremos al continuar.',
-            style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
           ),
           if (_memberLookupDone && _registryMatches.isEmpty)
             const Padding(
@@ -863,7 +863,7 @@ class AdminMembersScreen extends StatelessWidget {
                       : '/admin/member'),
                   child: MusklCard(
                       child: Row(children: [
-                    const Icon(Icons.person_outline, color: AppColors.accent),
+                    Icon(Icons.person_outline, color: AppColors.accent),
                     const SizedBox(width: 14),
                     Expanded(
                         child: Column(
@@ -872,8 +872,7 @@ class AdminMembersScreen extends StatelessWidget {
                           Text(item.$2,
                               style: Theme.of(context).textTheme.titleMedium),
                           Text('${item.$1} · ${item.$3}',
-                              style:
-                                  const TextStyle(color: AppColors.textMuted))
+                              style: TextStyle(color: AppColors.textMuted))
                         ])),
                     const Icon(Icons.chevron_right)
                   ])))),
@@ -1406,7 +1405,7 @@ class _NewPhaseScreenState extends State<NewPhaseScreen> {
                       notice == null
                           ? 'SIN CAMBIOS NUEVOS'
                           : 'FASE ${payload['phase_number'] ?? 'NUEVA'} · 8 SEMANAS',
-                      style: const TextStyle(color: AppColors.accent)),
+                      style: TextStyle(color: AppColors.accent)),
                   const SizedBox(height: 10),
                   Text(notice?['body']?.toString() ??
                       'No tienes una fase nueva por revisar.'),
@@ -1462,7 +1461,7 @@ class HomePrototypeScreen extends StatelessWidget {
   Widget build(BuildContext context) => PrototypePage(
       title: 'Inicio del socio',
       child: Column(children: [
-        const MusklCard(
+        MusklCard(
             child: Column(children: [
           Text('NÚMERO DE SOCIO'),
           SizedBox(height: 8),
@@ -1838,7 +1837,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                     if (subtitle != null) ...[
                       const SizedBox(height: 4),
                       Text(subtitle,
-                          style: const TextStyle(color: AppColors.textMuted))
+                          style: TextStyle(color: AppColors.textMuted))
                     ],
                   ])),
               Icon(selected ? Icons.check_circle : Icons.circle_outlined,
@@ -1915,7 +1914,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
               const Text('Elige tu membresía'),
               const SizedBox(height: 14),
               if (_plansForSelectedGroupSize.isEmpty)
-                const Text(
+                Text(
                   'El gimnasio todavía no ofrece una membresía para esta cantidad de personas.',
                   style: TextStyle(color: AppColors.textMuted),
                 ),
@@ -2032,7 +2031,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
                               ),
                             ),
                             if (selected)
-                              const Positioned(
+                              Positioned(
                                 top: 8,
                                 right: 8,
                                 child: Icon(Icons.check_circle,
@@ -2082,7 +2081,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
             const SizedBox(height: 20),
             const Text('Entrenador'),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'Si eliges uno, recibirá tu solicitud y deberá aceptarla para asignarte una rutina.',
               style: TextStyle(color: AppColors.textMuted),
             ),
@@ -2158,7 +2157,7 @@ class _OnboardingStartScreenState extends State<OnboardingStartScreen> {
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text('INTEGRANTE ${index + 2}',
-            style: const TextStyle(
+            style: TextStyle(
                 color: AppColors.accent, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         MusklTextField(

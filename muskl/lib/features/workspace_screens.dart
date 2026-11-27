@@ -86,7 +86,7 @@ class _SplashScreenState extends State<SplashScreen> {
                         color: AppColors.red,
                         borderRadius: BorderRadius.circular(18),
                       ),
-                      child: const Icon(Icons.fitness_center,
+                      child: Icon(Icons.fitness_center,
                           size: 34, color: AppColors.white),
                     ),
                     const SizedBox(height: 14),
@@ -157,7 +157,7 @@ class WelcomeScreen extends StatelessWidget {
                     Text('Tu entrenamiento.\nTu siguiente paso.',
                         style: Theme.of(context).textTheme.headlineLarge),
                     const SizedBox(height: 14),
-                    const Text(
+                    Text(
                       'Encuentra tu rutina, registra tus visitas y sigue tu progreso con el apoyo de tu entrenador.',
                       style: TextStyle(
                           color: AppColors.textMuted,
@@ -177,7 +177,7 @@ class WelcomeScreen extends StatelessWidget {
                       onPressed: () => context.push('/register'),
                     ),
                     const SizedBox(height: 20),
-                    const Text('Tu gimnasio, contigo.',
+                    Text('Tu gimnasio, contigo.',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: AppColors.textMuted)),
                   ],
@@ -619,16 +619,65 @@ class AccessibilitySettingsScreen extends StatelessWidget {
       null => _clientNav,
     };
     return WorkspacePage(
-      title: 'Tamaño del texto',
-      kicker: 'ACCESIBILIDAD',
+      title: 'Apariencia y texto',
+      kicker: 'PERSONALIZA MUSKL',
       items: nav,
       selected: 3,
-      child: ValueListenableBuilder<double>(
-        valueListenable: appTextScaleNotifier,
-        builder: (context, scale, _) => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            MusklCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _section('Tema de la app'),
+          ValueListenableBuilder<ThemeMode>(
+            valueListenable: appThemeModeNotifier,
+            builder: (context, mode, _) => MusklCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Elige cómo quieres ver MUSKL.'),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<ThemeMode>(
+                      segments: const [
+                        ButtonSegment(
+                          value: ThemeMode.dark,
+                          icon: Icon(Icons.dark_mode_outlined),
+                          label: Text('Oscura'),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.light,
+                          icon: Icon(Icons.light_mode_outlined),
+                          label: Text('Clara'),
+                        ),
+                      ],
+                      selected: {mode},
+                      onSelectionChanged: (selection) {
+                        final selected = selection.first;
+                        AppColors.isLightMode = selected == ThemeMode.light;
+                        appThemeModeNotifier.value = selected;
+                        unawaited(appPreferencesStorage.write(
+                          key: 'app_theme_mode',
+                          value: selected == ThemeMode.light ? 'light' : 'dark',
+                        ));
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(children: [
+                    _themePreviewSwatch(AppColors.bg, 'Fondo'),
+                    const SizedBox(width: 8),
+                    _themePreviewSwatch(AppColors.surface, 'Tarjetas'),
+                    const SizedBox(width: 8),
+                    _themePreviewSwatch(AppColors.red, 'Acento'),
+                  ]),
+                ],
+              ),
+            ),
+          ),
+          _section('Tamaño del texto'),
+          ValueListenableBuilder<double>(
+            valueListenable: appTextScaleNotifier,
+            builder: (context, scale, _) => MusklCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -666,8 +715,8 @@ class AccessibilitySettingsScreen extends StatelessWidget {
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -709,6 +758,24 @@ Widget _section(String title, {String? action, VoidCallback? onAction}) =>
       ]),
     );
 
+Widget _themePreviewSwatch(Color color, String label) => Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            height: 28,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(9),
+              border: Border.all(color: AppColors.surfaceHigh),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(label, style: const TextStyle(fontSize: 12)),
+        ],
+      ),
+    );
+
 class _CalendarLegend extends StatelessWidget {
   const _CalendarLegend(
       {required this.color, required this.label, required this.filled});
@@ -730,37 +797,40 @@ class _CalendarLegend extends StatelessWidget {
               border: filled ? null : Border.all(color: color),
             ),
           ),
-          const SizedBox(width: 6),
-          Text(label, style: const TextStyle(color: AppColors.textMuted)),
+          SizedBox(width: 6),
+          Text(label, style: TextStyle(color: AppColors.textMuted)),
         ],
       );
 }
 
-Widget _metric(String value, String label,
-        {Color color = AppColors.white,
-        Color background = AppColors.surface}) =>
-    Expanded(
-      child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-              color: background,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.surfaceHigh)),
-          child: Column(children: [
-            Text(value,
-                style: TextStyle(
-                    fontSize: 25, fontWeight: FontWeight.w900, color: color)),
-            const SizedBox(height: 4),
-            Text(label.toUpperCase(),
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    color: background.computeLuminance() > 0.28
-                        ? AppColors.bgDeep.withValues(alpha: .78)
-                        : AppColors.textMuted,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11))
-          ])),
-    );
+Widget _metric(String value, String label, {Color? color, Color? background}) {
+  final foreground = color ?? AppColors.white;
+  final fill = background ?? AppColors.surface;
+  return Expanded(
+    child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+            color: fill,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.surfaceHigh)),
+        child: Column(children: [
+          Text(value,
+              style: TextStyle(
+                  fontSize: 25,
+                  fontWeight: FontWeight.w900,
+                  color: foreground)),
+          const SizedBox(height: 4),
+          Text(label.toUpperCase(),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: fill.computeLuminance() > 0.28
+                      ? AppColors.bgDeep.withValues(alpha: .78)
+                      : AppColors.textMuted,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11))
+        ])),
+  );
+}
 
 String _restTimeLabel(Object? value) {
   final seconds = int.tryParse(value?.toString() ?? '') ?? 0;
@@ -798,12 +868,12 @@ Widget _record(String title, String subtitle,
                           fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 3),
                   Text(subtitle,
-                      style: const TextStyle(
-                          color: AppColors.textMuted, fontSize: 13))
+                      style:
+                          TextStyle(color: AppColors.textMuted, fontSize: 13))
                 ])),
             if (badge != null)
               Text(badge,
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: AppColors.accent, fontWeight: FontWeight.bold)),
             const SizedBox(width: 4),
             Icon(editable ? Icons.edit_outlined : Icons.chevron_right,
@@ -822,7 +892,7 @@ Widget _profileInfoField(String label, String value,
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(label.toUpperCase(),
-                style: const TextStyle(
+                style: TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
@@ -847,9 +917,9 @@ Widget _profileBioInline(String value) => Padding(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Icon(Icons.notes_outlined, color: AppColors.accent, size: 16),
+            Icon(Icons.notes_outlined, color: AppColors.accent, size: 16),
             const SizedBox(width: 6),
-            const Expanded(
+            Expanded(
               child: Text('BIOGRAFÍA',
                   style: TextStyle(
                       fontSize: 10,
@@ -1090,7 +1160,7 @@ class _ClientTrainerSelectionScreenState
                                     .toString()
                                     .isNotEmpty)
                                   Text(trainer['specialty'].toString(),
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                           color: AppColors.textMuted)),
                               ])),
                           FilledButton(
@@ -1339,8 +1409,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                 Text(details,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.textMuted)),
+                    style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
               ],
             ],
           );
@@ -1384,7 +1453,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                   child: MusklCard(
                     selected: true,
                     child: Row(children: [
-                      const Icon(Icons.local_fire_department,
+                      Icon(Icons.local_fire_department,
                           color: AppColors.accent, size: 30),
                       const SizedBox(width: 10),
                       Expanded(
@@ -1447,7 +1516,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                           scheduledDate == null
                               ? 'Hay una sesión pendiente; se recorrió para hoy.'
                               : 'La sesión del ${_weekDays[scheduledDate.weekday - 1]} (${scheduledDate.day}/${scheduledDate.month}) quedó pendiente y se recorrió para hoy.',
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: AppColors.textMuted, fontSize: 12)),
                     ),
                   _section('Ejercicios del día · ${exercises.length}'),
@@ -1580,11 +1649,11 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                                       '${exercise['sets']} series · ${exercise['reps']} reps',
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                           color: AppColors.textMuted,
                                           fontSize: 10)),
                                   Text('${exercise['rest_seconds']} s descanso',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                           color: AppColors.textMuted,
                                           fontSize: 10)),
                                 ],
@@ -1652,7 +1721,7 @@ class _ExerciseVideoState extends State<_ExerciseVideo> {
   @override
   Widget build(BuildContext context) {
     if (_error != null) {
-      return const Icon(Icons.broken_image_outlined,
+      return Icon(Icons.broken_image_outlined,
           size: 64, color: AppColors.textMuted);
     }
     if (!_controller.value.isInitialized) {
@@ -1773,7 +1842,7 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
                               width: double.infinity,
                               height: 220,
                               fit: BoxFit.contain,
-                              errorBuilder: (_, __, ___) => const Icon(
+                              errorBuilder: (_, __, ___) => Icon(
                                   Icons.broken_image_outlined,
                                   size: 64,
                                   color: AppColors.textMuted),
@@ -1859,7 +1928,7 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
                 color: AppColors.accent.withValues(alpha: 0.16),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.emoji_events_rounded,
+              child: Icon(Icons.emoji_events_rounded,
                   color: AppColors.accent, size: 82),
             ),
           ),
@@ -2064,7 +2133,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 else
                   MusklCard(
                       child: Row(children: [
-                    const Icon(Icons.info_outline, color: AppColors.accent),
+                    Icon(Icons.info_outline, color: AppColors.accent),
                     const SizedBox(width: 10),
                     const Expanded(
                         child: Text(
@@ -2078,7 +2147,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   const SizedBox(height: 8),
                   MusklCard(
                     child: Row(children: [
-                      const Icon(Icons.update, color: AppColors.accent),
+                      Icon(Icons.update, color: AppColors.accent),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -2171,7 +2240,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                           fontSize: 12)));
                             }))),
                   const SizedBox(height: 12),
-                  const Wrap(
+                  Wrap(
                     spacing: 14,
                     runSpacing: 8,
                     children: [
@@ -2192,7 +2261,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 ]),
                 _section('Registro del mes'),
                 if (rows.isEmpty)
-                  const Text('Todavía no hay asistencias registradas este mes.',
+                  Text('Todavía no hay asistencias registradas este mes.',
                       style: TextStyle(color: AppColors.textMuted)),
                 for (final entry in rows.reversed)
                   _record(
@@ -2532,7 +2601,7 @@ class _ClientProfileWorkspaceScreenState
                                   Text((data['email'] ?? '').toString(),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                           color: AppColors.textMuted,
                                           fontSize: 12)),
                                   Text(
@@ -2540,7 +2609,7 @@ class _ClientProfileWorkspaceScreenState
                                           .toString(),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                           color: AppColors.textMuted,
                                           fontSize: 12)),
                                   _profileBioInline(
@@ -2595,7 +2664,7 @@ class _ClientProfileWorkspaceScreenState
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('TU GIMNASIO',
+                              Text('TU GIMNASIO',
                                   style: TextStyle(
                                       color: AppColors.textMuted,
                                       fontSize: 11,
@@ -2619,7 +2688,7 @@ class _ClientProfileWorkspaceScreenState
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(children: [
-                            const Icon(Icons.location_on_outlined,
+                            Icon(Icons.location_on_outlined,
                                 color: AppColors.accent, size: 20),
                             const SizedBox(width: 8),
                             Text('DIRECCIÓN',
@@ -2643,12 +2712,11 @@ class _ClientProfileWorkspaceScreenState
                                   padding: EdgeInsets.symmetric(vertical: 12),
                                   child: Divider(height: 1)),
                             Row(children: [
-                              const Icon(Icons.phone_outlined,
+                              Icon(Icons.phone_outlined,
                                   color: AppColors.textMuted, size: 18),
                               const SizedBox(width: 8),
                               Text('Tel. $gymPhone',
-                                  style: const TextStyle(
-                                      color: AppColors.textMuted)),
+                                  style: TextStyle(color: AppColors.textMuted)),
                             ]),
                           ],
                         ],
@@ -2663,7 +2731,7 @@ class _ClientProfileWorkspaceScreenState
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(children: [
-                            const Icon(Icons.schedule_outlined,
+                            Icon(Icons.schedule_outlined,
                                 color: AppColors.accent, size: 20),
                             const SizedBox(width: 8),
                             Text('HORARIOS',
@@ -2718,7 +2786,7 @@ class _ClientProfileWorkspaceScreenState
                 _section('Membresía'),
                 MusklCard(
                     child: Row(children: [
-                  const Icon(Icons.card_membership, color: AppColors.accent),
+                  Icon(Icons.card_membership, color: AppColors.accent),
                   const SizedBox(width: 10),
                   Expanded(
                       child: Column(
@@ -2742,7 +2810,7 @@ class _ClientProfileWorkspaceScreenState
                     Icons.notifications_active_outlined,
                     onTap: () => context.push(
                         _notificationsPath(authController.session?.role))),
-                _setting('Tamaño del texto', 'Ajusta la lectura de la app',
+                _setting('Apariencia y texto', 'Tema y tamaño de letra',
                     Icons.text_fields_outlined,
                     onTap: () => context.push(
                         _accessibilityPath(authController.session?.role))),
@@ -2756,7 +2824,7 @@ class _ClientProfileWorkspaceScreenState
                   MusklCard(
                       child: ListTile(
                           contentPadding: EdgeInsets.zero,
-                          leading: const Icon(Icons.hourglass_top,
+                          leading: Icon(Icons.hourglass_top,
                               color: AppColors.accent),
                           title: const Text('SOLICITUD DE BAJA PENDIENTE'),
                           subtitle: Text(
@@ -2887,8 +2955,7 @@ class _TrainerDashboardScreenState extends State<TrainerDashboardScreen> {
                                 style: Theme.of(context).textTheme.titleMedium),
                             Text(
                                 'Socio ${request['member_number'] ?? ''} · ${request['email'] ?? ''}',
-                                style: const TextStyle(
-                                    color: AppColors.textMuted)),
+                                style: TextStyle(color: AppColors.textMuted)),
                             const SizedBox(height: 10),
                             Row(children: [
                               Expanded(
@@ -3223,7 +3290,7 @@ Widget _routineVisualCard({
               const Spacer(),
               Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                 Text('$days días',
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: AppColors.white,
                         fontSize: 9,
                         fontWeight: FontWeight.w800)),
@@ -3417,8 +3484,7 @@ class _TrainerRoutinesScreenState extends State<TrainerRoutinesScreen> {
                       tooltip: 'Acciones de rutina',
                       padding: EdgeInsets.zero,
                       iconSize: 16,
-                      icon: const Icon(Icons.edit_outlined,
-                          color: AppColors.white),
+                      icon: Icon(Icons.edit_outlined, color: AppColors.white),
                       onSelected: (value) {
                         if (value == 'publish') _publish(routine);
                         if (value == 'assign') _assign(routine);
@@ -3655,7 +3721,7 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                                   Text(exercise['equipment'].toString(),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                           color: AppColors.textMuted,
                                           fontSize: 10)),
                                 ],
@@ -3860,7 +3926,7 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
           ),
           child: Column(children: [
             Text(label.toUpperCase(),
-                style: const TextStyle(
+                style: TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 8,
                     fontWeight: FontWeight.w800,
@@ -3939,7 +4005,7 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(15),
-              borderSide: const BorderSide(color: AppColors.surfaceHigh),
+              borderSide: BorderSide(color: AppColors.surfaceHigh),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(15),
@@ -3997,7 +4063,7 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
         if (phaseMode && loadingPhaseTemplate)
           const LinearProgressIndicator(color: AppColors.red),
         if (phaseMode && !loadingPhaseTemplate)
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(bottom: 7),
             child: Text('Se conservan los días de la rutina.',
                 style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
@@ -4043,9 +4109,9 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
         if ((exercisesByDay[activeDay] ?? []).isEmpty)
           MusklCard(
             child: Row(children: [
-              const Icon(Icons.fitness_center, color: AppColors.textMuted),
+              Icon(Icons.fitness_center, color: AppColors.textMuted),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                   child: Text('Agrega ejercicios para este día.',
                       style: TextStyle(color: AppColors.textMuted))),
               IconButton(
@@ -4079,7 +4145,7 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
   }
 
   Widget _routineLabel(String value) => Text(value,
-      style: const TextStyle(
+      style: TextStyle(
           color: AppColors.textMuted,
           fontSize: 9,
           fontWeight: FontWeight.w900,
@@ -4149,7 +4215,7 @@ class _CreateRoutineScreenState extends State<CreateRoutineScreen> {
           Text('Descanso · ${exercise['rest_seconds']} s',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                   color: AppColors.textMuted,
                   fontSize: 9,
                   fontWeight: FontWeight.w700)),
@@ -4551,7 +4617,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                             style: TextStyle(
                                 fontSize: 16, fontWeight: FontWeight.w900)),
                         const SizedBox(height: 6),
-                        const Text('Puedes elegir más de una opción.',
+                        Text('Puedes elegir más de una opción.',
                             style: TextStyle(color: AppColors.textMuted)),
                         const SizedBox(height: 16),
                         Wrap(
@@ -4721,7 +4787,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                         Text(_value('email'),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: AppColors.textMuted, fontSize: 12)),
                         Text(
                             _value('phone').isEmpty
@@ -4729,7 +4795,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                                 : _value('phone'),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: AppColors.textMuted, fontSize: 12)),
                         _profileBioInline(
                           _value('bio'),
@@ -4759,7 +4825,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                               color: AppColors.red, size: 20),
                         ),
                         const SizedBox(width: 11),
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -4801,7 +4867,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                                             .withValues(alpha: .32)),
                                   ),
                                   child: Text(item,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                           color: AppColors.white,
                                           fontSize: 12,
                                           fontWeight: FontWeight.w700)),
@@ -4809,7 +4875,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                             .toList(),
                       ),
                       if (_value('specialty').trim().isEmpty)
-                        const Text('Agrega tus áreas de especialidad.',
+                        Text('Agrega tus áreas de especialidad.',
                             style: TextStyle(color: AppColors.textMuted)),
                     ],
                   )),
@@ -4818,7 +4884,7 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                 MusklCard(
                     child: ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.workspace_premium_outlined,
+                  leading: Icon(Icons.workspace_premium_outlined,
                       color: AppColors.accent),
                   title: Text((certificate as Map)['title'].toString()),
                   subtitle: Text(certificate['verified_at'] == null
@@ -4836,12 +4902,12 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
                   onTap: _changePassword),
               _setting('Notificaciones', 'Elige qué avisos recibir',
                   Icons.notifications_active_outlined,
-                  onTap: () => context.push(
-                      _notificationsPath(authController.session?.role))),
-              _setting('Tamaño del texto', 'Ajusta la lectura de la app',
+                  onTap: () => context
+                      .push(_notificationsPath(authController.session?.role))),
+              _setting('Apariencia y texto', 'Tema y tamaño de letra',
                   Icons.text_fields_outlined,
-                  onTap: () => context.push(
-                      _accessibilityPath(authController.session?.role))),
+                  onTap: () => context
+                      .push(_accessibilityPath(authController.session?.role))),
               const SizedBox(height: 14),
               MusklButton(
                   label: 'Cerrar sesión',
@@ -5265,7 +5331,7 @@ class _ProfileEditMenuScreen extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.fromLTRB(4, 4, 4, 12),
                     child: Text(
                       'Elige qué dato quieres cambiar.',
@@ -5385,13 +5451,11 @@ class _EditFieldsDialogState extends State<_EditFieldsDialog> {
                       fillColor: AppColors.surface,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                            const BorderSide(color: AppColors.surfaceHigh),
+                        borderSide: BorderSide(color: AppColors.surfaceHigh),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                            const BorderSide(color: AppColors.surfaceHigh),
+                        borderSide: BorderSide(color: AppColors.surfaceHigh),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -6037,7 +6101,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: const Color(0xFF73313B))),
                         child: Row(children: [
-                          const CircleAvatar(
+                          CircleAvatar(
                               backgroundColor: AppColors.accent,
                               child: Icon(Icons.person_add_alt,
                                   color: AppColors.bgDeep)),
@@ -6046,8 +6110,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                               child: Text('$pending SOLICITUDES PENDIENTES',
                                   style: const TextStyle(
                                       fontWeight: FontWeight.w900))),
-                          const Icon(Icons.chevron_right,
-                              color: AppColors.accent),
+                          Icon(Icons.chevron_right, color: AppColors.accent),
                         ]),
                       ),
                     ),
@@ -6362,7 +6425,7 @@ class _AdminRoutinesScreenState extends State<AdminRoutinesScreen> {
                           'id': routine['id'].toString(),
                           'name': routine['name'].toString(),
                         }).toString()),
-                        icon: const Icon(Icons.edit_outlined,
+                        icon: Icon(Icons.edit_outlined,
                             size: 17, color: AppColors.white),
                       ),
                     ),
@@ -6499,8 +6562,7 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
                           const SizedBox(height: 8),
                           Text(
                               'Responsable: ${data['trainer_name']} · ${clients.length} socios asignados',
-                              style:
-                                  const TextStyle(color: AppColors.textMuted))
+                              style: TextStyle(color: AppColors.textMuted))
                         ])),
                 _section('Fases'),
                 for (final phase in phases)
@@ -6575,7 +6637,7 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
                                                           maxLines: 2,
                                                           overflow: TextOverflow
                                                               .ellipsis,
-                                                          style: const TextStyle(
+                                                          style: TextStyle(
                                                               color: AppColors
                                                                   .textMuted,
                                                               fontSize: 10)),
@@ -6660,6 +6722,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   List<Map<String, dynamic>> _invites = [];
   List<Map<String, dynamic>> _admins = [];
   bool _newRequestNotifications = true;
+  bool _accountDeletionNotifications = true;
   bool _pushNotificationsEnabled = false;
   bool _savingPreferences = false;
   Map<String, dynamic> _ownProfile = {};
@@ -6851,8 +6914,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     try {
       final preferences = await authController.adminPreferences();
       if (!mounted) return;
-      setState(
-          () => _newRequestNotifications = preferences['new_requests'] == true);
+      setState(() {
+        _newRequestNotifications = preferences['new_requests'] != false;
+        _accountDeletionNotifications =
+            preferences['account_deletions'] != false;
+      });
     } catch (e) {
       if (mounted) _showLocalMessage('No se cargaron las preferencias: $e');
     }
@@ -6862,10 +6928,15 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     if (_savingPreferences) return;
     setState(() => _savingPreferences = true);
     try {
-      final saved =
-          await authController.updateAdminPreferences(newRequests: enabled);
+      final saved = await authController.updateAdminPreferences(
+        newRequests: enabled,
+        accountDeletions: _accountDeletionNotifications,
+      );
       if (!mounted) return;
-      setState(() => _newRequestNotifications = saved['new_requests'] == true);
+      setState(() {
+        _newRequestNotifications = saved['new_requests'] != false;
+        _accountDeletionNotifications = saved['account_deletions'] != false;
+      });
     } catch (e) {
       if (mounted) _showLocalMessage('No se guardó la preferencia: $e');
     } finally {
@@ -7251,16 +7322,14 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                 Text((_ownProfile['email'] ?? '').toString(),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: AppColors.textMuted, fontSize: 12)),
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
                 Text(
                     (_ownProfile['phone'] ?? '').toString().isEmpty
                         ? 'Sin teléfono'
                         : _ownProfile['phone'].toString(),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: AppColors.textMuted, fontSize: 12)),
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
                 _profileBioInline(
                   (_ownProfile['bio'] ?? '').toString(),
                 ),
@@ -7275,7 +7344,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             Icons.notifications_active_outlined,
             onTap: () =>
                 context.push(_notificationsPath(authController.session?.role))),
-        _setting('Tamaño del texto', 'Ajusta la lectura de la app',
+        _setting('Apariencia y texto', 'Tema y tamaño de letra',
             Icons.text_fields_outlined,
             onTap: () =>
                 context.push(_accessibilityPath(authController.session?.role))),
@@ -7433,8 +7502,7 @@ class _AdminRequestsScreenState extends State<AdminRequestsScreen> {
                           child: MusklCard(
                               child: ListTile(
                                   contentPadding: EdgeInsets.zero,
-                                  leading: const Icon(
-                                      Icons.notifications_active,
+                                  leading: Icon(Icons.notifications_active,
                                       color: AppColors.accent),
                                   title: Text(notification['title'].toString()),
                                   subtitle:
@@ -7502,16 +7570,14 @@ class _AdminRequestsScreenState extends State<AdminRequestsScreen> {
                             if (_showDeletions &&
                                 request['requested_at'] != null)
                               Text('Solicitada: ${request['requested_at']}',
-                                  style: const TextStyle(
-                                      color: AppColors.textMuted)),
+                                  style: TextStyle(color: AppColors.textMuted)),
                             if (_showDeletions &&
                                 request['note'] != null &&
                                 request['note'].toString().isNotEmpty)
                               Text('Motivo: ${request['note']}'),
                             if (!_showDeletions && request['specialty'] != null)
                               Text('Especialidad: ${request['specialty']}',
-                                  style: const TextStyle(
-                                      color: AppColors.textMuted)),
+                                  style: TextStyle(color: AppColors.textMuted)),
                             if (!_showDeletions && request['role'] == 'trainer')
                               for (final rawCertificate
                                   in (request['certifications'] as List? ?? []))

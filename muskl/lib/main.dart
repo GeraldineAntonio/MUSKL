@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'core/router.dart';
+import 'core/theme/app_colors.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/api_auth_repository.dart';
@@ -19,6 +20,7 @@ final pushNotificationService = PushNotificationService(apiAuthRepository);
 final authController = AuthController(apiAuthRepository);
 final rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 final appTextScaleNotifier = ValueNotifier<double>(1.0);
+final appThemeModeNotifier = ValueNotifier<ThemeMode>(ThemeMode.dark);
 const appPreferencesStorage = FlutterSecureStorage();
 void _connectSessionUpdates() {
   apiAuthRepository.onSessionChanged = (session) {
@@ -46,7 +48,7 @@ class _MusklAppState extends State<MusklApp> {
   void initState() {
     super.initState();
     _connectSessionUpdates();
-    unawaited(_restoreTextScale());
+    unawaited(_restorePreferences());
     _pushSubscription = pushNotificationService.foregroundNotifications.listen(
       (notification) => rootScaffoldMessengerKey.currentState?.showSnackBar(
         SnackBar(content: Text('${notification.$1}\n${notification.$2}')),
@@ -54,12 +56,16 @@ class _MusklAppState extends State<MusklApp> {
     );
   }
 
-  Future<void> _restoreTextScale() async {
-    final saved = await appPreferencesStorage.read(key: 'app_text_scale');
-    final scale = double.tryParse(saved ?? '');
+  Future<void> _restorePreferences() async {
+    final values = await Future.wait([
+      appPreferencesStorage.read(key: 'app_text_scale'),
+      appPreferencesStorage.read(key: 'app_theme_mode'),
+    ]);
+    final scale = double.tryParse(values[0] ?? '');
     if (scale != null && scale >= 1 && scale <= 1.25) {
       appTextScaleNotifier.value = scale;
     }
+    if (values[1] == 'light') appThemeModeNotifier.value = ThemeMode.light;
   }
 
   @override
@@ -70,14 +76,19 @@ class _MusklAppState extends State<MusklApp> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<double>(
-        valueListenable: appTextScaleNotifier,
-        builder: (context, textScale, _) => MaterialApp.router(
+    return ValueListenableBuilder<ThemeMode>(
+        valueListenable: appThemeModeNotifier,
+        builder: (context, themeMode, _) {
+          AppColors.isLightMode = themeMode == ThemeMode.light;
+          return ValueListenableBuilder<double>(
+            valueListenable: appTextScaleNotifier,
+            builder: (context, textScale, _) => MaterialApp.router(
               title: 'MUSKL',
               debugShowCheckedModeBanner: false,
               scaffoldMessengerKey: rootScaffoldMessengerKey,
-              theme: AppTheme.dark(),
-              themeMode: ThemeMode.dark,
+              theme: AppTheme.light(),
+              darkTheme: AppTheme.dark(),
+              themeMode: themeMode,
               routerConfig: _router,
               builder: (context, child) {
                 final media = MediaQuery.of(context);
@@ -91,6 +102,8 @@ class _MusklAppState extends State<MusklApp> {
                   child: child ?? const SizedBox.shrink(),
                 );
               },
-            ));
+            ),
+          );
+        });
   }
 }

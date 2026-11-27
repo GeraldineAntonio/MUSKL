@@ -70,7 +70,7 @@ class ClientHomeContent extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('BUEN DÍA',
+                  Text('BUEN DÍA',
                       style: TextStyle(
                           color: AppColors.textMuted,
                           fontSize: 11,
@@ -108,7 +108,7 @@ class ClientHomeContent extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('SOCIO Nº',
+                        Text('SOCIO Nº',
                             style: TextStyle(
                                 color: AppColors.textMuted,
                                 fontSize: 10,
@@ -158,7 +158,7 @@ class ClientHomeContent extends StatelessWidget {
                     trainer.isEmpty ? '/home/trainers' : '/home/profile'),
                 child: Row(
                   children: [
-                    const CircleAvatar(
+                    CircleAvatar(
                       radius: 17,
                       backgroundColor: AppColors.bg,
                       child: Icon(Icons.fitness_center,
@@ -169,7 +169,7 @@ class ClientHomeContent extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('ENTRENADOR ASIGNADO',
+                          Text('ENTRENADOR ASIGNADO',
                               style: TextStyle(
                                   color: AppColors.textMuted,
                                   fontSize: 9,
@@ -190,7 +190,7 @@ class ClientHomeContent extends StatelessWidget {
                         ],
                       ),
                     ),
-                    const Icon(Icons.chevron_right, color: AppColors.textMuted),
+                    Icon(Icons.chevron_right, color: AppColors.textMuted),
                   ],
                 ),
               ),
@@ -242,8 +242,8 @@ class ClientHomeContent extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(labels[index],
-                      style: const TextStyle(
-                          color: AppColors.textMuted, fontSize: 11)),
+                      style:
+                          TextStyle(color: AppColors.textMuted, fontSize: 11)),
                   const SizedBox(height: 8),
                   Container(
                     width: 30,
@@ -260,10 +260,9 @@ class ClientHomeContent extends StatelessWidget {
                               : Border.all(color: AppColors.surfaceHigh),
                     ),
                     child: attended
-                        ? const Icon(Icons.check,
-                            size: 16, color: AppColors.white)
+                        ? Icon(Icons.check, size: 16, color: AppColors.white)
                         : Text('${date.day}',
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: AppColors.textMuted, fontSize: 10)),
                   ),
                 ],
@@ -474,14 +473,14 @@ class _RoutineHero extends StatelessWidget {
                                       : '$trainer te asignará los ejercicios.',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: AppColors.textMuted, fontSize: 11),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 12),
-                  const CircleAvatar(
+                  CircleAvatar(
                     radius: 22,
                     backgroundColor: AppColors.red,
                     child: Icon(Icons.play_arrow_rounded,

@@ -26,12 +26,14 @@ class MusklCard extends StatelessWidget {
       child: Ink(
         decoration: BoxDecoration(
           gradient: selected
-              ? const LinearGradient(
+              ? LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [Color(0xFF32191E), Color(0xFF21171B)],
+                  colors: AppColors.isLightMode
+                      ? const [Color(0xFFFFE6EA), Color(0xFFFFF4F5)]
+                      : const [Color(0xFF32191E), Color(0xFF21171B)],
                 )
-              : const LinearGradient(
+              : LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [AppColors.surfaceRaised, AppColors.surface],

@@ -26,7 +26,7 @@ class PlaceholderScreen extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.headlineMedium),
               const SizedBox(height: 8),
-              const Text('Pantalla pendiente de programar',
+              Text('Pantalla pendiente de programar',
                   style: TextStyle(color: AppColors.textMuted, fontSize: 16)),
               if (canSignOut) ...[
                 const SizedBox(height: 32),

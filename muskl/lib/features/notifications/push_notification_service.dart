@@ -100,6 +100,9 @@ class PushNotificationService {
     }
   }
 
+  Future<bool> getPushNotificationsEnabled() =>
+      _repository.getPushNotificationsEnabled();
+
   Future<void> enableClientReminders() async {
     await _requestPermissionAndRegisterToken();
     await _repository.setClientPushReminders(true);

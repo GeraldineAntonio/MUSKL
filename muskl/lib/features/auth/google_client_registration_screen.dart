@@ -195,7 +195,7 @@ class _GoogleClientRegistrationScreenState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('CUENTA CON GOOGLE',
+                    Text('CUENTA CON GOOGLE',
                         style: TextStyle(
                             color: AppColors.accent,
                             fontWeight: FontWeight.w900)),
@@ -210,7 +210,7 @@ class _GoogleClientRegistrationScreenState
                 ),
               ),
               const SizedBox(height: 14),
-              const Text('¿QUÉ TIPO DE CUENTA NECESITAS?',
+              Text('¿QUÉ TIPO DE CUENTA NECESITAS?',
                   style: TextStyle(
                       color: AppColors.textMuted,
                       fontSize: 11,
@@ -220,14 +220,19 @@ class _GoogleClientRegistrationScreenState
               for (final option in [
                 ('Cliente', Icons.person_outline, 'Acceso de socio'),
                 ('Entrenador', Icons.fitness_center, 'Solicitud para entrenar'),
-                ('Admin', Icons.admin_panel_settings_outlined,
-                    'Requiere invitación'),
+                (
+                  'Admin',
+                  Icons.admin_panel_settings_outlined,
+                  'Requiere invitación'
+                ),
               ])
                 Padding(
                   padding: const EdgeInsets.only(bottom: 7),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(14),
-                    onTap: _saving ? null : () => setState(() => _role = option.$1),
+                    onTap: _saving
+                        ? null
+                        : () => setState(() => _role = option.$1),
                     child: MusklCard(
                       selected: _role == option.$1,
                       padding: const EdgeInsets.symmetric(
@@ -246,7 +251,7 @@ class _GoogleClientRegistrationScreenState
                                   style: const TextStyle(
                                       fontWeight: FontWeight.w800)),
                               Text(option.$3,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                       color: AppColors.textMuted,
                                       fontSize: 12)),
                             ])),
@@ -267,99 +272,96 @@ class _GoogleClientRegistrationScreenState
                 MusklButton(
                     label: 'Continuar como ${_role.toLowerCase()}',
                     icon: Icons.arrow_forward,
-                    onPressed:
-                        _saving ? null : _continueWithEmailRegistration),
+                    onPressed: _saving ? null : _continueWithEmailRegistration),
               ],
               if (_role == 'Cliente') ...[
-              MusklTextField(
-                  label: 'Nombre *',
-                  controller: _firstName,
-                  icon: Icons.person_outline),
-              const SizedBox(height: 12),
-              MusklTextField(
-                  label: 'Apellido *',
-                  controller: _lastName,
-                  icon: Icons.person_outline),
-              const SizedBox(height: 12),
-              MusklTextField(
-                  label: 'Teléfono (opcional)',
-                  controller: _phone,
-                  icon: Icons.phone_outlined,
-                  keyboardType: TextInputType.phone),
-              const SizedBox(height: 12),
-              MusklTextField(
-                label: 'Número de socio *',
-                controller: _memberNumber,
-                icon: Icons.badge_outlined,
-                onChanged: (_) => setState(() {
-                  _lookupDone = false;
-                  _selectedRegistryId = null;
-                  _matches = [];
-                  _error = null;
-                }),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _lookingUp
-                    ? 'Validando tu número…'
-                    : 'Lo validaremos al continuar.',
-                style:
-                    const TextStyle(color: AppColors.textMuted, fontSize: 12),
-              ),
-              if (_lookupDone && _matches.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: 6),
-                  child:
-                      Text('No encontramos ficha previa. Crearemos una nueva.'),
+                MusklTextField(
+                    label: 'Nombre *',
+                    controller: _firstName,
+                    icon: Icons.person_outline),
+                const SizedBox(height: 12),
+                MusklTextField(
+                    label: 'Apellido *',
+                    controller: _lastName,
+                    icon: Icons.person_outline),
+                const SizedBox(height: 12),
+                MusklTextField(
+                    label: 'Teléfono (opcional)',
+                    controller: _phone,
+                    icon: Icons.phone_outlined,
+                    keyboardType: TextInputType.phone),
+                const SizedBox(height: 12),
+                MusklTextField(
+                  label: 'Número de socio *',
+                  controller: _memberNumber,
+                  icon: Icons.badge_outlined,
+                  onChanged: (_) => setState(() {
+                    _lookupDone = false;
+                    _selectedRegistryId = null;
+                    _matches = [];
+                    _error = null;
+                  }),
                 ),
-              if (_matches.length > 1) ...[
-                const SizedBox(height: 8),
-                const Text('Selecciona tu ficha de socio:'),
-                for (final member in _matches)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title:
-                        Text('${member['first_name']} ${member['last_name']}'),
-                    subtitle: Text('Nacimiento · ${member['birth_date']}'),
-                    trailing: _selectedRegistryId == member['registry_id']
-                        ? const Icon(Icons.check_circle,
-                            color: AppColors.accent)
-                        : null,
-                    onTap: () => _selectRegistry(member),
-                  ),
-              ],
-              const SizedBox(height: 12),
-              InkWell(
-                onTap: _saving ? null : _pickBirthDate,
-                child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Fecha de nacimiento *',
-                    prefixIcon: Icon(Icons.cake_outlined),
-                    border: OutlineInputBorder(),
-                  ),
-                  child: Text(_birthDate == null
-                      ? 'Selecciona la fecha'
-                      : '${_birthDate!.day.toString().padLeft(2, '0')}/${_birthDate!.month.toString().padLeft(2, '0')}/${_birthDate!.year}'),
+                SizedBox(height: 6),
+                Text(
+                  _lookingUp
+                      ? 'Validando tu número…'
+                      : 'Lo validaremos al continuar.',
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 12),
                 ),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 14),
-                MusklCard(
-                    child: Row(children: [
-                  const Icon(Icons.error_outline, color: AppColors.red),
-                  const SizedBox(width: 8),
-                  Expanded(
-                      child: Text(_error!,
-                          style: const TextStyle(color: AppColors.red))),
-                ])),
-              ],
-              const SizedBox(height: 20),
-              MusklButton(
-                label: _saving ? 'Guardando…' : 'Crear cuenta con Google',
-                icon: Icons.arrow_forward,
-                loading: _saving,
-                onPressed: _saving ? null : _submit,
-              ),
+                if (_lookupDone && _matches.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text(
+                        'No encontramos ficha previa. Crearemos una nueva.'),
+                  ),
+                if (_matches.length > 1) ...[
+                  const SizedBox(height: 8),
+                  const Text('Selecciona tu ficha de socio:'),
+                  for (final member in _matches)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                          '${member['first_name']} ${member['last_name']}'),
+                      subtitle: Text('Nacimiento · ${member['birth_date']}'),
+                      trailing: _selectedRegistryId == member['registry_id']
+                          ? Icon(Icons.check_circle, color: AppColors.accent)
+                          : null,
+                      onTap: () => _selectRegistry(member),
+                    ),
+                ],
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: _saving ? null : _pickBirthDate,
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Fecha de nacimiento *',
+                      prefixIcon: Icon(Icons.cake_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    child: Text(_birthDate == null
+                        ? 'Selecciona la fecha'
+                        : '${_birthDate!.day.toString().padLeft(2, '0')}/${_birthDate!.month.toString().padLeft(2, '0')}/${_birthDate!.year}'),
+                  ),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 14),
+                  MusklCard(
+                      child: Row(children: [
+                    const Icon(Icons.error_outline, color: AppColors.red),
+                    const SizedBox(width: 8),
+                    Expanded(
+                        child: Text(_error!,
+                            style: const TextStyle(color: AppColors.red))),
+                  ])),
+                ],
+                const SizedBox(height: 20),
+                MusklButton(
+                  label: _saving ? 'Guardando…' : 'Crear cuenta con Google',
+                  icon: Icons.arrow_forward,
+                  loading: _saving,
+                  onPressed: _saving ? null : _submit,
+                ),
               ],
             ],
           ),

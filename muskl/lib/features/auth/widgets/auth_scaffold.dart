@@ -37,7 +37,8 @@ class AuthScaffold extends StatelessWidget {
               children: [
                 Expanded(
                   child: SingleChildScrollView(
-                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
                     padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -48,7 +49,7 @@ class AuthScaffold extends StatelessWidget {
                             style: IconButton.styleFrom(
                               backgroundColor: AppColors.surface,
                             ),
-                            icon: const Icon(Icons.chevron_left,
+                            icon: Icon(Icons.chevron_left,
                                 color: AppColors.white),
                             onPressed: () => context.canPop()
                                 ? context.pop()
@@ -58,9 +59,14 @@ class AuthScaffold extends StatelessWidget {
                           const Padding(
                             padding: EdgeInsets.symmetric(vertical: 20),
                             child: Row(children: [
-                              Icon(Icons.fitness_center, color: AppColors.red, size: 28),
+                              Icon(Icons.fitness_center,
+                                  color: AppColors.red, size: 28),
                               SizedBox(width: 12),
-                              Text('MUSKL', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 2)),
+                              Text('MUSKL',
+                                  style: TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 2)),
                             ]),
                           ),
                         const SizedBox(height: 24),

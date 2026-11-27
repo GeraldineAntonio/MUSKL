@@ -280,6 +280,399 @@ class WorkspacePage extends StatelessWidget {
       );
 }
 
+String _notificationsPath(UserRole? role) => switch (role) {
+      UserRole.client => '/home/notifications',
+      UserRole.trainer => '/trainer/notifications',
+      UserRole.admin => '/admin/notifications',
+      null => '/welcome',
+    };
+
+String _accessibilityPath(UserRole? role) => switch (role) {
+      UserRole.client => '/home/accessibility',
+      UserRole.trainer => '/trainer/accessibility',
+      UserRole.admin => '/admin/accessibility',
+      null => '/welcome',
+    };
+
+class NotificationSettingsScreen extends StatefulWidget {
+  const NotificationSettingsScreen({super.key});
+
+  @override
+  State<NotificationSettingsScreen> createState() =>
+      _NotificationSettingsScreenState();
+}
+
+class _NotificationSettingsScreenState
+    extends State<NotificationSettingsScreen> {
+  final UserRole? _role = authController.session?.role;
+  Map<String, dynamic> _profile = {};
+  Map<String, dynamic> _adminPreferences = {};
+  Map<String, bool> _clientPreferences = {
+    'routine_updates': true,
+    'account_updates': true,
+  };
+  bool _pushNotificationsEnabled = false;
+  bool _loading = true;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      _pushNotificationsEnabled =
+          await pushNotificationService.getPushNotificationsEnabled();
+      if (_role == UserRole.client) {
+        final values = await Future.wait([
+          authController.clientDashboard(),
+          authController.clientNotificationPreferences(),
+        ]);
+        _profile = values[0];
+        _clientPreferences = Map<String, bool>.from(values[1]
+            .map((key, value) => MapEntry(key.toString(), value == true)));
+      } else if (_role == UserRole.trainer) {
+        _profile = await authController.trainerProfile();
+      } else if (_role == UserRole.admin) {
+        final values = await Future.wait([
+          authController.ownProfile(),
+          authController.adminPreferences(),
+        ]);
+        _profile = values[0];
+        _adminPreferences = values[1];
+      }
+      if (mounted) setState(() => _loading = false);
+    } catch (error) {
+      if (mounted) setState(() => _loading = false);
+      _showMessage('No se pudieron cargar las preferencias: $error');
+    }
+  }
+
+  void _showMessage(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  bool get _pushEnabled => _pushNotificationsEnabled;
+
+  Future<void> _setPush(bool enabled) async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      if (_role == UserRole.client) {
+        if (enabled) {
+          await pushNotificationService.enablePushNotifications();
+        } else {
+          await pushNotificationService.disablePushNotifications();
+        }
+      } else {
+        if (enabled) {
+          await pushNotificationService.enablePushNotifications();
+        } else {
+          await pushNotificationService.disablePushNotifications();
+        }
+        _profile['push_notifications_enabled'] = enabled;
+      }
+      _pushNotificationsEnabled = enabled;
+      if (mounted) setState(() {});
+    } catch (error) {
+      _showMessage('No se pudieron cambiar las notificaciones: $error');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _setClientReminder(bool enabled) async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      if (enabled) {
+        await pushNotificationService.enableClientReminders();
+      } else {
+        await pushNotificationService.disableClientReminders();
+      }
+      _profile['push_reminders_enabled'] = enabled;
+      if (mounted) setState(() {});
+    } catch (error) {
+      _showMessage('No se pudo guardar el recordatorio: $error');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _setClientPreference(String key, bool enabled) async {
+    if (_saving) return;
+    final previous = Map<String, bool>.from(_clientPreferences);
+    final updated = {...previous, key: enabled};
+    setState(() {
+      _saving = true;
+      _clientPreferences = updated;
+    });
+    try {
+      final saved = await authController.updateClientNotificationPreferences(
+        routineUpdates: updated['routine_updates'] ?? true,
+        accountUpdates: updated['account_updates'] ?? true,
+      );
+      if (mounted) {
+        setState(() => _clientPreferences = Map<String, bool>.from(saved
+            .map((key, value) => MapEntry(key.toString(), value == true))));
+      }
+    } catch (error) {
+      _showMessage('No se guardó la preferencia: $error');
+      if (mounted) setState(() => _clientPreferences = previous);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Map<String, bool> get _trainerPreferences => Map<String, bool>.from(
+      _profile['notification_preferences'] as Map? ?? const {});
+
+  Future<void> _setTrainerPreference(String key, bool value) async {
+    if (_saving) return;
+    final previous = _trainerPreferences;
+    final updated = {..._trainerPreferences, key: value};
+    setState(() {
+      _saving = true;
+      _profile['notification_preferences'] = updated;
+    });
+    try {
+      final saved = await authController.updateTrainerProfile(
+        firstName: (_profile['first_name'] ?? '').toString(),
+        lastName: (_profile['last_name'] ?? '').toString(),
+        email: (_profile['email'] ?? '').toString(),
+        phone: (_profile['phone'] ?? '').toString(),
+        specialty: (_profile['specialty'] ?? '').toString(),
+        bio: (_profile['bio'] ?? '').toString(),
+        notificationPreferences: updated,
+      );
+      if (mounted) setState(() => _profile = saved);
+    } catch (error) {
+      _showMessage('No se guardó la preferencia: $error');
+      if (mounted) {
+        setState(() => _profile['notification_preferences'] = previous);
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _setAdminPreference(String key, bool enabled) async {
+    if (_saving) return;
+    final updated = {..._adminPreferences, key: enabled};
+    setState(() => _saving = true);
+    try {
+      final saved = await authController.updateAdminPreferences(
+        newRequests: updated['new_requests'] != false,
+        accountDeletions: updated['account_deletions'] != false,
+      );
+      if (mounted) setState(() => _adminPreferences = saved);
+    } catch (error) {
+      _showMessage('No se guardó la preferencia: $error');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Widget _switch(String title, String description, bool value,
+          ValueChanged<bool>? onChanged, IconData icon) =>
+      MusklCard(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(icon, color: AppColors.accent),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 3),
+                  Text(description,
+                      style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Switch(
+              value: value,
+              activeThumbColor: AppColors.red,
+              onChanged: _saving ? null : onChanged,
+            ),
+          ],
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final nav = switch (_role) {
+      UserRole.client => _clientNav,
+      UserRole.trainer => _trainerNav,
+      UserRole.admin => _adminNav,
+      null => _clientNav,
+    };
+    final selected = _role == UserRole.client ? 3 : 3;
+    return WorkspacePage(
+      title: 'Notificaciones',
+      kicker: 'PREFERENCIAS',
+      items: nav,
+      selected: selected,
+      child: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              if (_saving) const LinearProgressIndicator(),
+              const Text('Elige qué avisos quieres recibir en este teléfono.'),
+              const SizedBox(height: 12),
+              _switch(
+                'Notificaciones en este teléfono',
+                'Activa o pausa todos los avisos push de MUSKL.',
+                _pushEnabled,
+                _setPush,
+                Icons.notifications_active_outlined,
+              ),
+              if (_role == UserRole.client) ...[
+                const SizedBox(height: 8),
+                _switch(
+                  'Recordatorio de rutina y racha',
+                  'Aviso nocturno cuando tengas entrenamiento pendiente.',
+                  _profile['push_reminders_enabled'] == true,
+                  _setClientReminder,
+                  Icons.local_fire_department_outlined,
+                ),
+                const SizedBox(height: 8),
+                _switch(
+                  'Cambios de rutina o entrenador',
+                  'Cuando te asignen una rutina o publiquen una fase.',
+                  _clientPreferences['routine_updates'] ?? true,
+                  (value) => _setClientPreference('routine_updates', value),
+                  Icons.fitness_center,
+                ),
+                const SizedBox(height: 8),
+                _switch(
+                  'Avisos de mi cuenta',
+                  'Confirmaciones de cambios importantes de tu perfil.',
+                  _clientPreferences['account_updates'] ?? true,
+                  (value) => _setClientPreference('account_updates', value),
+                  Icons.person_outline,
+                ),
+              ],
+              if (_role == UserRole.trainer) ...[
+                const SizedBox(height: 8),
+                _switch(
+                    'Actividad de clientes',
+                    'Aviso cuando un socio termina una rutina.',
+                    _trainerPreferences['client_activity'] ?? true,
+                    (value) => _setTrainerPreference('client_activity', value),
+                    Icons.fitness_center),
+                const SizedBox(height: 8),
+                _switch(
+                    'Rutinas por vencer',
+                    'Recordatorios sobre fases próximas a vencer.',
+                    _trainerPreferences['routine_expiry'] ?? true,
+                    (value) => _setTrainerPreference('routine_expiry', value),
+                    Icons.event_repeat_outlined),
+                const SizedBox(height: 8),
+                _switch(
+                    'Recordatorio diario',
+                    'Resumen diario de actividad de tus clientes.',
+                    _trainerPreferences['daily_reminder'] ?? false,
+                    (value) => _setTrainerPreference('daily_reminder', value),
+                    Icons.alarm_outlined),
+              ],
+              if (_role == UserRole.admin) ...[
+                const SizedBox(height: 8),
+                _switch(
+                    'Nuevas solicitudes',
+                    'Aviso cuando haya solicitudes de cuentas por revisar.',
+                    _adminPreferences['new_requests'] != false,
+                    (value) => _setAdminPreference('new_requests', value),
+                    Icons.person_add_alt_outlined),
+                const SizedBox(height: 8),
+                _switch(
+                    'Solicitudes de eliminación',
+                    'Aviso cuando un socio solicite dar de baja su cuenta.',
+                    _adminPreferences['account_deletions'] != false,
+                    (value) => _setAdminPreference('account_deletions', value),
+                    Icons.person_off_outlined),
+              ],
+            ]),
+    );
+  }
+}
+
+class AccessibilitySettingsScreen extends StatelessWidget {
+  const AccessibilitySettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final role = authController.session?.role;
+    final nav = switch (role) {
+      UserRole.client => _clientNav,
+      UserRole.trainer => _trainerNav,
+      UserRole.admin => _adminNav,
+      null => _clientNav,
+    };
+    return WorkspacePage(
+      title: 'Tamaño del texto',
+      kicker: 'ACCESIBILIDAD',
+      items: nav,
+      selected: 3,
+      child: ValueListenableBuilder<double>(
+        valueListenable: appTextScaleNotifier,
+        builder: (context, scale, _) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            MusklCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Ajusta el tamaño para leer con comodidad.'),
+                  const SizedBox(height: 10),
+                  Text('Texto de ejemplo',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 18)),
+                  Slider(
+                    min: 1,
+                    max: 1.25,
+                    divisions: 5,
+                    value: scale,
+                    label: '${(scale * 100).round()}%',
+                    activeColor: AppColors.red,
+                    onChanged: (value) {
+                      appTextScaleNotifier.value = value;
+                    },
+                    onChangeEnd: (value) => unawaited(
+                      appPreferencesStorage.write(
+                          key: 'app_text_scale', value: value.toString()),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () {
+                        appTextScaleNotifier.value = 1;
+                        unawaited(appPreferencesStorage.delete(
+                            key: 'app_text_scale'));
+                      },
+                      child: const Text('Restablecer'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 const _clientNav = [
   ('Inicio', Icons.home_outlined, '/home'),
   ('Rutina', Icons.fitness_center, '/home/routine'),
@@ -2345,23 +2738,14 @@ class _ClientProfileWorkspaceScreenState
                 _setting('Cambiar contraseña', 'Actualiza tus credenciales',
                     Icons.lock_outline,
                     onTap: () => context.push('/home/password')),
-                _section('Notificaciones'),
-                MusklCard(
-                  child: SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: data['push_reminders_enabled'] == true,
-                    onChanged: _savingPushPreference
-                        ? null
-                        : _setPushReminders,
-                    activeThumbColor: AppColors.red,
-                    title: const Text('Notificaciones push'),
-                    subtitle: Text(_savingPushPreference
-                        ? 'Guardando preferencia…'
-                        : 'Fases nuevas, avisos de tu cuenta y recordatorio diario de rutina.'),
-                    secondary: const Icon(Icons.notifications_active_outlined,
-                        color: AppColors.accent),
-                  ),
-                ),
+                _setting('Notificaciones', 'Elige qué avisos recibir',
+                    Icons.notifications_active_outlined,
+                    onTap: () => context.push(
+                        _notificationsPath(authController.session?.role))),
+                _setting('Tamaño del texto', 'Ajusta la lectura de la app',
+                    Icons.text_fields_outlined,
+                    onTap: () => context.push(
+                        _accessibilityPath(authController.session?.role))),
                 const SizedBox(height: 8),
                 MusklButton(
                     label: 'Cerrar sesión',
@@ -4450,21 +4834,14 @@ class _TrainerSettingsScreenState extends State<TrainerSettingsScreen> {
               _setting('Cambiar contraseña',
                   'Actualiza tus credenciales de acceso', Icons.lock_outline,
                   onTap: _changePassword),
-              _section('Notificaciones'),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Notificaciones push en este teléfono'),
-                subtitle: const Text(
-                    'Recibe avisos de actividad, solicitudes y fases nuevas.'),
-                secondary: const Icon(Icons.notifications_active_outlined,
-                    color: AppColors.accent),
-                value: _profile['push_notifications_enabled'] == true,
-                activeThumbColor: AppColors.red,
-                onChanged: _saving ? null : _setPushNotifications,
-              ),
-              _preference('Actividad de clientes', 'client_activity', true),
-              _preference('Rutinas por vencer', 'routine_expiry', true),
-              _preference('Recordatorio diario', 'daily_reminder', false),
+              _setting('Notificaciones', 'Elige qué avisos recibir',
+                  Icons.notifications_active_outlined,
+                  onTap: () => context.push(
+                      _notificationsPath(authController.session?.role))),
+              _setting('Tamaño del texto', 'Ajusta la lectura de la app',
+                  Icons.text_fields_outlined,
+                  onTap: () => context.push(
+                      _accessibilityPath(authController.session?.role))),
               const SizedBox(height: 14),
               MusklButton(
                   label: 'Cerrar sesión',
@@ -6894,16 +7271,14 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             icon: const Icon(Icons.edit_outlined),
           ),
         ])),
-        _SwitchSetting(
-            label: 'Notificaciones de nuevas solicitudes',
-            value: _newRequestNotifications,
-            enabled: !_savingPreferences,
-            onChanged: _setNewRequestNotifications),
-        _SwitchSetting(
-            label: 'Notificaciones push en este teléfono',
-            value: _pushNotificationsEnabled,
-            enabled: !_savingPreferences,
-            onChanged: _setAdminPushNotifications),
+        _setting('Notificaciones', 'Elige qué avisos recibir',
+            Icons.notifications_active_outlined,
+            onTap: () =>
+                context.push(_notificationsPath(authController.session?.role))),
+        _setting('Tamaño del texto', 'Ajusta la lectura de la app',
+            Icons.text_fields_outlined,
+            onTap: () =>
+                context.push(_accessibilityPath(authController.session?.role))),
         _setting(
             _PrototypeSettings.gymName,
             '${_PrototypeSettings.gymAddress} · ${_PrototypeSettings.gymPhone}',

@@ -100,7 +100,7 @@ if origins:
         'http://127.0.0.1:4173',
     ) if origin not in origins)
 def _purge_expired_account_deletions() -> int:
-    """Permanently remove deactivated client/trainer records after 30 days."""
+    """Permanently remove deactivated client/trainer records after two months."""
     photo_keys: list[str] = []
     certificate_keys: list[str] = []
     with pool.connection() as conn:
@@ -176,7 +176,7 @@ async def _expired_account_cleanup_loop() -> None:
             await asyncio.to_thread(_purge_expired_account_deletions)
         except Exception:
             log.exception('Expired account cleanup failed; it will retry later')
-        await asyncio.sleep(12 * 60 * 60)
+        await asyncio.sleep(60 * 60)
 
 
 async def _routine_phase_maintenance_loop() -> None:
@@ -5117,8 +5117,9 @@ def deactivate_user(user_id: uuid.UUID, payload: DeactivationRequest,
                         WHERE trainer_id = %s AND status = 'pending'""", (user_id,))
                 cur.execute("""UPDATE users SET status = 'deactivated', status_reason = %s,
                    deactivation_reason = %s, deactivation_note = %s, deactivated_at = %s,
-                   deactivated_by = %s WHERE id = %s""",
+                   deactivated_by = %s WHERE id = %s RETURNING reactivation_until""",
                    (payload.note or payload.reason, payload.reason, payload.note, now, admin['id'], user_id))
+                reactivation_until = cur.fetchone()['reactivation_until']
                 cur.execute("""UPDATE auth_sessions SET revoked_at = coalesce(revoked_at, now()),
                     refresh_expires_at = (SELECT reactivation_until FROM users WHERE id = %s)
                     WHERE user_id = %s""", (user_id, user_id))
@@ -5126,7 +5127,7 @@ def deactivate_user(user_id: uuid.UUID, payload: DeactivationRequest,
                             (admin['gym_id'], admin['id'], user_id, 'account_deactivated', Jsonb({'reason': payload.reason, 'note': payload.note})))
                 cur.execute('INSERT INTO notifications (user_id, kind, title, body, payload) VALUES (%s, %s, %s, %s, %s)',
                             (user_id, 'account_deactivated', 'Tu cuenta fue dada de baja', payload.note or payload.reason,
-                             Jsonb({'deactivated_at': now.isoformat(), 'reactivation_until': (now + timedelta(days=30)).isoformat()})))
+                             Jsonb({'deactivated_at': now.isoformat(), 'reactivation_until': reactivation_until.isoformat()})))
     except HTTPException:
         raise
     except Exception as exc:
@@ -5140,10 +5141,10 @@ def deactivate_user(user_id: uuid.UUID, payload: DeactivationRequest,
         user['email'], 'Tu cuenta fue dada de baja · MUSKL',
         f"Tu cuenta fue dada de baja por el gimnasio. Motivo: {payload.reason}. "
         f"Puedes contactar al gimnasio para solicitar más información. "
-        f"La fecha límite para reactivarla es {(now + timedelta(days=30)).date().isoformat()}."
+        f"La fecha límite para reactivarla es {reactivation_until.date().isoformat()}."
     )
     return {'id': str(user_id), 'status': 'deactivated', 'deactivated_at': now.isoformat(),
-            'reactivation_until': (now + timedelta(days=30)).isoformat(),
+            'reactivation_until': reactivation_until.isoformat(),
             'notification_channel': notification_channel}
 
 

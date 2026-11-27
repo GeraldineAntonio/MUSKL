@@ -129,12 +129,12 @@ class _VerifyRegistrationEmailScreenState
             const SizedBox(height: 12),
             Text(_error!, style: const TextStyle(color: AppColors.red)),
           ],
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
           Center(
             child: _seconds > 0
                 ? Text(
                     'Reenviar código en 0:${_seconds.toString().padLeft(2, '0')}',
-                    style: const TextStyle(color: AppColors.textMuted))
+                    style: TextStyle(color: AppColors.textMuted))
                 : TextButton(
                     onPressed: _resending ? null : _resend,
                     child: Text(_resending ? 'Enviando…' : 'Reenviar código'),

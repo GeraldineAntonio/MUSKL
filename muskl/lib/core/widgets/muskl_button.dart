@@ -25,10 +25,10 @@ class MusklButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (bg, fg) = switch (style) {
-      MusklButtonStyle.primary => (AppColors.red, AppColors.white),
+      MusklButtonStyle.primary => (AppColors.red, AppColors.buttonForeground),
       MusklButtonStyle.secondary => (AppColors.surfaceRaised, AppColors.white),
       MusklButtonStyle.light => (AppColors.white, AppColors.bgDeep),
-      MusklButtonStyle.accent => (AppColors.accent, AppColors.bgDeep),
+      MusklButtonStyle.accent => (AppColors.accent, AppColors.buttonForeground),
       MusklButtonStyle.ghost => (Colors.transparent, AppColors.textMuted),
     };
     final enabled = onPressed != null && !loading;

@@ -3657,6 +3657,7 @@ def _deliver_client_push_reminders() -> int:
             JOIN gyms g ON g.id = u.gym_id
             WHERE u.role = 'client' AND u.status IN ('active', 'active_no_onboarding')
               AND cp.push_reminders_enabled
+              AND u.push_notifications_enabled
               AND extract(hour FROM now() AT TIME ZONE g.timezone) >= 19
               AND EXISTS (SELECT 1 FROM user_push_tokens pt WHERE pt.user_id = u.id)
               AND NOT EXISTS (SELECT 1 FROM push_reminder_deliveries d

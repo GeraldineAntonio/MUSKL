@@ -124,13 +124,12 @@ class _VerifyCodeScreenState extends State<VerifyCodeScreen> {
           Text(_error!,
               style: const TextStyle(color: AppColors.red, fontSize: 15)),
         ],
-        const SizedBox(height: 24),
+        SizedBox(height: 24),
         Center(
           child: _left > 0
               ? Text(
                   'Reenviar código en 0:${_left.toString().padLeft(2, '0')}',
-                  style:
-                      const TextStyle(color: AppColors.textMuted, fontSize: 16),
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 16),
                 )
               : TextButton(
                   onPressed: _resending ? null : _resend,

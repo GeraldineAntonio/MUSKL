@@ -516,10 +516,14 @@ class ApiAuthRepository implements AuthRepository {
 
   @override
   Future<Map<String, dynamic>> updateAdminPreferences(
-      {required bool newRequests}) async {
+      {required bool newRequests, required bool accountDeletions}) async {
     return Map<String, dynamic>.from(await _request(
         'PATCH', '/api/v1/admin/preferences',
-        authenticated: true, body: {'new_requests': newRequests}) as Map);
+        authenticated: true,
+        body: {
+          'new_requests': newRequests,
+          'account_deletions': accountDeletions,
+        }) as Map);
   }
 
   @override
@@ -1299,6 +1303,23 @@ class ApiAuthRepository implements AuthRepository {
       Map<String, dynamic>.from(
           await _request('GET', '/api/v1/client/dashboard', authenticated: true)
               as Map);
+
+  @override
+  Future<Map<String, dynamic>> getClientNotificationPreferences() async =>
+      Map<String, dynamic>.from(await _request(
+          'GET', '/api/v1/client/notification-preferences',
+          authenticated: true) as Map);
+
+  @override
+  Future<Map<String, dynamic>> updateClientNotificationPreferences(
+      {required bool routineUpdates, required bool accountUpdates}) async =>
+      Map<String, dynamic>.from(await _request(
+          'PATCH', '/api/v1/client/notification-preferences',
+          authenticated: true,
+          body: {
+            'routine_updates': routineUpdates,
+            'account_updates': accountUpdates,
+          }) as Map);
 
   Future<bool> getClientPushReminders() async {
     final result = Map<String, dynamic>.from(await _request(

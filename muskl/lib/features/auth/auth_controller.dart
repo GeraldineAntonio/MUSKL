@@ -163,8 +163,9 @@ class AuthController extends ChangeNotifier {
       repository.getAdminPreferences();
 
   Future<Map<String, dynamic>> updateAdminPreferences(
-          {required bool newRequests}) =>
-      repository.updateAdminPreferences(newRequests: newRequests);
+          {required bool newRequests, required bool accountDeletions}) =>
+      repository.updateAdminPreferences(
+          newRequests: newRequests, accountDeletions: accountDeletions);
 
   Future<List<Map<String, dynamic>>> adminNotifications() =>
       repository.getAdminNotifications();
@@ -317,6 +318,14 @@ class AuthController extends ChangeNotifier {
 
   Future<Map<String, dynamic>> clientDashboard() =>
       repository.getClientDashboard();
+
+  Future<Map<String, dynamic>> clientNotificationPreferences() =>
+      repository.getClientNotificationPreferences();
+
+  Future<Map<String, dynamic>> updateClientNotificationPreferences(
+          {required bool routineUpdates, required bool accountUpdates}) =>
+      repository.updateClientNotificationPreferences(
+          routineUpdates: routineUpdates, accountUpdates: accountUpdates);
 
   Future<Map<String, dynamic>> clientTrainers() =>
       repository.getClientTrainers();

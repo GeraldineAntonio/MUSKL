@@ -506,6 +506,12 @@ class TrainerProfileUpdate(BaseModel):
 
 class AdminPreferencesUpdate(BaseModel):
     new_requests: bool
+    account_deletions: bool = True
+
+
+class ClientNotificationPreferencesUpdate(BaseModel):
+    routine_updates: bool
+    account_updates: bool
 
 
 class PasswordChangeRequest(BaseModel):
@@ -3533,9 +3539,14 @@ def _deliver_pending_notification_pushes() -> int:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             events = cur.execute("""SELECT n.id, n.user_id, n.kind, n.title,
-                    n.body, u.push_notifications_enabled
+                    n.body, u.role, u.push_notifications_enabled,
+                    COALESCE(cp.notification_preferences, '{}'::jsonb) AS client_preferences,
+                    COALESCE(tp.notification_preferences, '{}'::jsonb) AS trainer_preferences,
+                    COALESCE(u.admin_notification_preferences, '{}'::jsonb) AS admin_preferences
                 FROM notifications n
                 JOIN users u ON u.id = n.user_id
+                LEFT JOIN client_profiles cp ON cp.user_id = u.id
+                LEFT JOIN trainer_profiles tp ON tp.user_id = u.id
                 WHERE n.push_processed_at IS NULL
                 ORDER BY n.created_at, n.id
                 LIMIT 100
@@ -3544,7 +3555,8 @@ def _deliver_pending_notification_pushes() -> int:
                 user_id = event['user_id']
                 tokens = cur.execute("""SELECT token FROM user_push_tokens
                     WHERE user_id = %s""", (user_id,)).fetchall()
-                if not event['push_notifications_enabled'] or not tokens:
+                if (not event['push_notifications_enabled'] or not tokens
+                        or not _push_category_enabled(event)):
                     cur.execute("""UPDATE notifications SET push_processed_at = now()
                         WHERE id = %s""", (event['id'],))
                     continue
@@ -3589,6 +3601,44 @@ def _deliver_pending_notification_pushes() -> int:
                         WHERE id = %s""", (event['id'],))
                     delivered += int(sent)
     return delivered
+
+
+def _push_category_enabled(event: dict) -> bool:
+    """Respect per-category push preferences while keeping unknown kinds enabled."""
+    role = event['role']
+    kind = event['kind']
+    if role == 'client':
+        routine_kinds = {
+            'routine_assigned', 'trainer_accepted', 'trainer_rejected',
+            'new_phase_available', 'trainer_reassigned',
+        }
+        account_kinds = {
+            'profile_updated', 'account_reactivated', 'account_deactivated',
+            'email_updated',
+        }
+        preferences = event['client_preferences'] or {}
+        if kind in routine_kinds:
+            return preferences.get('routine_updates', True)
+        if kind in account_kinds:
+            return preferences.get('account_updates', True)
+    elif role == 'trainer':
+        preferences = event['trainer_preferences'] or {}
+        key = {
+            'client_activity': 'client_activity',
+            'daily_reminder': 'daily_reminder',
+            'routine_phase_due': 'routine_expiry',
+        }.get(kind)
+        if key is not None:
+            return preferences.get(key, True)
+    elif role == 'admin':
+        preferences = event['admin_preferences'] or {}
+        key = {
+            'staff_request': 'new_requests',
+            'account_deletion_requested': 'account_deletions',
+        }.get(kind)
+        if key is not None:
+            return preferences.get(key, True)
+    return True
 
 
 def _deliver_client_push_reminders() -> int:
@@ -4429,7 +4479,10 @@ def get_admin_preferences(admin: dict = Depends(active_admin)) -> dict:
 @app.patch('/api/v1/admin/preferences')
 def update_admin_preferences(payload: AdminPreferencesUpdate,
                              admin: dict = Depends(active_admin)) -> dict:
-    preferences = {'new_requests': payload.new_requests}
+    preferences = {
+        'new_requests': payload.new_requests,
+        'account_deletions': payload.account_deletions,
+    }
     with pool.connection() as conn:
         conn.execute("""UPDATE users SET admin_notification_preferences = %s,
             updated_at = now() WHERE id = %s AND gym_id = %s""",
@@ -4502,6 +4555,36 @@ def admin_users(search: str = Query(default='', max_length=100),
     return [{**row, 'id': str(row['id'])} for row in rows]
 
 
+@app.get('/api/v1/client/notification-preferences')
+def get_client_notification_preferences(
+        client: dict = Depends(active_client)) -> dict:
+    with pool.connection() as conn:
+        row = conn.execute("""SELECT notification_preferences
+            FROM client_profiles WHERE user_id = %s""", (client['id'],)).fetchone()
+    return row['notification_preferences'] if row else {
+        'routine_updates': True, 'account_updates': True,
+    }
+
+
+@app.patch('/api/v1/client/notification-preferences')
+def update_client_notification_preferences(
+        payload: ClientNotificationPreferencesUpdate,
+        client: dict = Depends(active_client)) -> dict:
+    preferences = {
+        'routine_updates': payload.routine_updates,
+        'account_updates': payload.account_updates,
+    }
+    with pool.connection() as conn:
+        row = conn.execute("""UPDATE client_profiles
+            SET notification_preferences = %s, updated_at = now()
+            WHERE user_id = %s RETURNING notification_preferences""",
+            (Jsonb(preferences), client['id'])).fetchone()
+    if row is None:
+        raise _problem(404, 'CLIENT_PROFILE_NOT_FOUND',
+                       'No encontramos el perfil de este socio.')
+    return row['notification_preferences']
+
+
 @app.get('/api/v1/client/push-reminders')
 def client_push_reminder_settings(client: dict = Depends(active_client)) -> dict:
     with pool.connection() as conn:
@@ -4548,9 +4631,6 @@ def update_client_push_reminder_settings(
             SET push_reminders_enabled = %s, updated_at = now()
             WHERE user_id = %s RETURNING push_reminders_enabled""",
             (payload.enabled, client['id'])).fetchone()
-        conn.execute("""UPDATE users SET push_notifications_enabled = %s,
-            updated_at = now() WHERE id = %s""",
-            (payload.enabled, client['id']))
     return {'enabled': bool(row and row['push_reminders_enabled'])}
 
 

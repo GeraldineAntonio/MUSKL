@@ -138,6 +138,9 @@ def _purge_expired_account_deletions() -> int:
                    OR payload->>'trainer_id' = ANY(%s)
                    OR payload->>'user_id' = ANY(%s)""",
                 (user_id_text, user_id_text, user_id_text))
+            # Remove the linked gym roster record too; it contains personal data.
+            cur.execute("DELETE FROM client_member_registry WHERE linked_user_id = ANY(%s)",
+                        (user_ids,))
             deleted = cur.execute("DELETE FROM users WHERE id = ANY(%s) RETURNING gym_id",
                                   (user_ids,)).fetchall()
             if member_numbers:

@@ -284,7 +284,7 @@ class _LoginScreenState extends State<LoginScreen> {
           alignment: Alignment.centerRight,
           child: TextButton(
             onPressed: () => context.push('/forgot'),
-            child: const Text(
+            child: Text(
               '¿Olvidaste tu contraseña?',
               style: TextStyle(color: AppColors.accent, fontSize: 15),
             ),
@@ -301,7 +301,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         const SizedBox(height: 24),
         Row(
-          children: const [
+          children: [
             Expanded(child: Divider(color: AppColors.surfaceHigh)),
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 12),
@@ -336,7 +336,7 @@ class _LoginScreenState extends State<LoginScreen> {
         Center(
           child: TextButton(
             onPressed: () => context.push('/register'),
-            child: const Text.rich(
+            child: Text.rich(
               TextSpan(
                 text: '¿No tienes cuenta? ',
                 style: TextStyle(color: AppColors.textMuted, fontSize: 16),

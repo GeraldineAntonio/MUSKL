@@ -193,6 +193,12 @@ GoRouter buildRouter(AuthController auth) {
           path: '/home/profile',
           builder: (_, __) => const ClientProfileWorkspaceScreen()),
       GoRoute(
+          path: '/home/notifications',
+          builder: (_, __) => const NotificationSettingsScreen()),
+      GoRoute(
+          path: '/home/accessibility',
+          builder: (_, __) => const AccessibilitySettingsScreen()),
+      GoRoute(
           path: '/home/phase-available',
           builder: (_, __) => const NewPhaseScreen()),
       GoRoute(
@@ -213,6 +219,12 @@ GoRouter buildRouter(AuthController auth) {
       GoRoute(
           path: '/trainer/settings',
           builder: (_, __) => const TrainerSettingsScreen()),
+      GoRoute(
+          path: '/trainer/notifications',
+          builder: (_, __) => const NotificationSettingsScreen()),
+      GoRoute(
+          path: '/trainer/accessibility',
+          builder: (_, __) => const AccessibilitySettingsScreen()),
       GoRoute(
           path: '/trainer/password',
           builder: (_, __) => const ChangePasswordScreen()),
@@ -254,6 +266,12 @@ GoRouter buildRouter(AuthController auth) {
       GoRoute(
           path: '/admin/settings',
           builder: (_, __) => const AdminSettingsScreen()),
+      GoRoute(
+          path: '/admin/notifications',
+          builder: (_, __) => const NotificationSettingsScreen()),
+      GoRoute(
+          path: '/admin/accessibility',
+          builder: (_, __) => const AccessibilitySettingsScreen()),
       GoRoute(
           path: '/admin/requests',
           builder: (_, __) => const AdminRequestsScreen()),

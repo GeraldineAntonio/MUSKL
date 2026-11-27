@@ -96,7 +96,7 @@ abstract class AuthRepository {
       required Map<String, String> openingHours});
   Future<Map<String, dynamic>> getAdminPreferences();
   Future<Map<String, dynamic>> updateAdminPreferences(
-      {required bool newRequests});
+      {required bool newRequests, required bool accountDeletions});
   Future<List<Map<String, dynamic>>> getAdminNotifications();
   Future<void> markAdminNotificationRead({required String notificationId});
   Future<List<Map<String, dynamic>>> getAdminPlans();
@@ -167,6 +167,9 @@ abstract class AuthRepository {
       required String phaseId,
       required String clientId});
   Future<Map<String, dynamic>> getClientDashboard();
+  Future<Map<String, dynamic>> getClientNotificationPreferences();
+  Future<Map<String, dynamic>> updateClientNotificationPreferences(
+      {required bool routineUpdates, required bool accountUpdates});
   Future<Map<String, dynamic>> getClientTrainers();
   Future<void> requestClientTrainer({required String trainerId});
   Future<List<Map<String, dynamic>>> getTrainerAssignmentRequests();
@@ -297,6 +300,11 @@ class FakeAuthRepository implements AuthRepository {
     },
   ];
   static bool _fakeNewRequestNotifications = true;
+  static bool _fakeAccountDeletionNotifications = true;
+  static final Map<String, bool> _fakeClientNotificationPreferences = {
+    'routine_updates': true,
+    'account_updates': true,
+  };
 
   @override
   Future<Session?> restoreSession() async => null;
@@ -639,13 +647,18 @@ class FakeAuthRepository implements AuthRepository {
   @override
   Future<Map<String, dynamic>> getAdminPreferences() async => {
         'new_requests': _fakeNewRequestNotifications,
+        'account_deletions': _fakeAccountDeletionNotifications,
       };
 
   @override
   Future<Map<String, dynamic>> updateAdminPreferences(
-      {required bool newRequests}) async {
+      {required bool newRequests, required bool accountDeletions}) async {
     _fakeNewRequestNotifications = newRequests;
-    return {'new_requests': _fakeNewRequestNotifications};
+    _fakeAccountDeletionNotifications = accountDeletions;
+    return {
+      'new_requests': _fakeNewRequestNotifications,
+      'account_deletions': _fakeAccountDeletionNotifications,
+    };
   }
 
   @override
@@ -990,6 +1003,18 @@ class FakeAuthRepository implements AuthRepository {
         'workouts_7d': 4,
         'attendance_7d_dates': [],
       };
+
+  @override
+  Future<Map<String, dynamic>> getClientNotificationPreferences() async =>
+      Map<String, dynamic>.from(_fakeClientNotificationPreferences);
+
+  @override
+  Future<Map<String, dynamic>> updateClientNotificationPreferences(
+      {required bool routineUpdates, required bool accountUpdates}) async {
+    _fakeClientNotificationPreferences['routine_updates'] = routineUpdates;
+    _fakeClientNotificationPreferences['account_updates'] = accountUpdates;
+    return Map<String, dynamic>.from(_fakeClientNotificationPreferences);
+  }
 
   @override
   Future<Map<String, dynamic>> getClientTrainers() async => {

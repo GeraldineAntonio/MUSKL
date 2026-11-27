@@ -20,12 +20,11 @@ class ResetSuccessScreen extends StatelessWidget {
               Container(
                 width: 96,
                 height: 96,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: AppColors.red,
                   shape: BoxShape.circle,
                 ),
-                child:
-                    const Icon(Icons.check, size: 56, color: AppColors.white),
+                child: Icon(Icons.check, size: 56, color: AppColors.white),
               ),
               const SizedBox(height: 28),
               Text('¡Contraseña actualizada!'.toUpperCase(),

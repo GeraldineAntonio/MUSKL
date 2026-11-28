@@ -2650,6 +2650,35 @@ def trainer_routines(trainer: dict = Depends(active_trainer)) -> list[dict]:
     return [{**row, 'id': str(row['id'])} for row in rows]
 
 
+@app.delete('/api/v1/trainer/routines/{routine_id}')
+def delete_trainer_routine(routine_id: uuid.UUID,
+                           trainer: dict = Depends(active_trainer)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            routine = cur.execute("""SELECT id FROM routines
+                WHERE id = %s AND gym_id = %s AND trainer_id = %s AND active
+                FOR UPDATE""",
+                (routine_id, trainer['gym_id'], trainer['id'])).fetchone()
+            if routine is None:
+                raise _problem(404, 'ROUTINE_NOT_FOUND', 'No encontramos esa rutina.')
+            affected = cur.execute("""UPDATE client_routine_assignments
+                SET ended_at = now()
+                WHERE routine_id = %s AND ended_at IS NULL
+                RETURNING client_id""", (routine_id,)).fetchall()
+            cur.execute("UPDATE routines SET active = false, updated_at = now() WHERE id = %s",
+                        (routine_id,))
+            cur.execute("""INSERT INTO account_audit_events
+                (gym_id, actor_id, event_type, details)
+                VALUES (%s, %s, 'routine_archived', %s)""",
+                (trainer['gym_id'], trainer['id'], Jsonb({
+                    'routine_id': str(routine_id),
+                    'ended_assignments': len(affected),
+                    'actor_role': 'trainer',
+                })))
+    return {'routine_id': str(routine_id), 'archived': True,
+            'ended_assignments': len(affected)}
+
+
 @app.get('/api/v1/trainer/exercises')
 def trainer_exercise_catalog(search: str = Query(default='', max_length=80),
                              trainer: dict = Depends(active_trainer)) -> list[dict]:
@@ -4531,13 +4560,15 @@ def admin_users(search: str = Query(default='', max_length=100),
     where = ' AND '.join(conditions)
     with pool.connection() as conn:
         rows = conn.execute(f"""SELECT u.id, u.role, u.status, u.first_name, u.last_name, u.email, u.phone,
+                u.profile_photo_storage_key,
                 u.member_number, u.status_reason, u.deactivation_reason, u.deactivation_note,
                 u.deactivated_at, u.reactivation_until,
                 COALESCE(cp.trainer_reassignment_required, false) AS trainer_reassignment_required,
                 concat_ws(' ', a.first_name, a.last_name) AS deactivated_by,
                 p.name AS membership_plan, m.ends_on AS membership_ends_on, tp.specialty,
                 (SELECT count(*) FROM trainer_client_assignments tca WHERE tca.trainer_id = u.id AND tca.ends_at IS NULL) AS assigned_clients,
-                current_trainer.id AS trainer_id, current_trainer.name AS trainer_name
+                current_trainer.id AS trainer_id, current_trainer.name AS trainer_name,
+                current_routine.name AS routine_name
             FROM users u
             LEFT JOIN users a ON a.id = u.deactivated_by
             LEFT JOIN LATERAL (SELECT id, plan_id, ends_on FROM memberships
@@ -4552,8 +4583,22 @@ def admin_users(search: str = Query(default='', max_length=100),
                 WHERE tca.client_id = u.id AND tca.ends_at IS NULL
                 LIMIT 1
             ) current_trainer ON true
+            LEFT JOIN LATERAL (
+                SELECT r.name
+                FROM client_routine_assignments cra
+                JOIN routines r ON r.id = cra.routine_id
+                WHERE cra.client_id = u.id AND cra.ended_at IS NULL
+                LIMIT 1
+            ) current_routine ON true
             WHERE {where} ORDER BY u.created_at DESC LIMIT 500""", params).fetchall()
-    return [{**row, 'id': str(row['id'])} for row in rows]
+    results = []
+    for row in rows:
+        user = dict(row)
+        user['profile_photo_url'] = _signed_profile_photo(
+            user.pop('profile_photo_storage_key', None))
+        user['id'] = str(user['id'])
+        results.append(user)
+    return results
 
 
 @app.get('/api/v1/client/notification-preferences')
@@ -4700,6 +4745,34 @@ def admin_routines(search: str = Query(default='', max_length=100),
             FROM routines r JOIN users u ON u.id = r.trainer_id
             WHERE {' AND '.join(conditions)} ORDER BY r.updated_at DESC LIMIT 500""", params).fetchall()
     return [{**row, 'id': str(row['id'])} for row in rows]
+
+
+@app.delete('/api/v1/admin/routines/{routine_id}')
+def delete_admin_routine(routine_id: uuid.UUID,
+                         admin: dict = Depends(active_admin)) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            routine = cur.execute("""SELECT id FROM routines
+                WHERE id = %s AND gym_id = %s AND active FOR UPDATE""",
+                (routine_id, admin['gym_id'])).fetchone()
+            if routine is None:
+                raise _problem(404, 'ROUTINE_NOT_FOUND', 'No encontramos esa rutina.')
+            affected = cur.execute("""UPDATE client_routine_assignments
+                SET ended_at = now()
+                WHERE routine_id = %s AND ended_at IS NULL
+                RETURNING client_id""", (routine_id,)).fetchall()
+            cur.execute("UPDATE routines SET active = false, updated_at = now() WHERE id = %s",
+                        (routine_id,))
+            cur.execute("""INSERT INTO account_audit_events
+                (gym_id, actor_id, event_type, details)
+                VALUES (%s, %s, 'routine_archived', %s)""",
+                (admin['gym_id'], admin['id'], Jsonb({
+                    'routine_id': str(routine_id),
+                    'ended_assignments': len(affected),
+                    'actor_role': 'admin',
+                })))
+    return {'routine_id': str(routine_id), 'archived': True,
+            'ended_assignments': len(affected)}
 
 
 @app.get('/api/v1/admin/routines/{routine_id}')

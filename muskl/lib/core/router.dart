@@ -298,6 +298,8 @@ GoRouter buildRouter(AuthController auth) {
               deactivatedBy: state.uri.queryParameters['deactivated_by'] ?? '',
               trainerId: state.uri.queryParameters['trainer_id'] ?? '',
               trainerName: state.uri.queryParameters['trainer_name'] ?? '',
+              profilePhotoUrl:
+                  state.uri.queryParameters['profile_photo_url'] ?? '',
               trainerReassignmentRequired:
                   state.uri.queryParameters['trainer_reassignment_required'] ==
                       'true',

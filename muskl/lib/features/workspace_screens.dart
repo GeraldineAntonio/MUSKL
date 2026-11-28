@@ -9,6 +9,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:video_player/video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/widgets/muskl_bottom_nav.dart';
@@ -635,33 +636,25 @@ class AccessibilitySettingsScreen extends StatelessWidget {
                 children: [
                   const Text('Elige cómo quieres ver MUSKL.'),
                   const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: SegmentedButton<ThemeMode>(
-                      segments: const [
-                        ButtonSegment(
-                          value: ThemeMode.dark,
-                          icon: Icon(Icons.dark_mode_outlined),
-                          label: Text('Oscura'),
-                        ),
-                        ButtonSegment(
-                          value: ThemeMode.light,
-                          icon: Icon(Icons.light_mode_outlined),
-                          label: Text('Clara'),
-                        ),
-                      ],
-                      selected: {mode},
-                      onSelectionChanged: (selection) {
-                        final selected = selection.first;
-                        AppColors.isLightMode = selected == ThemeMode.light;
-                        appThemeModeNotifier.value = selected;
-                        unawaited(appPreferencesStorage.write(
-                          key: 'app_theme_mode',
-                          value: selected == ThemeMode.light ? 'light' : 'dark',
-                        ));
-                      },
+                  Row(children: [
+                    Expanded(
+                      child: _appearanceChoice(
+                        label: 'Oscura',
+                        icon: Icons.dark_mode_outlined,
+                        selected: mode == ThemeMode.dark,
+                        onTap: () => _setThemeMode(ThemeMode.dark),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _appearanceChoice(
+                        label: 'Clara',
+                        icon: Icons.light_mode_outlined,
+                        selected: mode == ThemeMode.light,
+                        onTap: () => _setThemeMode(ThemeMode.light),
+                      ),
+                    ),
+                  ]),
                   const SizedBox(height: 14),
                   Row(children: [
                     _themePreviewSwatch(AppColors.bg, 'Fondo'),
@@ -681,36 +674,29 @@ class AccessibilitySettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Ajusta el tamaño para leer con comodidad.'),
+                  const Text('Elige el tamaño que te resulte más cómodo.'),
                   const SizedBox(height: 10),
-                  Text('Texto de ejemplo',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 18)),
-                  Slider(
-                    min: 1,
-                    max: 1.25,
-                    divisions: 5,
-                    value: scale,
-                    label: '${(scale * 100).round()}%',
-                    activeColor: AppColors.red,
-                    onChanged: (value) {
-                      appTextScaleNotifier.value = value;
-                    },
-                    onChangeEnd: (value) => unawaited(
-                      appPreferencesStorage.write(
-                          key: 'app_text_scale', value: value.toString()),
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () {
-                        appTextScaleNotifier.value = 1;
-                        unawaited(appPreferencesStorage.delete(
-                            key: 'app_text_scale'));
-                      },
-                      child: const Text('Restablecer'),
-                    ),
+                  Row(children: [
+                    for (final (index, option) in const [
+                      (0.9, 'Pequeña'),
+                      (1.0, 'Normal'),
+                      (1.1, 'Grande'),
+                    ].indexed) ...[
+                      if (index > 0) const SizedBox(width: 8),
+                      Expanded(
+                        child: _appearanceChoice(
+                          label: option.$2,
+                          selected: (scale - option.$1).abs() < 0.01,
+                          onTap: () => _setTextScale(option.$1),
+                        ),
+                      ),
+                    ],
+                  ]),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Vista previa del texto',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
               ),
@@ -721,6 +707,70 @@ class AccessibilitySettingsScreen extends StatelessWidget {
     );
   }
 }
+
+void _setThemeMode(ThemeMode mode) {
+  AppColors.isLightMode = mode == ThemeMode.light;
+  appThemeModeNotifier.value = mode;
+  unawaited(appPreferencesStorage.write(
+    key: 'app_theme_mode',
+    value: mode == ThemeMode.light ? 'light' : 'dark',
+  ));
+}
+
+void _setTextScale(double scale) {
+  appTextScaleNotifier.value = scale;
+  unawaited(appPreferencesStorage.write(
+    key: 'app_text_scale',
+    value: scale.toString(),
+  ));
+}
+
+Widget _appearanceChoice({
+  required String label,
+  IconData? icon,
+  required bool selected,
+  required VoidCallback onTap,
+}) =>
+    InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 90),
+        constraints: const BoxConstraints(minHeight: 46),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.red.withValues(alpha: .14)
+              : AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? AppColors.red : AppColors.surfaceHigh,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (icon != null) ...[
+              Icon(icon,
+                  size: 17,
+                  color: selected ? AppColors.red : AppColors.textMuted),
+              const SizedBox(width: 6),
+            ],
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? AppColors.red : AppColors.textMuted,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
 
 const _clientNav = [
   ('Inicio', Icons.home_outlined, '/home'),
@@ -910,6 +960,66 @@ Widget _profileInfoField(String label, String value,
           ),
       ]),
     );
+
+Widget _adminProfileInfoCard(String label, String value, IconData icon,
+        {VoidCallback? onTap}) =>
+    Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: MusklCard(
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: AppColors.bg,
+                child: Icon(icon, color: AppColors.accent, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label.toUpperCase(),
+                        style: TextStyle(
+                            color: AppColors.textMuted,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: .8)),
+                    const SizedBox(height: 4),
+                    Text(value.trim().isEmpty ? 'Sin información' : value,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              if (onTap != null)
+                Icon(Icons.chevron_right, color: AppColors.textMuted),
+            ],
+          ),
+        ),
+      ),
+    );
+
+Future<void> _openGymWhatsApp(BuildContext context, String phone) async {
+  final digits = phone.replaceAll(RegExp(r'\D'), '');
+  if (digits.isEmpty) return;
+  final internationalNumber = digits.startsWith('52') ? digits : '52$digits';
+  final uri = Uri.https('wa.me', '/$internationalNumber');
+  try {
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('No se pudo abrir WhatsApp en este dispositivo.'),
+      ));
+    }
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('No se pudo abrir WhatsApp en este dispositivo.'),
+      ));
+    }
+  }
+}
 
 Widget _profileBioInline(String value) => Padding(
       padding: const EdgeInsets.only(top: 8),
@@ -2598,20 +2708,6 @@ class _ClientProfileWorkspaceScreenState
                                       style: const TextStyle(
                                           fontWeight: FontWeight.w900,
                                           fontSize: 17)),
-                                  Text((data['email'] ?? '').toString(),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                          color: AppColors.textMuted,
-                                          fontSize: 12)),
-                                  Text(
-                                      (data['phone'] ?? 'Sin teléfono')
-                                          .toString(),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                          color: AppColors.textMuted,
-                                          fontSize: 12)),
                                   _profileBioInline(
                                     (data['bio'] ?? '').toString(),
                                   ),
@@ -2637,7 +2733,28 @@ class _ClientProfileWorkspaceScreenState
                                     icon: Icons.flag_outlined)),
                           ]),
                         ])),
-                _section('Contacto y detalles'),
+                Padding(
+                  padding: const EdgeInsets.only(top: 20, bottom: 12),
+                  child: Center(
+                    child: Text(
+                      'CONTACTO Y DETALLES',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.1,
+                          ),
+                    ),
+                  ),
+                ),
+                _profileInfoField(
+                  'Correo electrónico',
+                  (data['email'] ?? '').toString(),
+                  icon: Icons.mail_outline,
+                ),
+                _profileInfoField(
+                  'Teléfono',
+                  (data['phone'] ?? '').toString(),
+                  icon: Icons.phone_outlined,
+                ),
                 _profileInfoField('Entrenador',
                     (data['trainer_name'] ?? 'Sin asignar').toString(),
                     icon: Icons.fitness_center),
@@ -2715,9 +2832,29 @@ class _ClientProfileWorkspaceScreenState
                               Icon(Icons.phone_outlined,
                                   color: AppColors.textMuted, size: 18),
                               const SizedBox(width: 8),
-                              Text('Tel. $gymPhone',
-                                  style: TextStyle(color: AppColors.textMuted)),
+                              Expanded(
+                                child: Text(
+                                  'Tel. $gymPhone',
+                                  style: TextStyle(color: AppColors.textMuted),
+                                ),
+                              ),
                             ]),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () =>
+                                    _openGymWhatsApp(context, gymPhone),
+                                icon: const Icon(Icons.chat_outlined),
+                                label: const Text('Escribir por WhatsApp'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.success,
+                                  side: BorderSide(
+                                      color: AppColors.success
+                                          .withValues(alpha: .7)),
+                                ),
+                              ),
+                            ),
                           ],
                         ],
                       ),
@@ -3382,13 +3519,10 @@ class _TrainerRoutinesScreenState extends State<TrainerRoutinesScreen> {
   Future<void> _assign(Map<String, dynamic> routine) async {
     try {
       final clients = await authController.trainerClients();
-      final availableClients = clients
-          .where((item) => (item['routine_name'] ?? '').toString().isEmpty)
-          .toList();
       if (!mounted) return;
-      if (availableClients.isEmpty) {
+      if (clients.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('No tienes clientes activos para asignar.')));
+            content: Text('No tienes clientes activos asignados.')));
         return;
       }
       final client = await showModalBottomSheet<Map<String, dynamic>>(
@@ -3397,11 +3531,15 @@ class _TrainerRoutinesScreenState extends State<TrainerRoutinesScreen> {
           child: ListView(
             shrinkWrap: true,
             children: [
-              const ListTile(title: Text('ASIGNAR A CLIENTE')),
-              for (final item in availableClients)
+              const ListTile(title: Text('ASIGNAR O CAMBIAR RUTINA')),
+              for (final item in clients)
                 ListTile(
                   title: Text('${item['first_name']} ${item['last_name']}'),
-                  subtitle: Text('Socio ${item['member_number'] ?? ''}'),
+                  subtitle: Text(
+                    (item['routine_name'] ?? '').toString().trim().isEmpty
+                        ? 'Socio ${item['member_number'] ?? ''} · Sin rutina actual'
+                        : 'Socio ${item['member_number'] ?? ''} · Rutina actual: ${item['routine_name']}',
+                  ),
                   onTap: () => Navigator.pop(context, item),
                 ),
             ],
@@ -3415,13 +3553,49 @@ class _TrainerRoutinesScreenState extends State<TrainerRoutinesScreen> {
           clientId: client['id'].toString());
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Rutina asignada a ${client['first_name']}.')));
+            content: Text(
+                'Rutina asignada a ${client['first_name']}. Su rutina anterior quedó en el historial.')));
         setState(_reload);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('No se pudo asignar la rutina: $e')));
+      }
+    }
+  }
+
+  Future<void> _deleteRoutine(Map<String, dynamic> routine) async {
+    final assigned = (routine['assigned_clients'] as num?)?.toInt() ?? 0;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Eliminar rutina'),
+        content: Text(assigned == 0
+            ? 'La rutina dejará de aparecer en el catálogo. Sus fases e historial se conservarán.'
+            : 'Hay $assigned socios con esta rutina. Se les quitará la rutina activa y se conservará su historial. La rutina dejará de aparecer en el catálogo.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Eliminar')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await authController.deleteTrainerRoutine(
+          routineId: routine['id'].toString());
+      if (!mounted) return;
+      setState(_reload);
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Rutina eliminada del catálogo.')));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No se pudo eliminar la rutina: $error')));
       }
     }
   }
@@ -3488,6 +3662,7 @@ class _TrainerRoutinesScreenState extends State<TrainerRoutinesScreen> {
                       onSelected: (value) {
                         if (value == 'publish') _publish(routine);
                         if (value == 'assign') _assign(routine);
+                        if (value == 'delete') _deleteRoutine(routine);
                         if (value == 'open') {
                           context.push(Uri(
                               path: '/trainer/phases',
@@ -3505,7 +3680,9 @@ class _TrainerRoutinesScreenState extends State<TrainerRoutinesScreen> {
                         else
                           const PopupMenuItem(
                               value: 'assign',
-                              child: Text('Asignar a cliente')),
+                              child: Text('Asignar o cambiar socio')),
+                        const PopupMenuItem(
+                            value: 'delete', child: Text('Eliminar rutina')),
                       ],
                     ),
                   ),
@@ -6200,77 +6377,35 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         authController.adminUsers(search: search, role: role, status: status);
   }
 
-  Future<void> _deactivateUser(Map<String, dynamic> user) async {
-    final name = '${user['first_name']} ${user['last_name']}';
-    final userId = user['id']?.toString();
-    final memberNumber = user['member_number']?.toString() ?? '';
-    if ((userId == null || userId.isEmpty) && memberNumber.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('No se encontró el identificador de esta cuenta.')));
-      return;
-    }
-    final changed = await context.push<bool>(
-      Uri(
-        path: '/admin/deactivate',
-        queryParameters: {
-          'id': userId ?? '',
-          'member': memberNumber,
-          'name': name,
-          'role': user['role'].toString(),
-        },
-      ).toString(),
-    );
-    if (changed == true && mounted) setState(_reload);
-  }
-
   Widget _userRecord(Map<String, dynamic> user) {
     final role = user['role']?.toString().toLowerCase();
     final status = user['status']?.toString().toLowerCase();
-    final canDeactivate =
-        (role == 'client' || role == 'trainer') && status != 'deactivated';
-    final roleLabel = role == 'trainer' ? 'entrenador' : 'socio';
-    return Column(children: [
-      _record(
-        '${user['first_name']} ${user['last_name']}',
-        '${role == 'client' ? 'Socio' : role == 'trainer' ? 'Entrenador' : 'Admin'} · ${status == 'deactivated' ? 'Baja' : status == 'pending' ? 'En revisión' : status == 'rejected' ? 'Rechazado' : 'Activo'}${user['member_number'] == null ? '' : ' · ${user['member_number']}'}',
-        icon: Icons.person_outline,
-        onTap: () async {
-          final changed = await context
-              .push<bool>(Uri(path: '/admin/member', queryParameters: {
-            'id': user['id'].toString(),
-            'member': (user['member_number'] ?? '').toString(),
-            'name': '${user['first_name']} ${user['last_name']}',
-            'role': role ?? '',
-            'email': (user['email'] ?? '').toString(),
-            'phone': (user['phone'] ?? '').toString(),
-            'plan': (user['membership_plan'] ?? '').toString(),
-            'status': status ?? '',
-            'deactivated_by': (user['deactivated_by'] ?? '').toString(),
-            'trainer_id': (user['trainer_id'] ?? '').toString(),
-            'trainer_name': (user['trainer_name'] ?? '').toString(),
-            'trainer_reassignment_required':
-                user['trainer_reassignment_required'] == true
-                    ? 'true'
-                    : 'false',
-            'reactivation_until': user['reactivation_until']?.toString() ?? '',
-          }).toString());
-          if (changed == true && mounted) setState(_reload);
-        },
-      ),
-      if (canDeactivate)
-        Padding(
-          padding: const EdgeInsets.only(left: 8, bottom: 12),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: OutlinedButton.icon(
-              onPressed: () => _deactivateUser(user),
-              icon: const Icon(Icons.person_off_outlined),
-              label: Text('Dar de baja $roleLabel'),
-              style: OutlinedButton.styleFrom(foregroundColor: AppColors.red),
-            ),
-          ),
-        ),
-    ]);
+    return _record(
+      '${user['first_name']} ${user['last_name']}',
+      '${role == 'client' ? 'Socio' : role == 'trainer' ? 'Entrenador' : 'Admin'} · ${status == 'deactivated' ? 'Baja' : status == 'pending' ? 'En revisión' : status == 'rejected' ? 'Rechazado' : 'Activo'}${user['member_number'] == null ? '' : ' · ${user['member_number']}'}',
+      icon: Icons.person_outline,
+      onTap: () async {
+        final changed = await context
+            .push<bool>(Uri(path: '/admin/member', queryParameters: {
+          'id': user['id'].toString(),
+          'member': (user['member_number'] ?? '').toString(),
+          'name': '${user['first_name']} ${user['last_name']}',
+          'role': role ?? '',
+          'email': (user['email'] ?? '').toString(),
+          'phone': (user['phone'] ?? '').toString(),
+          'plan': (user['membership_plan'] ?? '').toString(),
+          'status': status ?? '',
+          'deactivated_by': (user['deactivated_by'] ?? '').toString(),
+          'trainer_id': (user['trainer_id'] ?? '').toString(),
+          'trainer_name': (user['trainer_name'] ?? '').toString(),
+          'trainer_reassignment_required':
+              user['trainer_reassignment_required'] == true ? 'true' : 'false',
+          'reactivation_until': user['reactivation_until']?.toString() ?? '',
+          'profile_photo_url': (user['profile_photo_url'] ?? '').toString(),
+        }).toString());
+        if (changed == true && mounted) setState(_reload);
+      },
+    );
   }
 
   @override
@@ -6342,6 +6477,41 @@ class _AdminRoutinesScreenState extends State<AdminRoutinesScreen> {
 
   void _reload() => _routines = authController.adminRoutines(
       search: search, goal: filter == 'Todas' ? null : filter);
+
+  Future<void> _deleteRoutine(Map<String, dynamic> routine) async {
+    final assigned = (routine['assigned_clients'] as num?)?.toInt() ?? 0;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Eliminar rutina'),
+        content: Text(assigned == 0
+            ? 'La rutina dejará de aparecer en el catálogo. Sus fases e historial se conservarán.'
+            : 'Hay $assigned socios con esta rutina. Se les quitará la rutina activa y se conservará su historial. La rutina dejará de aparecer en el catálogo.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Eliminar')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await authController.deleteAdminRoutine(
+          routineId: routine['id'].toString());
+      if (!mounted) return;
+      setState(_reload);
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Rutina eliminada del catálogo.')));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No se pudo eliminar la rutina: $error')));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) => WorkspacePage(
@@ -6417,16 +6587,28 @@ class _AdminRoutinesScreenState extends State<AdminRoutinesScreen> {
                         'id': routine['id'].toString(),
                         'name': routine['name'].toString(),
                       }).toString()),
-                      action: IconButton(
-                        tooltip: 'Abrir rutina',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => context
-                            .push(Uri(path: '/admin/routine', queryParameters: {
-                          'id': routine['id'].toString(),
-                          'name': routine['name'].toString(),
-                        }).toString()),
-                        icon: Icon(Icons.edit_outlined,
-                            size: 17, color: AppColors.white),
+                      action: PopupMenuButton<String>(
+                        tooltip: 'Acciones de rutina',
+                        padding: EdgeInsets.zero,
+                        iconSize: 17,
+                        icon: Icon(Icons.more_vert, color: AppColors.white),
+                        onSelected: (action) {
+                          if (action == 'open') {
+                            context.push(
+                                Uri(path: '/admin/routine', queryParameters: {
+                              'id': routine['id'].toString(),
+                              'name': routine['name'].toString(),
+                            }).toString());
+                          } else if (action == 'delete') {
+                            _deleteRoutine(routine);
+                          }
+                        },
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                              value: 'open', child: Text('Abrir rutina')),
+                          PopupMenuItem(
+                              value: 'delete', child: Text('Eliminar rutina')),
+                        ],
                       ),
                     ),
               ]);
@@ -6453,6 +6635,38 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
     _routine = authController.adminRoutine(routineId: widget.routineId);
   }
 
+  Future<void> _deleteRoutine() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Eliminar rutina'),
+        content: const Text(
+            'La rutina dejará de aparecer en el catálogo y se cerrarán sus asignaciones activas. El historial de entrenamiento se conservará.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Eliminar')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await authController.deleteAdminRoutine(routineId: widget.routineId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Rutina eliminada del catálogo.')));
+      Navigator.of(context).pop(true);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No se pudo eliminar la rutina: $error')));
+      }
+    }
+  }
+
   Future<void> _assignToClient(Map<String, dynamic> phase) async {
     try {
       final clients =
@@ -6469,11 +6683,15 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
           child: ListView(
             shrinkWrap: true,
             children: [
-              const ListTile(title: Text('ASIGNAR RUTINA A SOCIO')),
+              const ListTile(title: Text('ASIGNAR O CAMBIAR RUTINA')),
               for (final item in clients)
                 ListTile(
                   title: Text('${item['first_name']} ${item['last_name']}'),
-                  subtitle: Text('Socio ${item['member_number'] ?? ''}'),
+                  subtitle: Text(
+                    (item['routine_name'] ?? '').toString().trim().isEmpty
+                        ? 'Socio ${item['member_number'] ?? ''} · Sin rutina actual'
+                        : 'Socio ${item['member_number'] ?? ''} · Rutina actual: ${item['routine_name']}',
+                  ),
                   onTap: () => Navigator.pop(context, item),
                 ),
             ],
@@ -6490,7 +6708,7 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
           _routine = authController.adminRoutine(routineId: widget.routineId));
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
-              'Rutina asignada a ${client['first_name']}. Ya puede verla en su panel.')));
+              'Rutina asignada a ${client['first_name']}. Su rutina anterior quedó en el historial.')));
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -6706,6 +6924,13 @@ class _AdminRoutineDetailScreenState extends State<AdminRoutineDetailScreen> {
                   _record('${client['first_name']} ${client['last_name']}',
                       'Socio ${client['member_number']}'),
                 if (clients.isEmpty) const Text('Sin clientes asignados.'),
+                const SizedBox(height: 18),
+                MusklButton(
+                  label: 'Eliminar rutina',
+                  icon: Icons.delete_outline,
+                  style: MusklButtonStyle.secondary,
+                  onPressed: _deleteRoutine,
+                ),
               ]);
         },
       ));
@@ -7319,20 +7544,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                         fontWeight: FontWeight.w900, fontSize: 17)),
-                Text((_ownProfile['email'] ?? '').toString(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                Text(
-                    (_ownProfile['phone'] ?? '').toString().isEmpty
-                        ? 'Sin teléfono'
-                        : _ownProfile['phone'].toString(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                _profileBioInline(
-                  (_ownProfile['bio'] ?? '').toString(),
-                ),
+                Text('ADMINISTRADOR',
+                    style: TextStyle(
+                        color: AppColors.accent,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1)),
               ])),
           IconButton(
             tooltip: 'Editar perfil',
@@ -7340,6 +7557,25 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             icon: const Icon(Icons.edit_outlined),
           ),
         ])),
+        _section('Mi cuenta'),
+        _adminProfileInfoCard(
+          'Correo electrónico',
+          (_ownProfile['email'] ?? '').toString(),
+          Icons.mail_outline,
+          onTap: _openProfileEditMenu,
+        ),
+        _adminProfileInfoCard(
+          'Teléfono',
+          (_ownProfile['phone'] ?? '').toString(),
+          Icons.phone_outlined,
+          onTap: _openProfileEditMenu,
+        ),
+        _adminProfileInfoCard(
+          'Biografía',
+          (_ownProfile['bio'] ?? '').toString(),
+          Icons.notes_outlined,
+          onTap: _openProfileEditMenu,
+        ),
         _setting('Notificaciones', 'Elige qué avisos recibir',
             Icons.notifications_active_outlined,
             onTap: () =>

@@ -899,6 +899,7 @@ class AdminMemberDetailScreen extends StatefulWidget {
       this.deactivatedBy = '',
       this.trainerId = '',
       this.trainerName = '',
+      this.profilePhotoUrl = '',
       this.trainerReassignmentRequired = false,
       this.reactivationUntil = ''});
   final bool deactivated;
@@ -913,6 +914,7 @@ class AdminMemberDetailScreen extends StatefulWidget {
       deactivatedBy,
       trainerId,
       trainerName,
+      profilePhotoUrl,
       reactivationUntil;
   final bool trainerReassignmentRequired;
 
@@ -986,40 +988,86 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
       title: widget.role == 'trainer'
           ? 'Detalle de entrenador'
           : 'Detalle de socio',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          _profileDetail('Nombre completo', widget.name,
-              icon: Icons.person_outline),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        MusklCard(
+          child: Row(children: [
+            ProfilePhotoAvatar(
+              radius: 38,
+              image: widget.profilePhotoUrl.isEmpty
+                  ? null
+                  : NetworkImage(widget.profilePhotoUrl),
+              name: widget.name,
+              allowEdit: false,
+              onEdit: () {},
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(widget.name,
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.role == 'trainer' ? 'ENTRENADOR' : 'SOCIO',
+                    style: TextStyle(
+                      color: AppColors.accent,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 8),
+        _profileDetailGroup('CUENTA', [
           _profileDetail(
               'Estado',
-              '${widget.deactivated ? 'Baja' : widget.status == 'pending' ? 'En revisión' : widget.status == 'rejected' ? 'Rechazado' : 'Activo'}',
+              widget.deactivated
+                  ? 'Baja'
+                  : widget.status == 'pending'
+                      ? 'En revisión'
+                      : widget.status == 'rejected'
+                          ? 'Rechazado'
+                          : 'Activo',
               icon: Icons.verified_user_outlined),
           if (widget.memberNumber.isNotEmpty)
             _profileDetail('Número de socio', widget.memberNumber,
                 icon: Icons.badge_outlined),
           if (widget.plan.isNotEmpty)
             _profileDetail('Plan', widget.plan, icon: Icons.card_membership),
+        ]),
+        _profileDetailGroup('CONTACTO', [
           _profileDetail('Correo electrónico', widget.email,
               icon: Icons.mail_outline),
           _profileDetail('Teléfono', widget.phone, icon: Icons.phone_outlined),
-          if (widget.role == 'client')
+        ]),
+        if (widget.role == 'client')
+          _profileDetailGroup('ENTRENAMIENTO', [
             _profileDetail(
                 'Entrenador',
                 widget.trainerName.isEmpty
                     ? 'Sin entrenador asignado'
                     : widget.trainerName,
                 icon: Icons.fitness_center),
-          if (widget.deactivatedBy.isNotEmpty)
-            _profileDetail('Baja registrada por', widget.deactivatedBy,
-                icon: Icons.person_off_outlined),
-          if (widget.deactivated)
-            _profileDetail(
-                'Reactivación disponible hasta',
-                widget.reactivationUntil.isEmpty
-                    ? '—'
-                    : widget.reactivationUntil.substring(0, 10),
-                icon: Icons.event_outlined),
-        ]),
+          ]),
+        if (widget.deactivatedBy.isNotEmpty || widget.deactivated)
+          _profileDetailGroup('BAJA', [
+            if (widget.deactivatedBy.isNotEmpty)
+              _profileDetail('Registrada por', widget.deactivatedBy,
+                  icon: Icons.person_off_outlined),
+            if (widget.deactivated)
+              _profileDetail(
+                  'Reactivación disponible hasta',
+                  widget.reactivationUntil.isEmpty
+                      ? '—'
+                      : widget.reactivationUntil.substring(0, 10),
+                  icon: Icons.event_outlined),
+          ]),
         const SizedBox(height: 16),
         if (!widget.deactivated &&
             (widget.role == 'client' || widget.role == 'trainer')) ...[
@@ -1070,6 +1118,37 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
                 }
               }),
       ]));
+}
+
+Widget _profileDetailGroup(String title, List<Widget> fields) {
+  if (fields.isEmpty) return const SizedBox.shrink();
+  return Padding(
+    padding: const EdgeInsets.only(top: 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 7),
+          child: Text(title,
+              style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.1,
+                  color: AppColors.red)),
+        ),
+        MusklCard(
+          child: Column(
+            children: [
+              for (var i = 0; i < fields.length; i++) ...[
+                if (i > 0) const Divider(height: 14),
+                fields[i],
+              ],
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class DeactivateMemberScreen extends StatefulWidget {

@@ -483,6 +483,13 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> deleteAdminRoutine({required String routineId}) async {
+    await _request(
+        'DELETE', '/api/v1/admin/routines/${Uri.encodeComponent(routineId)}',
+        authenticated: true);
+  }
+
+  @override
   Future<Map<String, dynamic>> getAdminDashboard() async =>
       Map<String, dynamic>.from(
           await _request('GET', '/api/v1/admin/dashboard', authenticated: true)
@@ -871,6 +878,13 @@ class ApiAuthRepository implements AuthRepository {
         '/api/v1/trainer/routines/${Uri.encodeComponent(routineId)}/assign',
         authenticated: true,
         body: {'phase_id': phaseId, 'client_id': clientId});
+  }
+
+  @override
+  Future<void> deleteTrainerRoutine({required String routineId}) async {
+    await _request(
+        'DELETE', '/api/v1/trainer/routines/${Uri.encodeComponent(routineId)}',
+        authenticated: true);
   }
 
   @override
@@ -1312,7 +1326,7 @@ class ApiAuthRepository implements AuthRepository {
 
   @override
   Future<Map<String, dynamic>> updateClientNotificationPreferences(
-      {required bool routineUpdates, required bool accountUpdates}) async =>
+          {required bool routineUpdates, required bool accountUpdates}) async =>
       Map<String, dynamic>.from(await _request(
           'PATCH', '/api/v1/client/notification-preferences',
           authenticated: true,
@@ -1323,13 +1337,15 @@ class ApiAuthRepository implements AuthRepository {
 
   Future<bool> getClientPushReminders() async {
     final result = Map<String, dynamic>.from(await _request(
-        'GET', '/api/v1/client/push-reminders', authenticated: true) as Map);
+        'GET', '/api/v1/client/push-reminders',
+        authenticated: true) as Map);
     return result['enabled'] == true;
   }
 
   Future<bool> getPushNotificationsEnabled() async {
-    final result = Map<String, dynamic>.from(await _request(
-        'GET', '/api/v1/push-settings', authenticated: true) as Map);
+    final result = Map<String, dynamic>.from(
+        await _request('GET', '/api/v1/push-settings', authenticated: true)
+            as Map);
     return result['enabled'] == true;
   }
 
@@ -1345,8 +1361,8 @@ class ApiAuthRepository implements AuthRepository {
 
   Future<void> registerClientPushToken(
       {required String token, required String platform}) async {
-    await _request('POST', '/api/v1/push-token', authenticated: true,
-        body: {'token': token, 'platform': platform});
+    await _request('POST', '/api/v1/push-token',
+        authenticated: true, body: {'token': token, 'platform': platform});
   }
 
   @override

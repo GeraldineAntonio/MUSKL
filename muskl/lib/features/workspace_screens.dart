@@ -961,45 +961,6 @@ Widget _profileInfoField(String label, String value,
       ]),
     );
 
-Widget _adminProfileInfoCard(String label, String value, IconData icon,
-        {VoidCallback? onTap}) =>
-    Padding(
-      padding: const EdgeInsets.only(bottom: 9),
-      child: MusklCard(
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: AppColors.bg,
-                child: Icon(icon, color: AppColors.accent, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(label.toUpperCase(),
-                        style: TextStyle(
-                            color: AppColors.textMuted,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: .8)),
-                    const SizedBox(height: 4),
-                    Text(value.trim().isEmpty ? 'Sin información' : value,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
-                  ],
-                ),
-              ),
-              if (onTap != null)
-                Icon(Icons.chevron_right, color: AppColors.textMuted),
-            ],
-          ),
-        ),
-      ),
-    );
-
 Future<void> _openGymWhatsApp(BuildContext context, String phone) async {
   final digits = phone.replaceAll(RegExp(r'\D'), '');
   if (digits.isEmpty) return;
@@ -2865,6 +2826,30 @@ class _ClientProfileWorkspaceScreenState
                             ),
                           ]),
                           const Divider(height: 22),
+                          Center(
+                            child: Text(
+                              'CONTACTO Y DETALLES',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: .8,
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _profileInfoField(
+                            'Correo electrónico',
+                            (data['email'] ?? '').toString(),
+                            icon: Icons.mail_outline,
+                          ),
+                          _profileInfoField(
+                            'Teléfono',
+                            (data['phone'] ?? '').toString(),
+                            icon: Icons.phone_outlined,
+                          ),
+                          const Divider(height: 22),
                           Row(children: [
                             Expanded(
                                 child: _profileInfoField('Cumpleaños',
@@ -2877,31 +2862,57 @@ class _ClientProfileWorkspaceScreenState
                                     icon: Icons.flag_outlined)),
                           ]),
                         ])),
-                Padding(
-                  padding: const EdgeInsets.only(top: 20, bottom: 12),
-                  child: Center(
-                    child: Text(
-                      'CONTACTO Y DETALLES',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.1,
+                if ((data['trainer_name'] ?? '')
+                    .toString()
+                    .trim()
+                    .isNotEmpty) ...[
+                  _section('Entrenador'),
+                  MusklCard(
+                    padding: const EdgeInsets.all(18),
+                    child: Row(
+                      children: [
+                        ProfilePhotoAvatar(
+                          radius: 23,
+                          image: (data['trainer_profile_photo_url'] ?? '')
+                                  .toString()
+                                  .isEmpty
+                              ? null
+                              : NetworkImage(
+                                  data['trainer_profile_photo_url'].toString(),
+                                ),
+                          name: data['trainer_name'].toString(),
+                          allowEdit: false,
+                          onEdit: () {},
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'ENTRENADOR ASIGNADO',
+                                style: TextStyle(
+                                  color: AppColors.textMuted,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: .9,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                data['trainer_name'].toString(),
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
                           ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                _profileInfoField(
-                  'Correo electrónico',
-                  (data['email'] ?? '').toString(),
-                  icon: Icons.mail_outline,
-                ),
-                _profileInfoField(
-                  'Teléfono',
-                  (data['phone'] ?? '').toString(),
-                  icon: Icons.phone_outlined,
-                ),
-                _profileInfoField('Entrenador',
-                    (data['trainer_name'] ?? 'Sin asignar').toString(),
-                    icon: Icons.fitness_center),
+                ],
                 if ((data['gym_name'] ?? '').toString().isNotEmpty ||
                     gymAddress.isNotEmpty ||
                     gymPhone.isNotEmpty ||
@@ -7666,60 +7677,66 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       child: Column(children: [
         if (_savingPhoto) const LinearProgressIndicator(),
         MusklCard(
-            child: Row(children: [
-          ProfilePhotoAvatar(
-              image: (_ownProfile['profile_photo_url'] == null ||
-                      _ownProfile['profile_photo_url'].toString().isEmpty)
-                  ? null
-                  : NetworkImage(_ownProfile['profile_photo_url'].toString()),
-              name:
-                  '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}',
-              allowEdit: false,
-              onEdit: () {}),
-          const SizedBox(width: 14),
-          Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text(
-                    '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}'
-                        .trim(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w900, fontSize: 17)),
-                Text('ADMINISTRADOR',
-                    style: TextStyle(
-                        color: AppColors.accent,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1)),
-              ])),
-          IconButton(
-            tooltip: 'Editar perfil',
-            onPressed: _savingPhoto ? null : _openProfileEditMenu,
-            icon: const Icon(Icons.edit_outlined),
-          ),
-        ])),
-        _section('Mi cuenta'),
-        _adminProfileInfoCard(
-          'Correo electrónico',
-          (_ownProfile['email'] ?? '').toString(),
-          Icons.mail_outline,
-          onTap: _openProfileEditMenu,
-        ),
-        _adminProfileInfoCard(
-          'Teléfono',
-          (_ownProfile['phone'] ?? '').toString(),
-          Icons.phone_outlined,
-          onTap: _openProfileEditMenu,
-        ),
-        _adminProfileInfoCard(
-          'Biografía',
-          (_ownProfile['bio'] ?? '').toString(),
-          Icons.notes_outlined,
-          onTap: _openProfileEditMenu,
-        ),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  ProfilePhotoAvatar(
+                      image: (_ownProfile['profile_photo_url'] == null ||
+                              _ownProfile['profile_photo_url']
+                                  .toString()
+                                  .isEmpty)
+                          ? null
+                          : NetworkImage(
+                              _ownProfile['profile_photo_url'].toString()),
+                      name:
+                          '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}',
+                      allowEdit: false,
+                      onEdit: () {}),
+                  const SizedBox(width: 14),
+                  Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text(
+                            '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}'
+                                .trim(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w900, fontSize: 17)),
+                        Text('ADMINISTRADOR',
+                            style: TextStyle(
+                                color: AppColors.accent,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1)),
+                      ])),
+                  IconButton(
+                    tooltip: 'Editar perfil',
+                    onPressed: _savingPhoto ? null : _openProfileEditMenu,
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
+                ]),
+                const Divider(height: 24),
+                _profileInfoField(
+                  'Correo electrónico',
+                  (_ownProfile['email'] ?? '').toString(),
+                  icon: Icons.mail_outline,
+                ),
+                _profileInfoField(
+                  'Teléfono',
+                  (_ownProfile['phone'] ?? '').toString(),
+                  icon: Icons.phone_outlined,
+                ),
+                _profileInfoField(
+                  'Biografía',
+                  (_ownProfile['bio'] ?? '').toString(),
+                  icon: Icons.notes_outlined,
+                ),
+              ],
+            )),
         _setting('Notificaciones', 'Elige qué avisos recibir',
             Icons.notifications_active_outlined,
             onTap: () =>

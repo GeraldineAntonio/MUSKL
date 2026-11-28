@@ -88,12 +88,15 @@ class ClientHomeContent extends StatelessWidget {
                 ],
               ),
             ),
-            if (data['new_phase_notification'] != null)
-              IconButton.filledTonal(
-                tooltip: 'Hay una fase nueva',
-                onPressed: () => onNavigate('/home/phase-available'),
-                icon: const Icon(Icons.notifications_active_outlined),
+            Badge(
+              isLabelVisible: data['new_phase_notification'] != null,
+              backgroundColor: AppColors.red,
+              child: IconButton.filledTonal(
+                tooltip: 'Notificaciones',
+                onPressed: () => onNavigate('/home/notifications'),
+                icon: const Icon(Icons.notifications_none_outlined),
               ),
+            ),
           ],
         ),
         const SizedBox(height: 16),

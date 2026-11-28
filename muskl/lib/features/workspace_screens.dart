@@ -1112,6 +1112,41 @@ Widget _profileBioInline(String value) => Padding(
       ),
     );
 
+Widget _compactProfileMeta(String label, String value, IconData icon) =>
+    Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.surfaceHigh),
+      ),
+      child: Row(children: [
+        Icon(icon, color: AppColors.accent, size: 17),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: .5)),
+              const SizedBox(height: 3),
+              Text(value.isEmpty ? 'Sin información' : value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+      ]),
+    );
+
 Widget _exerciseThumbnail(Map<String, dynamic> exercise,
         {required double height}) =>
     ClipRRect(
@@ -2860,94 +2895,82 @@ class _ClientProfileWorkspaceScreenState
               children: [
                 if (_savingProfile) const LinearProgressIndicator(),
                 MusklCard(
-                    padding: const EdgeInsets.all(16),
                     child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(children: [
-                            ProfilePhotoAvatar(
-                                radius: 42,
-                                image: photoUrl != null && photoUrl.isNotEmpty
-                                    ? NetworkImage(photoUrl)
-                                    : photoBytes == null
-                                        ? null
-                                        : MemoryImage(photoBytes),
-                                name:
-                                    '${data['first_name']} ${data['last_name']}',
-                                allowEdit: false,
-                                onEdit: () {}),
-                            const SizedBox(width: 14),
-                            Expanded(
-                                child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                  Text(
-                                      'SOCIO Nº ${data['member_number'] ?? '—'}',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                          color: AppColors.red,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w900,
-                                          letterSpacing: .8)),
-                                  Text(
-                                      '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'
-                                          .trim(),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 17)),
-                                  _profileBioInline(
-                                    (data['bio'] ?? '').toString(),
-                                  ),
-                                ])),
-                            IconButton(
-                              tooltip: 'Editar perfil',
-                              onPressed: _savingProfile
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      ProfilePhotoAvatar(
+                          radius: 38,
+                          image: photoUrl != null && photoUrl.isNotEmpty
+                              ? NetworkImage(photoUrl)
+                              : photoBytes == null
                                   ? null
-                                  : () => _openProfileEditMenu(data),
-                              icon: const Icon(Icons.edit_outlined),
-                            ),
-                          ]),
-                          const Divider(height: 22),
-                          Center(
-                            child: Text(
-                              'CONTACTO Y DETALLES',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleSmall
-                                  ?.copyWith(
+                                  : MemoryImage(photoBytes),
+                          name: '${data['first_name']} ${data['last_name']}',
+                          allowEdit: false,
+                          onEdit: () {}),
+                      const SizedBox(width: 14),
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text('SOCIO Nº ${data['member_number'] ?? '—'}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: AppColors.red,
+                                    fontSize: 10,
                                     fontWeight: FontWeight.w900,
-                                    letterSpacing: .8,
-                                  ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          _profileInfoField(
-                            'Correo electrónico',
-                            (data['email'] ?? '').toString(),
-                            icon: Icons.mail_outline,
-                          ),
-                          _profileInfoField(
-                            'Teléfono',
-                            (data['phone'] ?? '').toString(),
-                            icon: Icons.phone_outlined,
-                          ),
-                          const Divider(height: 22),
-                          Row(children: [
-                            Expanded(
-                                child: _profileInfoField('Cumpleaños',
-                                    _profileDateLabel(data['birth_date']),
-                                    icon: Icons.cake_outlined)),
-                            const SizedBox(width: 10),
-                            Expanded(
-                                child: _profileInfoField('Objetivo',
-                                    (data['goal'] ?? 'Pendiente').toString(),
-                                    icon: Icons.flag_outlined)),
-                          ]),
-                        ])),
+                                    letterSpacing: .8)),
+                            Text(
+                                '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'
+                                    .trim(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w900, fontSize: 17)),
+                            Text(
+                                (data['email'] ?? '').toString().isEmpty
+                                    ? 'Sin correo'
+                                    : data['email'].toString(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    color: AppColors.textMuted, fontSize: 12)),
+                            Text(
+                                (data['phone'] ?? '').toString().isEmpty
+                                    ? 'Sin teléfono'
+                                    : data['phone'].toString(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    color: AppColors.textMuted, fontSize: 12)),
+                            _profileBioInline((data['bio'] ?? '').toString()),
+                          ])),
+                      IconButton(
+                        tooltip: 'Editar perfil',
+                        onPressed: _savingProfile
+                            ? null
+                            : () => _openProfileEditMenu(data),
+                        icon: const Icon(Icons.edit_outlined),
+                      ),
+                    ]),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(
+                          child: _compactProfileMeta(
+                              'CUMPLEAÑOS',
+                              _profileDateLabel(data['birth_date']),
+                              Icons.cake_outlined)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                          child: _compactProfileMeta(
+                              'OBJETIVO',
+                              (data['goal'] ?? 'Pendiente').toString(),
+                              Icons.flag_outlined)),
+                    ]),
+                  ],
+                )),
                 if ((data['trainer_name'] ?? '')
                     .toString()
                     .trim()

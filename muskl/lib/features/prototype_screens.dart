@@ -983,6 +983,17 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
     }
   }
 
+  Future<void> _deactivateMember() async {
+    final changed = await context
+        .push<bool>(Uri(path: '/admin/deactivate', queryParameters: {
+      'member': widget.memberNumber,
+      'id': widget.userId ?? '',
+      'name': widget.name,
+      'role': widget.role,
+    }).toString());
+    if (changed == true && mounted) Navigator.of(context).pop(true);
+  }
+
   @override
   Widget build(BuildContext context) => PrototypePage(
       title: widget.role == 'trainer'
@@ -1025,19 +1036,64 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
         ),
         const SizedBox(height: 8),
         _profileDetailGroup('CUENTA', [
-          _profileDetail(
-              'Estado',
-              widget.deactivated
-                  ? 'Baja'
-                  : widget.status == 'pending'
-                      ? 'En revisión'
-                      : widget.status == 'rejected'
-                          ? 'Rechazado'
-                          : 'Activo',
-              icon: Icons.verified_user_outlined),
           if (widget.memberNumber.isNotEmpty)
-            _profileDetail('Número de socio', widget.memberNumber,
-                icon: Icons.badge_outlined),
+            Row(children: [
+              Expanded(
+                child: _profileDetail('Número de socio', widget.memberNumber,
+                    icon: Icons.badge_outlined),
+              ),
+              if (!widget.deactivated &&
+                  (widget.role == 'client' || widget.role == 'trainer'))
+                IconButton.filledTonal(
+                  tooltip:
+                      'Dar de baja ${widget.role == 'trainer' ? 'al entrenador' : 'al socio'}',
+                  onPressed: _deactivateMember,
+                  style: IconButton.styleFrom(
+                    foregroundColor: AppColors.red,
+                    backgroundColor: AppColors.red.withValues(alpha: .12),
+                  ),
+                  icon: const Icon(Icons.person_off_outlined),
+                ),
+            ]),
+          if (widget.memberNumber.isNotEmpty) ...[
+            _profileDetail(
+                'Estado',
+                widget.deactivated
+                    ? 'Baja'
+                    : widget.status == 'pending'
+                        ? 'En revisión'
+                        : widget.status == 'rejected'
+                            ? 'Rechazado'
+                            : 'Activo',
+                icon: Icons.verified_user_outlined),
+          ] else ...[
+            Row(children: [
+              Expanded(
+                child: _profileDetail(
+                    'Estado',
+                    widget.deactivated
+                        ? 'Baja'
+                        : widget.status == 'pending'
+                            ? 'En revisión'
+                            : widget.status == 'rejected'
+                                ? 'Rechazado'
+                                : 'Activo',
+                    icon: Icons.verified_user_outlined),
+              ),
+              if (!widget.deactivated &&
+                  (widget.role == 'client' || widget.role == 'trainer'))
+                IconButton.filledTonal(
+                  tooltip:
+                      'Dar de baja ${widget.role == 'trainer' ? 'al entrenador' : 'al socio'}',
+                  onPressed: _deactivateMember,
+                  style: IconButton.styleFrom(
+                    foregroundColor: AppColors.red,
+                    backgroundColor: AppColors.red.withValues(alpha: .12),
+                  ),
+                  icon: const Icon(Icons.person_off_outlined),
+                ),
+            ]),
+          ],
           if (widget.plan.isNotEmpty)
             _profileDetail('Plan', widget.plan, icon: Icons.card_membership),
         ]),
@@ -1079,23 +1135,6 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
                 onPressed: _assigningTrainer ? null : _assignTrainer),
           if (widget.role == 'client' && widget.trainerReassignmentRequired)
             const SizedBox(height: 10),
-          MusklButton(
-              label:
-                  'Dar de baja al ${widget.role == 'trainer' ? 'entrenador' : 'socio'}',
-              icon: Icons.person_off_outlined,
-              style: MusklButtonStyle.primary,
-              onPressed: () async {
-                final changed = await context.push<bool>(
-                    Uri(path: '/admin/deactivate', queryParameters: {
-                  'member': widget.memberNumber,
-                  'id': widget.userId ?? '',
-                  'name': widget.name,
-                  'role': widget.role,
-                }).toString());
-                if (changed == true && context.mounted) {
-                  Navigator.of(context).pop(true);
-                }
-              }),
         ],
         if (widget.deactivated)
           MusklButton(

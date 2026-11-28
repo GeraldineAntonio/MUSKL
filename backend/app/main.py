@@ -4030,7 +4030,7 @@ def update_client_profile(payload: ClientProfileUpdate,
 def client_notifications(client: dict = Depends(active_client)) -> list[dict]:
     with pool.connection() as conn:
         rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
-            FROM notifications WHERE user_id = %s AND kind IN ('new_phase_available', 'profile_updated')
+            FROM notifications WHERE user_id = %s
               AND read_at IS NULL ORDER BY created_at DESC LIMIT 10""",
             (client['id'],)).fetchall()
     return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()} for row in rows]
@@ -4048,9 +4048,8 @@ def mark_client_notification_read(notification_id: uuid.UUID,
 def trainer_notifications(trainer: dict = Depends(active_trainer)) -> list[dict]:
     with pool.connection() as conn:
         rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
-            FROM notifications WHERE user_id = %s
-              AND kind IN ('routine_phase_due', 'client_activity', 'daily_reminder', 'trainer_request', 'profile_updated')
-              AND read_at IS NULL ORDER BY created_at DESC LIMIT 20""",
+            FROM notifications WHERE user_id = %s AND read_at IS NULL
+            ORDER BY created_at DESC LIMIT 20""",
             (trainer['id'],)).fetchall()
     return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()} for row in rows]
 
@@ -5268,7 +5267,7 @@ def admin_trainer_certification_download(
 def admin_notifications(admin: dict = Depends(active_admin)) -> list[dict]:
     with pool.connection() as conn:
         rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
-            FROM notifications WHERE user_id = %s AND kind IN ('staff_request', 'profile_updated', 'account_deletion_requested')
+            FROM notifications WHERE user_id = %s
               AND read_at IS NULL ORDER BY created_at DESC LIMIT 20""",
             (admin['id'],)).fetchall()
     return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()}
@@ -5280,8 +5279,8 @@ def mark_admin_notification_read(notification_id: uuid.UUID,
                                 admin: dict = Depends(active_admin)) -> None:
     with pool.connection() as conn:
         conn.execute("""UPDATE notifications SET read_at = now()
-            WHERE id = %s AND user_id = %s AND kind IN ('staff_request', 'profile_updated', 'account_deletion_requested')
-              AND read_at IS NULL""", (notification_id, admin['id']))
+            WHERE id = %s AND user_id = %s AND read_at IS NULL""",
+            (notification_id, admin['id']))
 
 
 @app.post('/api/v1/admin/staff-requests/{user_id}/review')

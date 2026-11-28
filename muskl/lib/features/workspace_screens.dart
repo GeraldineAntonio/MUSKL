@@ -315,11 +315,57 @@ class _NotificationSettingsScreenState
   bool _pushNotificationsEnabled = false;
   bool _loading = true;
   bool _saving = false;
+  late Future<List<Map<String, dynamic>>> _notifications;
 
   @override
   void initState() {
     super.initState();
+    _notifications = _loadNotifications();
     _load();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadNotifications() => switch (_role) {
+        UserRole.client => authController.clientNotifications(),
+        UserRole.trainer => authController.trainerNotifications(),
+        UserRole.admin => authController.adminNotifications(),
+        null => Future.value(const <Map<String, dynamic>>[]),
+      };
+
+  Future<void> _markNotificationRead(Map<String, dynamic> notification) async {
+    final id = notification['id'].toString();
+    try {
+      switch (_role) {
+        case UserRole.client:
+          await authController.markClientNotificationRead(notificationId: id);
+        case UserRole.trainer:
+          await authController.markTrainerNotificationRead(notificationId: id);
+        case UserRole.admin:
+          await authController.markAdminNotificationRead(notificationId: id);
+        case null:
+          return;
+      }
+      if (!mounted) return;
+      setState(() => _notifications = _loadNotifications());
+      final payload = notification['payload'] is Map
+          ? Map<String, dynamic>.from(notification['payload'] as Map)
+          : <String, dynamic>{};
+      if (_role == UserRole.client &&
+          notification['kind'] == 'new_phase_available') {
+        context.push('/home/phase-available');
+      } else if (_role == UserRole.admin &&
+          notification['kind'] == 'account_deletion_requested') {
+        context.push('/admin/requests');
+      } else if (_role == UserRole.trainer &&
+          notification['kind'] == 'client_activity' &&
+          payload['client_id'] != null) {
+        context.push(Uri(path: '/trainer/client', queryParameters: {
+          'id': payload['client_id'].toString(),
+          'name': notification['body'].toString().split(' completó').first,
+        }).toString());
+      }
+    } catch (error) {
+      _showMessage('No se pudo abrir la notificación: $error');
+    }
   }
 
   Future<void> _load() async {
@@ -528,7 +574,55 @@ class _NotificationSettingsScreenState
           ? const Center(child: CircularProgressIndicator())
           : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               if (_saving) const LinearProgressIndicator(),
-              const Text('Elige qué avisos quieres recibir en este teléfono.'),
+              const Text(
+                  'Consulta tus avisos y elige cuáles recibir en este teléfono.'),
+              _section('Avisos recientes'),
+              FutureBuilder<List<Map<String, dynamic>>>(
+                future: _notifications,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  if (snapshot.hasError) {
+                    return MusklCard(
+                      child: Text(
+                          'No se pudieron cargar los avisos: ${snapshot.error}'),
+                    );
+                  }
+                  final notices = snapshot.data ?? const [];
+                  if (notices.isEmpty) {
+                    return const MusklCard(
+                      child: Text('No tienes notificaciones nuevas.'),
+                    );
+                  }
+                  return Column(
+                    children: [
+                      for (final notice in notices)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: MusklCard(
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(
+                                Icons.notifications_active_outlined,
+                                color: AppColors.accent,
+                              ),
+                              title: Text(notice['title'].toString()),
+                              subtitle: Text(notice['body'].toString()),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () => _markNotificationRead(notice),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+              _section('Preferencias de push'),
               const SizedBox(height: 12),
               _switch(
                 'Notificaciones en este teléfono',
@@ -7686,42 +7780,52 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                       child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                        Text(
-                            '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}'
-                                .trim(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w900, fontSize: 17)),
-                        Text('ADMINISTRADOR',
-                            style: TextStyle(
-                                color: AppColors.accent,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1)),
+                        Row(children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                    '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}'
+                                        .trim(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 17)),
+                                Text('ADMINISTRADOR',
+                                    style: TextStyle(
+                                        color: AppColors.accent,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 1)),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Editar perfil',
+                            onPressed:
+                                _savingPhoto ? null : _openProfileEditMenu,
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
+                        ]),
+                        _profileInfoField(
+                          'Correo electrónico',
+                          (_ownProfile['email'] ?? '').toString(),
+                          icon: Icons.mail_outline,
+                        ),
+                        _profileInfoField(
+                          'Teléfono',
+                          (_ownProfile['phone'] ?? '').toString(),
+                          icon: Icons.phone_outlined,
+                        ),
+                        _profileInfoField(
+                          'Biografía',
+                          (_ownProfile['bio'] ?? '').toString(),
+                          icon: Icons.notes_outlined,
+                        ),
                       ])),
-                  IconButton(
-                    tooltip: 'Editar perfil',
-                    onPressed: _savingPhoto ? null : _openProfileEditMenu,
-                    icon: const Icon(Icons.edit_outlined),
-                  ),
                 ]),
-                const Divider(height: 24),
-                _profileInfoField(
-                  'Correo electrónico',
-                  (_ownProfile['email'] ?? '').toString(),
-                  icon: Icons.mail_outline,
-                ),
-                _profileInfoField(
-                  'Teléfono',
-                  (_ownProfile['phone'] ?? '').toString(),
-                  icon: Icons.phone_outlined,
-                ),
-                _profileInfoField(
-                  'Biografía',
-                  (_ownProfile['bio'] ?? '').toString(),
-                  icon: Icons.notes_outlined,
-                ),
               ],
             )),
         _setting('Notificaciones', 'Elige qué avisos recibir',

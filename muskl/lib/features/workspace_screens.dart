@@ -2352,7 +2352,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                     const SizedBox(width: 10),
                     const Expanded(
                         child: Text(
-                            'Para registrar una visita necesitas una membresía vigente. Revisa el estado en Perfil o pide al gimnasio que actualice tu membresía.')),
+                            'Para registrar una visita, consulta con recepción del gimnasio.')),
                     IconButton(
                         tooltip: 'Ver perfil',
                         onPressed: () => context.push('/home/profile'),
@@ -2747,14 +2747,6 @@ class _ClientProfileWorkspaceScreenState
             return Text('No se pudo cargar tu perfil: ${snapshot.error}',
                 style: const TextStyle(color: AppColors.red));
           final data = snapshot.data ?? {};
-          final membershipEnds = data['membership_ends_on']?.toString();
-          final todayDate = DateTime.tryParse(data['today']?.toString() ?? '');
-          final endDate = DateTime.tryParse(membershipEnds ?? '');
-          final membershipCurrent =
-              (data['plan_name'] ?? '').toString().isNotEmpty &&
-                  endDate != null &&
-                  todayDate != null &&
-                  !endDate.isBefore(todayDate);
           final photo = data['profile_photo_data'];
           final photoBytes =
               photo is String && photo.isNotEmpty ? base64Decode(photo) : null;
@@ -3085,15 +3077,10 @@ class _ClientProfileWorkspaceScreenState
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                         Text(
-                            'PLAN ${(data['plan_name'] ?? 'PENDIENTE').toString().toUpperCase()}',
+                            'PLAN ${(data['plan_name'] ?? 'SIN ASIGNAR').toString().toUpperCase()}',
                             style:
                                 const TextStyle(fontWeight: FontWeight.bold)),
-                        Text(membershipCurrent ? 'VIGENTE' : 'PENDIENTE',
-                            style: const TextStyle(
-                                color: AppColors.red,
-                                fontWeight: FontWeight.w800)),
                       ])),
-                  const Text('ACTIVO', style: TextStyle(color: AppColors.red)),
                 ])),
                 _setting('Cambiar contraseña', 'Actualiza tus credenciales',
                     Icons.lock_outline,

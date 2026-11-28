@@ -1302,6 +1302,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
     with WidgetsBindingObserver {
   late int _day;
   late Future<Map<String, dynamic>> _routine;
+  String? _historyPhaseId;
   final Stopwatch _workoutClock = Stopwatch();
   final FlutterTts _speech = FlutterTts();
   final Set<String> _completedExerciseIds = {};
@@ -1396,7 +1397,90 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
     } catch (_) {}
   }
 
-  void _load() => _routine = authController.clientRoutine(day: _day);
+  void _load() {
+    final phaseId = _historyPhaseId;
+    _routine = phaseId == null
+        ? authController.clientRoutine(day: _day)
+        : authController.clientHistoricalRoutine(phaseId: phaseId, day: _day);
+  }
+
+  Future<void> _openRoutineHistory() async {
+    try {
+      final history = await authController.clientRoutineHistory();
+      if (!mounted) return;
+      if (history.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Todavía no hay rutinas o fases anteriores en tu historial.'),
+        ));
+        return;
+      }
+      final selected = await showModalBottomSheet<Map<String, dynamic>>(
+        context: context,
+        isScrollControlled: true,
+        builder: (sheetContext) => SafeArea(
+          child: DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: .65,
+            minChildSize: .35,
+            maxChildSize: .9,
+            builder: (context, controller) => ListView(
+              controller: controller,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+              children: [
+                const ListTile(
+                  leading: Icon(Icons.history, color: AppColors.red),
+                  title: Text('Rutinas y fases anteriores'),
+                  subtitle: Text(
+                      'Consulta los ejercicios sin modificar tu progreso actual.'),
+                ),
+                for (final item in history)
+                  ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: AppColors.surfaceHigh,
+                      child: Icon(
+                        item['earlier_phase_of_current_routine'] == true
+                            ? Icons.layers_outlined
+                            : Icons.fitness_center,
+                        color: AppColors.accent,
+                      ),
+                    ),
+                    title: Text(item['routine_name'].toString()),
+                    subtitle: Text(
+                      '${item['phase_name']} · Fase ${item['phase_number']} · '
+                      '${item['completed_workouts'] ?? 0} sesiones registradas'
+                      '${item['last_workout_date'] == null ? '' : ' · Última: ${item['last_workout_date']}'}',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.pop(sheetContext, item),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (selected == null || !mounted) return;
+      setState(() {
+        _historyPhaseId = selected['phase_id'].toString();
+        _completedExerciseIds.clear();
+        _load();
+      });
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('No se pudo cargar el historial: $error'),
+        ));
+      }
+    }
+  }
+
+  void _showCurrentRoutine() {
+    setState(() {
+      _historyPhaseId = null;
+      _completedExerciseIds.clear();
+      _load();
+    });
+  }
 
   Future<void> _complete() async {
     if (!mounted) return;
@@ -1496,7 +1580,12 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(assigned ? 'PLAN DE ENTRENAMIENTO' : 'MI ENTRENAMIENTO',
+              Text(
+                  data?['historical'] == true
+                      ? 'HISTORIAL · SOLO CONSULTA'
+                      : assigned
+                          ? 'PLAN DE ENTRENAMIENTO'
+                          : 'MI ENTRENAMIENTO',
                   style: const TextStyle(
                       color: AppColors.red,
                       fontSize: 9,
@@ -1550,6 +1639,35 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
               ),
             ),
         ]),
+        Padding(
+          padding: const EdgeInsets.only(top: 5, bottom: 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _historyPhaseId == null
+                      ? '¿Quieres consultar una rutina anterior?'
+                      : 'Estás viendo una rutina o fase anterior.',
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _openRoutineHistory,
+                icon: const Icon(Icons.history, size: 17),
+                label: Text(_historyPhaseId == null ? 'Historial' : 'Cambiar'),
+              ),
+            ],
+          ),
+        ),
+        if (_historyPhaseId != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: OutlinedButton.icon(
+              onPressed: _showCurrentRoutine,
+              icon: const Icon(Icons.arrow_back),
+              label: const Text('Volver a mi rutina actual'),
+            ),
+          ),
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 350),
           transitionBuilder: (child, animation) => FadeTransition(
@@ -1604,6 +1722,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
             final exercises = (data['exercises'] as List? ?? [])
                 .map((e) => Map<String, dynamic>.from(e as Map))
                 .toList();
+            final historical = data['historical'] == true;
             final completedIds = <String>{
               ...((data['completed_exercise_ids'] as List? ?? [])
                   .map((id) => id.toString())),
@@ -1618,6 +1737,21 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
             return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (historical)
+                    MusklCard(
+                      selected: true,
+                      child: Row(
+                        children: [
+                          Icon(Icons.history, color: AppColors.accent),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Consulta de solo lectura. Esta fase anterior no cambiará tu rutina ni registrará ejercicios.',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   if (data['scheduled_for_date'] != null &&
                       data['today'] != data['scheduled_for_date'])
                     Padding(
@@ -1630,7 +1764,7 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                               color: AppColors.textMuted, fontSize: 12)),
                     ),
                   _section('Ejercicios del día · ${exercises.length}'),
-                  if (exercises.isNotEmpty) ...[
+                  if (exercises.isNotEmpty && !historical) ...[
                     Text('Finalizados: $completedCount de ${exercises.length}'),
                     const SizedBox(height: 8),
                     LinearProgressIndicator(
@@ -1661,68 +1795,77 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                             child: MusklCard(
                               selected: isCompleted,
                               padding: const EdgeInsets.all(9),
-                              onTap: () async {
-                                if (!canCompleteToday &&
-                                    data['completed_today'] != true) {
-                                  final routineDay = int.tryParse((exercise[
-                                                  'day_number'] ??
-                                              data['scheduled_day_number'] ??
-                                              _day)
-                                          .toString()) ??
-                                      _day;
-                                  final dayLabel =
-                                      routineDay >= 1 && routineDay <= 7
-                                          ? _weekDays[routineDay - 1]
-                                          : 'el día programado';
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                          'No puedes acceder todavía. Tu rutina toca el $dayLabel.'),
-                                    ),
-                                  );
-                                  return;
-                                }
-                                final finished = await context.push<bool>(Uri(
-                                    path: '/home/exercise',
-                                    queryParameters: {
-                                      'id': exerciseId,
-                                      'name': exercise['name'].toString(),
-                                      'media_url':
-                                          exercise['media_url']?.toString() ??
-                                              '',
-                                      'media_mime':
-                                          exercise['media_mime']?.toString() ??
-                                              '',
-                                      'muscle_group': exercise['muscle_group']
-                                              ?.toString() ??
-                                          'Rutina',
-                                      'instructions': exercise['instructions']
-                                              ?.toString() ??
-                                          '',
-                                      'sets': exercise['sets'].toString(),
-                                      'reps': exercise['reps'].toString(),
-                                      'rest_seconds':
-                                          exercise['rest_seconds'].toString(),
-                                      'can_complete':
-                                          canCompleteExercise.toString(),
-                                      'already_completed':
-                                          isCompleted.toString(),
-                                      'sets_completed':
-                                          ((data['exercise_sets_completed']
-                                                          as Map? ??
-                                                      {})[exerciseId] ??
-                                                  0)
-                                              .toString(),
-                                    }).toString());
-                                if (mounted) {
-                                  setState(() {
-                                    if (finished == true) {
-                                      _completedExerciseIds.add(exerciseId);
-                                    }
-                                    _load();
-                                  });
-                                }
-                              },
+                              onTap: historical
+                                  ? null
+                                  : () async {
+                                      if (!canCompleteToday &&
+                                          data['completed_today'] != true) {
+                                        final routineDay = int.tryParse((exercise[
+                                                        'day_number'] ??
+                                                    data[
+                                                        'scheduled_day_number'] ??
+                                                    _day)
+                                                .toString()) ??
+                                            _day;
+                                        final dayLabel =
+                                            routineDay >= 1 && routineDay <= 7
+                                                ? _weekDays[routineDay - 1]
+                                                : 'el día programado';
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                                'No puedes acceder todavía. Tu rutina toca el $dayLabel.'),
+                                          ),
+                                        );
+                                        return;
+                                      }
+                                      final finished = await context.push<bool>(
+                                          Uri(
+                                              path: '/home/exercise',
+                                              queryParameters: {
+                                            'id': exerciseId,
+                                            'name': exercise['name'].toString(),
+                                            'media_url': exercise['media_url']
+                                                    ?.toString() ??
+                                                '',
+                                            'media_mime': exercise['media_mime']
+                                                    ?.toString() ??
+                                                '',
+                                            'muscle_group':
+                                                exercise['muscle_group']
+                                                        ?.toString() ??
+                                                    'Rutina',
+                                            'instructions':
+                                                exercise['instructions']
+                                                        ?.toString() ??
+                                                    '',
+                                            'sets': exercise['sets'].toString(),
+                                            'reps': exercise['reps'].toString(),
+                                            'rest_seconds':
+                                                exercise['rest_seconds']
+                                                    .toString(),
+                                            'can_complete':
+                                                canCompleteExercise.toString(),
+                                            'already_completed':
+                                                isCompleted.toString(),
+                                            'sets_completed':
+                                                ((data['exercise_sets_completed']
+                                                                as Map? ??
+                                                            {})[exerciseId] ??
+                                                        0)
+                                                    .toString(),
+                                          }).toString());
+                                      if (mounted) {
+                                        setState(() {
+                                          if (finished == true) {
+                                            _completedExerciseIds
+                                                .add(exerciseId);
+                                          }
+                                          _load();
+                                        });
+                                      }
+                                    },
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -1775,18 +1918,19 @@ class _ClientRoutineScreenState extends State<ClientRoutineScreen>
                     }),
                   if (exercises.isEmpty)
                     const Text('No hay ejercicios programados para este día.'),
-                  MusklButton(
-                      label: data['completed_today'] == true
-                          ? 'Rutina completada'
-                          : 'Finalizar rutina ($completedCount/${exercises.length})',
-                      icon: Icons.check,
-                      loading: _saving,
-                      onPressed: exercises.isEmpty ||
-                              data['completed_today'] == true ||
-                              (data['scheduled_for_date'] == null &&
-                                  completedCount == 0)
-                          ? null
-                          : _complete),
+                  if (!historical)
+                    MusklButton(
+                        label: data['completed_today'] == true
+                            ? 'Rutina completada'
+                            : 'Finalizar rutina ($completedCount/${exercises.length})',
+                        icon: Icons.check,
+                        loading: _saving,
+                        onPressed: exercises.isEmpty ||
+                                data['completed_today'] == true ||
+                                (data['scheduled_for_date'] == null &&
+                                    completedCount == 0)
+                            ? null
+                            : _complete),
                 ]);
           },
         ),

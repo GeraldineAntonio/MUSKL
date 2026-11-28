@@ -4233,6 +4233,122 @@ def client_routine(day: int = Query(ge=1, le=7), client: dict = Depends(active_c
             'exercises': [{**exercise, 'id': str(exercise['id'])} for exercise in exercises]}
 
 
+@app.get('/api/v1/client/routine/history')
+def client_routine_history(client: dict = Depends(active_client)) -> list[dict]:
+    """List published phases from previous assignments and earlier active phases."""
+    with pool.connection() as conn:
+        rows = conn.execute("""WITH assignment_epochs AS (
+                SELECT cra.routine_id, rp.phase_number AS current_phase_number,
+                    cra.ended_at, false AS is_current
+                FROM client_routine_assignments cra
+                JOIN routine_phases rp ON rp.id = cra.current_phase_id
+                WHERE cra.client_id = %s AND cra.ended_at IS NOT NULL
+                UNION ALL
+                SELECT cra.routine_id, rp.phase_number, NULL::timestamptz, true
+                FROM client_routine_assignments cra
+                JOIN routine_phases rp ON rp.id = cra.current_phase_id
+                WHERE cra.client_id = %s AND cra.ended_at IS NULL
+            )
+            SELECT r.id AS routine_id, p.id AS phase_id, r.name AS routine_name,
+                r.goal, r.days_per_week, p.phase_number, p.name AS phase_name,
+                count(DISTINCT wc.id) AS completed_workouts,
+                max(wc.workout_date) AS last_workout_date,
+                max(e.ended_at) AS assignment_ended_at,
+                bool_or(e.is_current) AS earlier_phase_of_current_routine
+            FROM assignment_epochs e
+            JOIN routines r ON r.id = e.routine_id
+            JOIN routine_phases p ON p.routine_id = e.routine_id
+                AND p.status = 'published'
+                AND (p.phase_number < e.current_phase_number
+                     OR (NOT e.is_current AND p.phase_number = e.current_phase_number))
+            LEFT JOIN workout_completions wc
+                ON wc.client_id = %s AND wc.phase_id = p.id
+            GROUP BY r.id, p.id, r.name, r.goal, r.days_per_week,
+                p.phase_number, p.name
+            ORDER BY COALESCE(max(wc.workout_date), max(e.ended_at)::date,
+                DATE '1900-01-01') DESC, r.name, p.phase_number DESC""",
+            (client['id'], client['id'], client['id'])).fetchall()
+    return [{**row,
+             'routine_id': str(row['routine_id']),
+             'phase_id': str(row['phase_id']),
+             'last_workout_date': row['last_workout_date'].isoformat()
+                if row['last_workout_date'] else None,
+             'assignment_ended_at': row['assignment_ended_at'].isoformat()
+                if row['assignment_ended_at'] else None}
+            for row in rows]
+
+
+@app.get('/api/v1/client/routine/history/{phase_id}')
+def client_historical_routine(phase_id: uuid.UUID,
+                              day: int = Query(ge=1, le=7),
+                              client: dict = Depends(active_client)) -> dict:
+    """Return a past published phase as read-only workout information."""
+    with pool.connection() as conn:
+        phase = conn.execute("""SELECT r.id AS routine_id, r.trainer_id,
+                r.name AS routine_name, r.goal, r.days_per_week,
+                p.id AS phase_id, p.phase_number, p.name AS phase_name
+            FROM routine_phases p JOIN routines r ON r.id = p.routine_id
+            WHERE p.id = %s AND p.status = 'published'
+              AND (
+                EXISTS (
+                    SELECT 1 FROM client_routine_assignments previous
+                    JOIN routine_phases reached ON reached.id = previous.current_phase_id
+                    WHERE previous.client_id = %s AND previous.routine_id = r.id
+                      AND previous.ended_at IS NOT NULL
+                      AND p.phase_number <= reached.phase_number
+                )
+                OR EXISTS (
+                    SELECT 1 FROM client_routine_assignments current
+                    JOIN routine_phases reached ON reached.id = current.current_phase_id
+                    WHERE current.client_id = %s AND current.routine_id = r.id
+                      AND current.ended_at IS NULL
+                      AND p.phase_number < reached.phase_number
+                )
+              )""", (phase_id, client['id'], client['id'])).fetchone()
+        if phase is None:
+            raise _problem(404, 'HISTORICAL_PHASE_NOT_FOUND',
+                           'No encontramos esta fase anterior en tu historial.')
+        exercises = conn.execute("""SELECT re.id, re.day_number, re.position,
+                re.name, re.sets, re.reps, re.rest_seconds,
+                COALESCE(re.instructions, ec.instructions) AS instructions,
+                CASE WHEN tm.media_key IS NOT NULL THEN NULL
+                     ELSE COALESCE(ec.media_url, re.media_url) END AS media_url,
+                COALESCE(tm.media_mime, ec.media_mime) AS media_mime,
+                COALESCE(tm.media_key, ec.media_key, re.media_key) AS media_key,
+                ec.muscle_group
+            FROM routine_exercises re
+            LEFT JOIN exercise_catalog ec ON ec.id = re.exercise_catalog_id
+            LEFT JOIN trainer_exercise_media tm
+              ON tm.exercise_catalog_id = ec.id AND tm.trainer_id = %s
+            WHERE re.phase_id = %s AND re.day_number = %s AND re.active
+            ORDER BY re.position""",
+            (phase['trainer_id'], phase_id, day)).fetchall()
+    for exercise in exercises:
+        if exercise.get('media_key'):
+            try:
+                exercise['media_url'] = presigned_exercise_media_url(
+                    exercise['media_key'])
+            except (StorageNotConfigured, StorageReadError):
+                exercise['media_url'] = None
+        exercise.pop('media_key', None)
+    return {
+        'assigned': True,
+        'historical': True,
+        'routine_id': str(phase['routine_id']),
+        'routine_name': phase['routine_name'],
+        'goal': phase['goal'],
+        'days_per_week': phase['days_per_week'],
+        'phase_id': str(phase['phase_id']),
+        'phase_number': phase['phase_number'],
+        'phase_name': phase['phase_name'],
+        'scheduled_day_number': day,
+        'can_complete_today': False,
+        'completed_today': False,
+        'exercises': [{**exercise, 'id': str(exercise['id'])}
+                      for exercise in exercises],
+    }
+
+
 @app.post('/api/v1/client/routine/exercises/{exercise_id}/complete')
 def complete_client_exercise(exercise_id: uuid.UUID, payload: WorkoutSetProgressRequest,
                              client: dict = Depends(active_client)) -> dict:

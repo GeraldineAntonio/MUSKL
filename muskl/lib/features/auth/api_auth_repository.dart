@@ -1428,6 +1428,24 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<List<Map<String, dynamic>>> getClientRoutineHistory() async {
+    final rows = await _request('GET', '/api/v1/client/routine/history',
+        authenticated: true) as List;
+    return rows.map((row) => Map<String, dynamic>.from(row as Map)).toList();
+  }
+
+  @override
+  Future<Map<String, dynamic>> getClientHistoricalRoutine(
+      {required String phaseId, required int day}) async {
+    final path = Uri(
+      path: '/api/v1/client/routine/history/${Uri.encodeComponent(phaseId)}',
+      queryParameters: {'day': '$day'},
+    ).toString();
+    return Map<String, dynamic>.from(
+        await _request('GET', path, authenticated: true) as Map);
+  }
+
+  @override
   Future<Map<String, dynamic>> completeClientExercise(
       {required String exerciseId, required int setsCompleted}) async {
     final result = await _request(

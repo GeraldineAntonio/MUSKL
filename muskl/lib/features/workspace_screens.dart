@@ -7878,7 +7878,6 @@ class AdminRequestsScreen extends StatefulWidget {
 class _AdminRequestsScreenState extends State<AdminRequestsScreen> {
   late Future<List<Map<String, dynamic>>> _requests;
   late Future<List<Map<String, dynamic>>> _deletionRequests;
-  late Future<List<Map<String, dynamic>>> _notifications;
   bool _showDeletions = false;
 
   @override
@@ -7890,20 +7889,6 @@ class _AdminRequestsScreenState extends State<AdminRequestsScreen> {
   void _reload() {
     _requests = authController.staffRequests();
     _deletionRequests = authController.accountDeletionRequests();
-    _notifications = authController.adminNotifications();
-  }
-
-  Future<void> _markAdminNotificationRead(String notificationId) async {
-    try {
-      await authController.markAdminNotificationRead(
-          notificationId: notificationId);
-      if (mounted) setState(_reload);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No se pudo actualizar el aviso: $e')));
-      }
-    }
   }
 
   Future<void> _review(Map<String, dynamic> request, bool approved) async {
@@ -7975,41 +7960,6 @@ class _AdminRequestsScreenState extends State<AdminRequestsScreen> {
       items: _adminNav,
       selected: 0,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        FutureBuilder<List<Map<String, dynamic>>>(
-            future: _notifications,
-            builder: (context, snapshot) {
-              final notifications = snapshot.data ?? [];
-              if (notifications.isEmpty) return const SizedBox.shrink();
-              return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _section('Avisos nuevos'),
-                    for (final notification in notifications)
-                      Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: MusklCard(
-                              child: ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  leading: Icon(Icons.notifications_active,
-                                      color: AppColors.accent),
-                                  title: Text(notification['title'].toString()),
-                                  subtitle:
-                                      Text(notification['body'].toString()),
-                                  isThreeLine: notification['kind'] ==
-                                      'account_deletion_requested',
-                                  trailing: IconButton(
-                                      tooltip: 'Marcar como leído',
-                                      onPressed: () =>
-                                          _markAdminNotificationRead(
-                                              notification['id'].toString()),
-                                      icon: const Icon(Icons.done)),
-                                  onTap: notification['kind'] ==
-                                          'account_deletion_requested'
-                                      ? () =>
-                                          setState(() => _showDeletions = true)
-                                      : null))),
-                  ]);
-            }),
         Wrap(spacing: 8, children: [
           ChoiceChip(
               label: const Text('PERSONAL'),

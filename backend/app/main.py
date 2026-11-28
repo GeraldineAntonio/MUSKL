@@ -4031,7 +4031,9 @@ def client_notifications(client: dict = Depends(active_client)) -> list[dict]:
     with pool.connection() as conn:
         rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
             FROM notifications WHERE user_id = %s
-              AND read_at IS NULL ORDER BY created_at DESC LIMIT 10""",
+              AND read_at IS NULL
+              AND kind NOT IN ('staff_request', 'account_deletion_requested', 'trainer_request')
+            ORDER BY created_at DESC LIMIT 10""",
             (client['id'],)).fetchall()
     return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()} for row in rows]
 
@@ -4049,6 +4051,7 @@ def trainer_notifications(trainer: dict = Depends(active_trainer)) -> list[dict]
     with pool.connection() as conn:
         rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
             FROM notifications WHERE user_id = %s AND read_at IS NULL
+              AND kind <> 'trainer_request'
             ORDER BY created_at DESC LIMIT 20""",
             (trainer['id'],)).fetchall()
     return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()} for row in rows]
@@ -5268,7 +5271,9 @@ def admin_notifications(admin: dict = Depends(active_admin)) -> list[dict]:
     with pool.connection() as conn:
         rows = conn.execute("""SELECT id, kind, title, body, payload, created_at
             FROM notifications WHERE user_id = %s
-              AND read_at IS NULL ORDER BY created_at DESC LIMIT 20""",
+              AND read_at IS NULL
+              AND kind NOT IN ('staff_request', 'account_deletion_requested', 'trainer_request')
+            ORDER BY created_at DESC LIMIT 20""",
             (admin['id'],)).fetchall()
     return [{**row, 'id': str(row['id']), 'created_at': row['created_at'].isoformat()}
             for row in rows]

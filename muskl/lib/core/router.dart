@@ -204,6 +204,9 @@ GoRouter buildRouter(AuthController auth) {
       GoRoute(
           path: '/trainer', builder: (_, __) => const TrainerDashboardScreen()),
       GoRoute(
+          path: '/trainer/requests',
+          builder: (_, __) => const TrainerRequestsScreen()),
+      GoRoute(
           path: '/trainer/client',
           builder: (_, state) => TrainerClientDetailScreen(
               name: state.uri.queryParameters['name'] ?? 'Cliente',

@@ -114,10 +114,16 @@ class PushNotificationService {
   }
 
   Future<void> _requestPermissionAndRegisterToken() async {
-    if (!isConfigured || !await _initialize()) {
+    if (!isConfigured) {
       throw const AuthException(
         AuthErrorType.server,
         'Faltan los datos de Firebase para activar notificaciones push.',
+      );
+    }
+    if (!await _initialize()) {
+      throw const AuthException(
+        AuthErrorType.server,
+        'Firebase no pudo inicializar las notificaciones. Instala una APK compilada con la configuración Firebase de MUSKL e inténtalo de nuevo.',
       );
     }
     final permission = await FirebaseMessaging.instance.requestPermission(

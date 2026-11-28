@@ -50,6 +50,19 @@ jobs:
           test -n "$KEYSTORE" || { echo 'Android signing secrets are required'; exit 1; }
           printf '%s' "$KEYSTORE" | base64 --decode > android/app/muskl-release.jks
           printf 'storeFile=muskl-release.jks\nstorePassword=%s\nkeyPassword=%s\nkeyAlias=%s\n' "$STORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > android/key.properties
+      - name: Validate Firebase push configuration
+        env:
+          FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+          FIREBASE_MESSAGING_SENDER_ID: ${{ vars.FIREBASE_MESSAGING_SENDER_ID }}
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+        run: |
+          for variable in FIREBASE_API_KEY FIREBASE_APP_ID FIREBASE_MESSAGING_SENDER_ID FIREBASE_PROJECT_ID; do
+            if [ -z "${!variable}" ]; then
+              echo "Required GitHub Actions variable is missing: $variable"
+              exit 1
+            fi
+          done
       - name: Build installable APK
         env:
           FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}

@@ -782,7 +782,7 @@ class AccessibilitySettingsScreen extends StatelessWidget {
                   const SizedBox(height: 10),
                   Row(children: [
                     for (final (index, option) in const [
-                      (0.85, 'Pequeña'),
+                      (0.8, 'Pequeña'),
                       (1.0, 'Normal'),
                       (1.1, 'Grande'),
                     ].indexed) ...[
@@ -6619,9 +6619,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     ? (day['total'] as num).toInt()
                     : m);
             final pending = (stats['pending_requests'] as num? ?? 0).toInt();
-            final clientCount = (stats['clients'] as num? ?? 0).toInt();
-            final trainerCount = (stats['trainers'] as num? ?? 0).toInt();
-            final communityTotal = clientCount + trainerCount;
             return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -6692,60 +6689,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                                 const TextStyle(fontSize: 10)),
                                       ]),
                               ]))),
-                  _section('Comunidad del gimnasio'),
-                  MusklCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Usuarios activos por perfil'),
-                        const SizedBox(height: 12),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: SizedBox(
-                            height: 14,
-                            child: Row(children: [
-                              if (clientCount > 0)
-                                Expanded(
-                                  flex: clientCount,
-                                  child: const ColoredBox(color: AppColors.red),
-                                ),
-                              if (trainerCount > 0)
-                                Expanded(
-                                  flex: trainerCount,
-                                  child: ColoredBox(color: AppColors.accent),
-                                ),
-                              if (communityTotal == 0)
-                                Expanded(
-                                  child:
-                                      ColoredBox(color: AppColors.surfaceHigh),
-                                ),
-                            ]),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(children: [
-                          Expanded(
-                            child: Row(children: [
-                              const Icon(Icons.circle,
-                                  color: AppColors.red, size: 10),
-                              const SizedBox(width: 7),
-                              Expanded(child: Text('Socios · $clientCount')),
-                            ]),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Row(children: [
-                              Icon(Icons.circle,
-                                  color: AppColors.accent, size: 10),
-                              const SizedBox(width: 7),
-                              Expanded(
-                                  child: Text('Entrenadores · $trainerCount')),
-                            ]),
-                          ),
-                        ]),
-                      ],
-                    ),
-                  ),
                 ]);
           },
         ),

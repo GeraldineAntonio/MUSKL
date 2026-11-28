@@ -62,8 +62,8 @@ class _MusklAppState extends State<MusklApp> {
       appPreferencesStorage.read(key: 'app_theme_mode'),
     ]);
     final scale = double.tryParse(values[0] ?? '');
-    if (scale != null && scale >= 0.85 && scale <= 1.1) {
-      appTextScaleNotifier.value = scale <= 0.9 ? 0.85 : scale;
+    if (scale != null && scale >= 0.8 && scale <= 1.1) {
+      appTextScaleNotifier.value = scale <= 0.9 ? 0.8 : scale;
     }
     if (values[1] == 'light') appThemeModeNotifier.value = ThemeMode.light;
   }
@@ -95,7 +95,7 @@ class _MusklAppState extends State<MusklApp> {
                 final media = MediaQuery.of(context);
                 final systemScale = media.textScaler.scale(1);
                 final effectiveScale =
-                    (systemScale * textScale).clamp(0.85, 1.5).toDouble();
+                    (systemScale * textScale).clamp(0.75, 1.5).toDouble();
                 return MediaQuery(
                   data: media.copyWith(
                     textScaler: TextScaler.linear(effectiveScale),

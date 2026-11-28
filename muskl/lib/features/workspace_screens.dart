@@ -3202,15 +3202,6 @@ class _ClientProfileWorkspaceScreenState
                           title: const Text('SOLICITUD DE BAJA PENDIENTE'),
                           subtitle: Text(
                               'Enviada ${data['deletion_requested_at'] ?? ''}. El gimnasio aún debe revisarla.'))),
-                if (data['deletion_request_status'] == 'rejected')
-                  const MusklCard(
-                      child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading:
-                              Icon(Icons.info_outline, color: AppColors.red),
-                          title: Text('SOLICITUD ANTERIOR RECHAZADA'),
-                          subtitle:
-                              Text('Puedes enviar una nueva solicitud.'))),
                 if (data['deletion_request_status'] != 'pending')
                   MusklButton(
                       label: 'Solicitar eliminación de mi cuenta',
@@ -7758,76 +7749,47 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       child: Column(children: [
         if (_savingPhoto) const LinearProgressIndicator(),
         MusklCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  ProfilePhotoAvatar(
-                      image: (_ownProfile['profile_photo_url'] == null ||
-                              _ownProfile['profile_photo_url']
-                                  .toString()
-                                  .isEmpty)
-                          ? null
-                          : NetworkImage(
-                              _ownProfile['profile_photo_url'].toString()),
-                      name:
-                          '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}',
-                      allowEdit: false,
-                      onEdit: () {}),
-                  const SizedBox(width: 14),
-                  Expanded(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Row(children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                    '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}'
-                                        .trim(),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 17)),
-                                Text('ADMINISTRADOR',
-                                    style: TextStyle(
-                                        color: AppColors.accent,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w800,
-                                        letterSpacing: 1)),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Editar perfil',
-                            onPressed:
-                                _savingPhoto ? null : _openProfileEditMenu,
-                            icon: const Icon(Icons.edit_outlined),
-                          ),
-                        ]),
-                        _profileInfoField(
-                          'Correo electrónico',
-                          (_ownProfile['email'] ?? '').toString(),
-                          icon: Icons.mail_outline,
-                        ),
-                        _profileInfoField(
-                          'Teléfono',
-                          (_ownProfile['phone'] ?? '').toString(),
-                          icon: Icons.phone_outlined,
-                        ),
-                        _profileInfoField(
-                          'Biografía',
-                          (_ownProfile['bio'] ?? '').toString(),
-                          icon: Icons.notes_outlined,
-                        ),
-                      ])),
-                ]),
-              ],
-            )),
+            child: Row(children: [
+          ProfilePhotoAvatar(
+              image: (_ownProfile['profile_photo_url'] == null ||
+                      _ownProfile['profile_photo_url'].toString().isEmpty)
+                  ? null
+                  : NetworkImage(_ownProfile['profile_photo_url'].toString()),
+              name:
+                  '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}',
+              allowEdit: false,
+              onEdit: () {}),
+          const SizedBox(width: 14),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(
+                    '${_ownProfile['first_name'] ?? ''} ${_ownProfile['last_name'] ?? ''}'
+                        .trim(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w900, fontSize: 17)),
+                Text((_ownProfile['email'] ?? '').toString(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                Text(
+                    (_ownProfile['phone'] ?? '').toString().isEmpty
+                        ? 'Sin teléfono'
+                        : _ownProfile['phone'].toString(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                _profileBioInline((_ownProfile['bio'] ?? '').toString()),
+              ])),
+          IconButton(
+            tooltip: 'Editar perfil',
+            onPressed: _savingPhoto ? null : _openProfileEditMenu,
+            icon: const Icon(Icons.edit_outlined),
+          ),
+        ])),
         _setting('Notificaciones', 'Elige qué avisos recibir',
             Icons.notifications_active_outlined,
             onTap: () =>
